@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-10 (Issue #7 completed — Secrets management and log redaction implemented)
+> **Last updated:** 2026-02-10 (Issue #12 fully complete — RunCommandTool with full Job Object sandboxing)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -173,13 +173,38 @@ When user denies a tool call:
 
 ## Process Sandboxing
 
+### Implementation Status
+✅ **Complete** (Issue #12 — 2026-02-10)
+- ✅ `RunCommandTool` implemented with full Job Object sandboxing (Windows)
+- ✅ Memory limit enforcement (256 MB via Job Objects on Windows)
+- ✅ CPU time limit enforcement (30 seconds via Job Objects on Windows)
+- ✅ Timeout enforcement (30 seconds via `CancellationTokenSource` on all platforms)
+- ✅ Kill-on-job-close prevents orphaned processes (Windows)
+- ✅ Environment variable scrubbing via `EnvironmentScrubber` before process start
+- ✅ Command validation via `CommandPolicy` (allowlist/blocklist, metacharacter detection)
+- ✅ Working directory validation
+
+**Implementation Details:**
+- Uses CliWrap's streaming API (`ExecuteAsync` with `PipeTarget`) to access ProcessId
+- Job Object assignment via `Process.GetProcessById()` and `job.AssignProcess()`
+- Platform-aware: Job Objects active on Windows, graceful fallback on other platforms
+- Timeout enforcement works on all platforms via `CancellationTokenSource`
+
 ### Job Object Constraints (via Meziantou.Framework.Win32.Jobs)
-- **Memory limit:** 256 MB per process
-- **CPU time limit:** 30 seconds
-- **Kill on job close:** Yes (prevents orphaned processes)
+✅ **Implemented** (Windows only, graceful fallback on other platforms)
+- **Memory limit:** 256 MB per process (enforced via `ProcessMemoryLimit`)
+- **CPU time limit:** 30 seconds (enforced via `PerProcessUserTimeLimit`)
+- **Kill on job close:** Yes (prevents orphaned processes via `KillOnJobClose` flag)
+- **Die on unhandled exception:** Yes (via `DieOnUnhandledException` flag)
+
+### Timeout Enforcement
+✅ **Implemented** — Enforced via `CancellationTokenSource(TimeSpan.FromSeconds(30))`
+- Hard timeout of 30 seconds for all command executions (all platforms)
+- Cancellation propagates to CliWrap's execution pipeline
+- Returns clear error message: "Command execution timed out after 30 seconds"
 
 ### Environment Variable Scrubbing
-Before spawning any child process, remove environment variables matching:
+✅ **Implemented** — Before spawning any child process, remove environment variables matching:
 ```
 ANTHROPIC_API_KEY, ANTHROPIC_*
 *_KEY, *_SECRET, *_TOKEN, *_PASSWORD
@@ -187,12 +212,6 @@ AWS_*, AZURE_*, GCP_*, GOOGLE_*
 ```
 
 Implemented in `Krutaka.Tools/EnvironmentScrubber.cs` with case-insensitive pattern matching.
-
-### Job Object Constraints (via Meziantou.Framework.Win32.Jobs)
-⚠️ **Not yet implemented** (planned for Issue #12 — run_command tool)
-- **Memory limit:** 256 MB per process
-- **CPU time limit:** 30 seconds
-- **Kill on job close:** Yes (prevents orphaned processes)
 
 ## Prompt Injection Defense
 

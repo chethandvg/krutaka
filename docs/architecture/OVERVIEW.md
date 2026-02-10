@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-10 (Issue #10 — Read-only file tools implemented)
+> **Last updated:** 2026-02-10 (Issue #12 fully complete — RunCommandTool with Job Object sandboxing)
 
 ## System Architecture
 
@@ -91,7 +91,7 @@ Claude API integration layer.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
+**Status:** run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
@@ -104,7 +104,7 @@ Tool implementations with security policy enforcement.
 | `SearchFilesTool` | Low | Auto-approve | ✅ Implemented |
 | `WriteFileTool` | High | Required | ✅ Implemented |
 | `EditFileTool` | High | Required | ✅ Implemented |
-| `RunCommandTool` | Critical | Always required | Not Started |
+| `RunCommandTool` | Critical | Always required | ✅ Fully Implemented |
 | `MemoryStoreTool` | Medium | Auto-approve | Not Started |
 | `MemorySearchTool` | Low | Auto-approve | Not Started |
 | `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
@@ -118,6 +118,15 @@ Tool implementations with security policy enforcement.
 - **SearchFilesTool**: Grep-like text/regex search across files. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
 - **WriteFileTool**: Creates or overwrites files with security validation. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
 - **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Creates backups before editing. Returns a diff showing changes. Requires human approval.
+- **RunCommandTool**: Executes shell commands with full security controls and sandboxing:
+  - **Command validation**: Allowlist/blocklist enforcement, shell metacharacter detection
+  - **Environment scrubbing**: Removes sensitive variables (*_KEY, *_SECRET, *_TOKEN, ANTHROPIC_*, etc.)
+  - **Job Object sandboxing** (Windows only): 256 MB memory limit, 30-second CPU time limit, kill-on-job-close
+  - **Timeout enforcement**: 30-second hard limit via `CancellationTokenSource` (all platforms)
+  - **Implementation**: Uses CliWrap's `ExecuteAsync` (streaming API) with `PipeTarget.ToStringBuilder` to capture output while accessing ProcessId for Job Object assignment
+  - **Platform-aware**: Job Objects active on Windows, graceful fallback on other platforms
+  - **Requires human approval** for every invocation (no "Always allow" option)
+  - Captures stdout/stderr with clear labeling and exit codes
 
 ### Krutaka.Memory (net10.0)
 **Status:** Scaffolded (Issue #5)  

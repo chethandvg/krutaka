@@ -10,3 +10,6 @@ using System.Diagnostics.CodeAnalysis;
 
 // Allow unsealed test classes (for potential test inheritance)
 [assembly: SuppressMessage("Performance", "CA1852:Seal internal types", Justification = "Test classes may be inherited in future", Scope = "namespaceanddescendants", Target = "~N:Krutaka.Tools.Tests")]
+
+// Allow constant array arguments in tests (test data is not performance-critical)
+[assembly: SuppressMessage("Performance", "CA1861:Avoid constant arrays as arguments", Justification = "Test data arrays are simple and not performance-critical", Scope = "namespaceanddescendants", Target = "~N:Krutaka.Tools.Tests")]
