@@ -14,11 +14,14 @@ All packages are managed centrally via `Directory.Packages.props`.
 | `Microsoft.Extensions.Hosting` | 10.0.2 | Krutaka.Console | DI container, configuration, logging host |
 | `Microsoft.Extensions.DependencyInjection` | 10.0.2 | All projects | Dependency injection abstractions |
 | `Microsoft.Extensions.Configuration` | 10.0.2 | Krutaka.Console | Configuration abstractions |
+| `Microsoft.Extensions.Configuration.Abstractions` | 10.0.2 | Krutaka.AI | Configuration abstractions |
 | `Microsoft.Extensions.Configuration.UserSecrets` | 10.0.2 | Krutaka.Console | User secrets configuration provider |
+| `Microsoft.Extensions.Logging` | 10.0.2 | Test projects | Logging framework |
+| `Microsoft.Extensions.Logging.Abstractions` | 10.0.2 | Krutaka.AI | Logging abstractions |
 | `Spectre.Console` | 0.49.1 | Krutaka.Console | Rich console UI (markup, panels, prompts) |
 | `Markdig` | 0.40.0 | Krutaka.Console | Markdown parsing for console rendering |
 | `Microsoft.Data.Sqlite` | 10.0.1 | Krutaka.Memory | SQLite database with built-in FTS5 |
-| `YamlDotNet` | 16.2.1 | Krutaka.Skills | YAML frontmatter parsing for skill files |
+| `YamlDotNet` | 16.3.0 | Krutaka.Skills, WireMock.Net | YAML frontmatter parsing for skill files |
 | `CliWrap` | 3.6.7 | Krutaka.Tools | Safe async process execution |
 | `Meziantou.Framework.Win32.CredentialManager` | 1.7.17 | Krutaka.Console | DPAPI-backed Windows Credential Manager |
 | `Meziantou.Framework.Win32.Jobs` | 3.4.10 | Krutaka.Tools | Windows Job Object process sandboxing |
@@ -37,6 +40,7 @@ All packages are managed centrally via `Directory.Packages.props`.
 | `Microsoft.NET.Test.Sdk` | 17.12.0 | All test projects | Test SDK |
 | `NSubstitute` | 5.3.0 | All test projects | Mocking framework |
 | `coverlet.collector` | 6.0.2 | All test projects | Code coverage collector |
+| `WireMock.Net` | 1.25.0 | Krutaka.AI.Tests | HTTP mocking for integration tests |
 
 ## Version Changes from Initial Plan
 

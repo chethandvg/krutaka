@@ -48,7 +48,7 @@ flowchart LR
 Krutaka.sln
 ├── src/
 │   ├── Krutaka.Core/          # Interfaces, models, orchestrator (zero dependencies)
-│   ├── Krutaka.AI/            # Claude API client (Anthropic SDK v12.4.0)
+│   ├── Krutaka.AI/            # Claude API client (official Anthropic package v12.4.0)
 │   ├── Krutaka.Tools/         # Tool implementations + security policy
 │   ├── Krutaka.Memory/        # SQLite FTS5 + session persistence
 │   ├── Krutaka.Skills/        # Markdown skill loader (YAML frontmatter)

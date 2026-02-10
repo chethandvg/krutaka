@@ -2,7 +2,8 @@ namespace Krutaka.Core;
 
 /// <summary>
 /// Abstraction over Claude API client for message streaming and token counting.
-/// Implementations wrap the Anthropic SDK behind this interface.
+/// Implementations wrap the official Anthropic package (NuGet: Anthropic) behind this interface.
+/// Note: This refers to the official Anthropic package, NOT the community Anthropic.SDK.
 /// </summary>
 public interface IClaudeClient
 {

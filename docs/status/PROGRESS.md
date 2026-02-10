@@ -24,7 +24,7 @@
 | 5 | Scaffold .NET 10 solution and build infrastructure | 1 | 🟢 Complete | 2026-02-10 |
 | 6 | Implement core interfaces and model types | 1 | 🟢 Complete | 2026-02-10 |
 | 7 | Implement secrets management (Credential Manager) | 1 | ⚠️ Partially Complete | 2026-02-10 |
-| 8 | Implement Claude API client wrapper | 1 | 🔴 Not Started | — |
+| 8 | Implement Claude API client wrapper | 1 | ⚠️ Partially Complete | 2026-02-10 |
 | 9 | Implement security policy enforcement (CRITICAL) | 2 | 🔴 Not Started | — |
 | 10 | Implement read-only file tools | 2 | 🔴 Not Started | — |
 | 11 | Implement write tools with approval gate | 2 | 🔴 Not Started | — |
@@ -51,3 +51,22 @@
 - Issues must be executed in order (dependencies are sequential within phases)
 - After completing each issue, update this file: change status to 🟢 Complete and add the date
 - If an issue is in progress, mark it as 🟡 In Progress
+
+### Issue #8 Status (Partially Complete)
+
+The Claude API client wrapper has been implemented with the following completed:
+- ✅ `ClaudeClientWrapper` implementing `IClaudeClient` 
+- ✅ Uses official `Anthropic` package v12.4.0 (NuGet: `Anthropic`, NOT the community `Anthropic.SDK`)
+- ✅ Token counting via `Messages.CountTokens()` endpoint
+- ✅ HTTP resilience via official package's built-in retry mechanism (3 attempts, 120s timeout)
+- ✅ Request-id logging infrastructure (LoggerMessage patterns)
+- ✅ `ServiceExtensions.cs` with `AddClaudeAI(IServiceCollection, IConfiguration)`
+- ✅ API key from `ISecretsProvider` with fallback to configuration for testing
+- ✅ Tools parameter accepted and passed to official package
+
+Deferred to agentic loop implementation (Issue #14):
+- Detailed streaming event parsing (official package's streaming event structure still evolving)
+- Tool call event emission
+- Request-id extraction from response headers
+
+This partial implementation provides a working foundation for the agentic loop while acknowledging the official package's evolving API surface.
