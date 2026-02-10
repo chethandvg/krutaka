@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-10 (Pre-implementation)
+> **Last updated:** 2026-02-10 (Issue #10 — Read-only file tools implemented)
 
 ## System Architecture
 
@@ -91,26 +91,31 @@ Claude API integration layer.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** Scaffolded (Issue #5)  
+**Status:** Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
 Tool implementations with security policy enforcement.
 
-| Type | Risk Level | Approval |
-|---|---|---|
-| `ReadFileTool` | Low | Auto-approve |
-| `ListFilesTool` | Low | Auto-approve |
-| `SearchFilesTool` | Low | Auto-approve |
-| `WriteFileTool` | High | Required |
-| `EditFileTool` | High | Required |
-| `RunCommandTool` | Critical | Always required |
-| `MemoryStoreTool` | Medium | Auto-approve |
-| `MemorySearchTool` | Low | Auto-approve |
-| `CommandPolicy` | — | Allowlist/blocklist enforcement |
-| `SafeFileOperations` | — | Path canonicalization + jail |
-| `EnvironmentScrubber` | — | Strips secrets from child process env |
-| `ToolRegistry` | — | Collection + dispatch |
+| Type | Risk Level | Approval | Status |
+|---|---|---|---|
+| `ReadFileTool` | Low | Auto-approve | ✅ Implemented |
+| `ListFilesTool` | Low | Auto-approve | ✅ Implemented |
+| `SearchFilesTool` | Low | Auto-approve | ✅ Implemented |
+| `WriteFileTool` | High | Required | Not Started |
+| `EditFileTool` | High | Required | Not Started |
+| `RunCommandTool` | Critical | Always required | Not Started |
+| `MemoryStoreTool` | Medium | Auto-approve | Not Started |
+| `MemorySearchTool` | Low | Auto-approve | Not Started |
+| `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
+| `SafeFileOperations` | — | Path canonicalization + jail | ✅ Implemented |
+| `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
+| `ToolRegistry` | — | Collection + dispatch | Not Started |
+
+**Implemented Tools Details:**
+- **ReadFileTool**: Reads file contents with path validation and 1MB size limit. Wraps output in `<untrusted_content>` tags for prompt injection defense.
+- **ListFilesTool**: Lists files matching glob patterns recursively. Validates all paths and filters blocked files/directories.
+- **SearchFilesTool**: Grep-like text/regex search across files. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
 
 ### Krutaka.Memory (net10.0)
 **Status:** Scaffolded (Issue #5)  

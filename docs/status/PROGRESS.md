@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #6 completed)
+> **Last updated:** 2026-02-10 (Issue #10 completed)
 
 ## Phase Summary
 
@@ -26,7 +26,7 @@
 | 7 | Implement secrets management (Credential Manager) | 1 | ⚠️ Partially Complete | 2026-02-10 |
 | 8 | Implement Claude API client wrapper | 1 | ⚠️ Partially Complete | 2026-02-10 |
 | 9 | Implement security policy enforcement (CRITICAL) | 2 | 🟢 Complete | 2026-02-10 |
-| 10 | Implement read-only file tools | 2 | 🔴 Not Started | — |
+| 10 | Implement read-only file tools | 2 | 🟢 Complete | 2026-02-10 |
 | 11 | Implement write tools with approval gate | 2 | 🔴 Not Started | — |
 | 12 | Implement run_command with full sandboxing | 2 | 🔴 Not Started | — |
 | 13 | Implement ToolRegistry and DI registration | 2 | 🔴 Not Started | — |
