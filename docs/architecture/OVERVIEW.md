@@ -35,28 +35,32 @@ flowchart LR
 ## Component Map
 
 ### Krutaka.Core (net10.0)
-**Status:** Scaffolded (Issue #5)  
+**Status:** Interfaces and model types complete (Issue #6)  
 **Path:** `src/Krutaka.Core/`  
 **Dependencies:** None (zero NuGet packages)
 
 The shared contract layer. Defines all interfaces that other projects implement and all model types used across the solution.
 
-| Type | Description |
-|---|---|
-| `ITool` | Tool abstraction: Name, Description, InputSchema, ExecuteAsync |
-| `IToolRegistry` | Tool collection, definition serialization, dispatch |
-| `IClaudeClient` | Abstraction over Claude API (streaming, token counting) |
-| `IMemoryService` | Hybrid search: store, search, chunk-and-index |
-| `ISessionStore` | JSONL session persistence: append, load, reconstruct |
-| `ISecurityPolicy` | Path validation, command validation, env scrubbing, approval check |
-| `ToolBase` | Abstract base with `BuildSchema` helper for JSON Schema generation |
-| `AgentEvent` | Event hierarchy: TextDelta, ToolCallStarted/Completed/Failed, HumanApprovalRequired, FinalResponse |
-| `SessionEvent` | JSONL record: Type, Role, Content, Timestamp, ToolName, ToolUseId |
-| `MemoryResult` | Search result: Id, Content, Source, CreatedAt, Score |
-| `AgentConfiguration` | Model settings, approval prefs, paths |
-| `AgentOrchestrator` | The core agentic loop (Pattern A: manual with full control) |
-| `SystemPromptBuilder` | Layered system prompt assembly |
-| `ContextCompactor` | Token counting + conversation summarization |
+#### Core Interfaces
+
+| Interface | Description | Key Methods |
+|---|---|---|
+| `ITool` | Tool abstraction for AI agent | Name, Description, InputSchema, ExecuteAsync |
+| `IToolRegistry` | Tool collection and dispatch | Register, GetToolDefinitions, ExecuteAsync |
+| `IClaudeClient` | Claude API abstraction | SendMessageAsync (streaming), CountTokensAsync |
+| `IMemoryService` | Hybrid search and storage | HybridSearchAsync, StoreAsync, ChunkAndIndexAsync |
+| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync |
+| `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
+
+#### Model Types
+
+| Type | Kind | Description |
+|---|---|---|
+| `ToolBase` | Abstract Class | Base class with BuildSchema helper for JSON Schema generation |
+| `AgentEvent` | Abstract Record | Base for event hierarchy (TextDelta, ToolCallStarted/Completed/Failed, HumanApprovalRequired, FinalResponse) |
+| `SessionEvent` | Record | JSONL event: Type, Role, Content, Timestamp, ToolName, ToolUseId, IsMeta |
+| `MemoryResult` | Record | Search result: Id, Content, Source, CreatedAt, Score |
+| `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
 
 ### Krutaka.AI (net10.0)
 **Status:** Scaffolded (Issue #5)  

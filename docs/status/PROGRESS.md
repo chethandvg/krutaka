@@ -1,13 +1,13 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #2, #3 completed)
+> **Last updated:** 2026-02-10 (Issue #6 completed)
 
 ## Phase Summary
 
 | Phase | Name | Issues | Status |
 |---|---|---|---|
 | 0 | Foundation Documentation | #2, #3 | 🟢 Complete |
-| 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🔴 Not Started |
+| 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🟡 In Progress |
 | 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🔴 Not Started |
 | 3 | Persistence & Memory | #16, #17, #18, #19 | 🔴 Not Started |
 | 4 | UI & System Prompt | #20, #21, #23 | 🔴 Not Started |
@@ -22,7 +22,7 @@
 | 2 | Initialize documentation framework & Copilot instructions | 0 | 🟢 Complete | 2026-02-10 |
 | 3 | Create security threat model documentation | 0 | 🟢 Complete | 2026-02-10 |
 | 5 | Scaffold .NET 10 solution and build infrastructure | 1 | 🟢 Complete | 2026-02-10 |
-| 6 | Implement core interfaces and model types | 1 | 🔴 Not Started | — |
+| 6 | Implement core interfaces and model types | 1 | 🟢 Complete | 2026-02-10 |
 | 7 | Implement secrets management (Credential Manager) | 1 | 🔴 Not Started | — |
 | 8 | Implement Claude API client wrapper | 1 | 🔴 Not Started | — |
 | 9 | Implement security policy enforcement (CRITICAL) | 2 | 🔴 Not Started | — |
