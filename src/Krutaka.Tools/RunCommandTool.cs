@@ -141,13 +141,8 @@ public class RunCommandTool : ToolBase
                 var command = Cli.Wrap(executable)
                     .WithArguments(arguments)
                     .WithWorkingDirectory(workingDirectory)
+                    .WithEnvironmentVariables(scrubbedEnvironment.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)) // Convert to Dictionary for CliWrap
                     .WithValidation(CommandResultValidation.None); // We'll handle exit codes ourselves
-
-                // Set scrubbed environment variables
-                foreach (var kvp in scrubbedEnvironment)
-                {
-                    command = command.WithEnvironmentVariables(new Dictionary<string, string?> { { kvp.Key, kvp.Value } });
-                }
 
                 // Execute command and capture output
                 var result = await command.ExecuteBufferedAsync(linkedCts.Token);
