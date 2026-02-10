@@ -8,7 +8,7 @@
 |---|---|---|---|
 | 0 | Foundation Documentation | #2, #3 | 🟢 Complete |
 | 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🟡 In Progress |
-| 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🔴 Not Started |
+| 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🟡 In Progress |
 | 3 | Persistence & Memory | #16, #17, #18, #19 | 🔴 Not Started |
 | 4 | UI & System Prompt | #20, #21, #23 | 🔴 Not Started |
 | 5 | Skills & Observability | #22, #24 | 🔴 Not Started |
@@ -29,7 +29,7 @@
 | 10 | Implement read-only file tools | 2 | 🟢 Complete | 2026-02-10 |
 | 11 | Implement write tools with approval gate | 2 | 🟢 Complete | 2026-02-10 |
 | 12 | Implement run_command with full sandboxing | 2 | 🟢 Complete | 2026-02-10 |
-| 13 | Implement ToolRegistry and DI registration | 2 | 🔴 Not Started | — |
+| 13 | Implement ToolRegistry and DI registration | 2 | 🟢 Complete | 2026-02-10 |
 | 14 | Implement the agentic loop (CRITICAL) | 2 | 🔴 Not Started | — |
 | 15 | Implement human-in-the-loop approval UI | 2 | 🔴 Not Started | — |
 | 16 | Implement JSONL session persistence | 3 | 🔴 Not Started | — |
@@ -93,3 +93,31 @@ The `run_command` tool has been fully implemented with all security controls:
 Used CliWrap's `ExecuteAsync` (streaming API) with `PipeTarget.ToStringBuilder` instead of `ExecuteBufferedAsync`. This exposes the `ProcessId` property immediately after process start, allowing Job Object assignment via `Process.GetProcessById()` and `job.AssignProcess()`.
 
 The tool provides complete security controls including memory/CPU limits on Windows, with timeout enforcement on all platforms.
+
+### Issue #13 Status (Complete)
+
+The ToolRegistry and DI registration system has been fully implemented:
+- ✅ `ToolRegistry` class implementing `IToolRegistry`
+  - `Register(ITool tool)` with case-insensitive dictionary storage
+  - `GetToolDefinitions()` returns tool definitions in Claude API format (anonymous objects with name, description, input_schema)
+  - `ExecuteAsync(string name, JsonElement input, CancellationToken)` dispatches to correct tool
+  - Throws `InvalidOperationException` for unknown tool names
+- ✅ `ToolOptions` configuration class
+  - `WorkingDirectory` (defaults to current directory)
+  - `CommandTimeoutSeconds` (defaults to 30 seconds)
+  - `RequireApprovalForWrites` (defaults to true)
+- ✅ `ServiceExtensions.AddAgentTools(IServiceCollection, Action<ToolOptions>)`
+  - Registers `ToolOptions` as singleton
+  - Registers `CommandPolicy` as `ISecurityPolicy` singleton
+  - Registers `ToolRegistry` as `IToolRegistry` singleton
+  - Instantiates and registers all 6 tools: ReadFileTool, WriteFileTool, EditFileTool, ListFilesTool, SearchFilesTool, RunCommandTool
+  - Automatically adds all tools to registry
+  - Accepts optional configuration action for `ToolOptions`
+- ✅ Comprehensive unit tests (10 tests covering registration, lookup, execution, errors, case-insensitivity)
+- ✅ Integration tests (5 tests verifying tool definitions serialize to valid JSON matching Claude API format)
+
+**Implementation Notes:**
+- `GetToolDefinitions()` returns anonymous objects instead of Anthropic SDK types to avoid circular dependency (Tools project doesn't reference AI project)
+- The AI layer will convert these objects to `Anthropic.Models.Messages.Tool` types when calling Claude API
+- All 291 existing tests continue to pass, plus 15 new tests for ToolRegistry
+- Zero warnings or errors in build
