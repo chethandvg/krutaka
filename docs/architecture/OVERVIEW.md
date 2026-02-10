@@ -65,28 +65,30 @@ The shared contract layer. Defines all interfaces that other projects implement 
 ### Krutaka.AI (net10.0)
 **Status:** Implemented (Issue #8 — 2026-02-10)  
 **Path:** `src/Krutaka.AI/`  
-**Dependencies:** Krutaka.Core, Anthropic SDK, Microsoft.Extensions.Http.Resilience
+**Dependencies:** Krutaka.Core, official Anthropic package (v12.4.0), Microsoft.Extensions.Http.Resilience
 
 Claude API integration layer.
 
 | Type | Description | Status |
 |---|---|---|
-| `ClaudeClientWrapper` | Wraps Anthropic SDK behind `IClaudeClient` | ✅ Implemented |
+| `ClaudeClientWrapper` | Wraps official Anthropic package behind `IClaudeClient` | ✅ Implemented |
 | `ServiceExtensions` | `AddClaudeAI(services, config)` DI registration | ✅ Implemented |
 
 **Implementation Details:**
-- Uses official Anthropic C# SDK (v12.4.0) for API calls
+- Uses official Anthropic C# package v12.4.0 (NuGet: `Anthropic`) for all API calls
 - Streaming support via `IAsyncEnumerable<AgentEvent>` (basic implementation, to be enhanced in agentic loop)
 - Token counting via `Messages.CountTokens()` endpoint ✅ Implemented
-- HTTP resilience configured via SDK's built-in retry mechanism:
-  - SDK MaxRetries set to 3 (exponential backoff with jitter)
+- HTTP resilience configured via official package's built-in retry mechanism:
+  - Package MaxRetries set to 3 (exponential backoff with jitter)
   - Request timeout set to 120 seconds
   - Additional resilience configuration available for future extensibility
 - Circuit breaker configuration available (30s sampling window, minimum 5 requests, 30s break duration)
 - Request-id logging planned for future implementation
 - API key retrieved from `ISecretsProvider` with fallback to configuration for testing
 
-**Resilience pipeline:** SDK's built-in exponential backoff retry (3 attempts), 120s request timeout. Additional HTTP resilience pipeline configured for potential future use.
+**Resilience pipeline:** Official package's built-in exponential backoff retry (3 attempts), 120s request timeout. Additional HTTP resilience pipeline configured for potential future use.
+
+**Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
 **Status:** Scaffolded (Issue #5)  

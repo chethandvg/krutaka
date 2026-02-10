@@ -28,7 +28,7 @@
 
 **Date:** 2026-02-10
 **Status:** Accepted
-**Context:** Three options exist: Official `Anthropic` SDK (now GA v12.4.0), community `Anthropic.SDK` by tghamm (unofficial), or raw HTTP. The official SDK is now out of beta and vendor-backed.
+**Context:** Three options exist: Official `Anthropic` package (now GA v12.4.0, NuGet package name: `Anthropic`), community `Anthropic.SDK` by tghamm (unofficial, different package), or raw HTTP. The official package is now out of beta and vendor-backed.
 **Decision:** Use the official `Anthropic` NuGet package, wrapped behind our own `IClaudeClient` interface for testability and future migration flexibility.
 **Consequences:** Long-term vendor support. Interface wrapper means we can swap implementations without touching consumer code. Trade-off: less convenience helpers than the community SDK, but safer supply chain.
 
@@ -58,7 +58,7 @@
 
 **Date:** 2026-02-10
 **Status:** Accepted
-**Context:** The Anthropic SDK supports both manual tool loop control and automatic function invocation via `IChatClient.UseFunctionInvocation()`. Auto-invocation strips away visibility and security control points.
+**Context:** The official Anthropic package supports both manual tool loop control and automatic function invocation via `IChatClient.UseFunctionInvocation()`. Auto-invocation strips away visibility and security control points.
 **Decision:** Use Pattern A (manual loop) where the orchestrator explicitly processes each tool call, enforces approval policies, and logs every step.
 **Consequences:** Full audit trail. Human-in-the-loop approval. Tool-result formatting invariants enforced in code. More code to write, but critical for security and debuggability.
 

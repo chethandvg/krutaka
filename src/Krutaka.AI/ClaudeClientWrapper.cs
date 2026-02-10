@@ -7,8 +7,9 @@ using Microsoft.Extensions.Logging;
 namespace Krutaka.AI;
 
 /// <summary>
-/// Wraps the official Anthropic SDK behind the IClaudeClient interface.
+/// Wraps the official Anthropic package (NuGet: Anthropic v12.4.0) behind the IClaudeClient interface.
 /// Provides streaming support, token counting, and request-id logging.
+/// Note: This uses the official Anthropic package, NOT the community Anthropic.SDK package.
 /// </summary>
 internal sealed partial class ClaudeClientWrapper : IClaudeClient
 {
@@ -68,7 +69,8 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         string stopReason = "end_turn";
 
         // Stream the response
-        // Note: SDK is in beta, streaming event structure may evolve
+        // Note: Using official Anthropic package (v12.4.0), NOT community Anthropic.SDK
+        // The official package is in GA but streaming event structure may still evolve
         // Full event parsing will be implemented in the agentic loop (Issue #14)
         await foreach (var chunk in _client.Messages.CreateStreaming(parameters, cancellationToken: cancellationToken).ConfigureAwait(false))
         {

@@ -56,17 +56,17 @@
 
 The Claude API client wrapper has been implemented with the following completed:
 - ✅ `ClaudeClientWrapper` implementing `IClaudeClient` 
-- ✅ Uses official Anthropic SDK v12.4.0
+- ✅ Uses official `Anthropic` package v12.4.0 (NuGet: `Anthropic`, NOT the community `Anthropic.SDK`)
 - ✅ Token counting via `Messages.CountTokens()` endpoint
-- ✅ HTTP resilience via SDK's built-in retry mechanism (3 attempts, 120s timeout)
+- ✅ HTTP resilience via official package's built-in retry mechanism (3 attempts, 120s timeout)
 - ✅ Request-id logging infrastructure (LoggerMessage patterns)
 - ✅ `ServiceExtensions.cs` with `AddClaudeAI(IServiceCollection, IConfiguration)`
 - ✅ API key from `ISecretsProvider` with fallback to configuration for testing
-- ✅ Tools parameter accepted and passed to SDK
+- ✅ Tools parameter accepted and passed to official package
 
 Deferred to agentic loop implementation (Issue #14):
-- Detailed streaming event parsing (SDK beta, events structure evolving)
+- Detailed streaming event parsing (official package's streaming event structure still evolving)
 - Tool call event emission
 - Request-id extraction from response headers
 
-This partial implementation provides a working foundation for the agentic loop while acknowledging the SDK's beta status.
+This partial implementation provides a working foundation for the agentic loop while acknowledging the official package's evolving API surface.
