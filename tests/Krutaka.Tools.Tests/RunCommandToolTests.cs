@@ -1,6 +1,4 @@
-using System.Security;
 using System.Text.Json;
-using CliWrap;
 using FluentAssertions;
 using Krutaka.Core;
 using Krutaka.Tools;
@@ -80,22 +78,18 @@ public sealed class RunCommandToolTests : IDisposable
 
     #region Command Policy Enforcement Tests
 
-    [Theory]
-    [InlineData("git")]
-    [InlineData("dotnet")]
-    [InlineData("node")]
-    [InlineData("npm")]
-    [InlineData("python")]
-    public async Task Should_AllowWhitelistedCommand(string executable)
+    [Fact]
+    public async Task Should_AllowWhitelistedCommand()
     {
-        // Arrange
-        var input = JsonSerializer.SerializeToElement(new { executable, arguments = new[] { "--version" } });
+        // Arrange - use dotnet which is guaranteed to exist on the test runner
+        var input = JsonSerializer.SerializeToElement(new { executable = "dotnet", arguments = new[] { "--version" } });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
         result.Should().NotStartWith("Error: Command validation failed");
+        result.Should().Contain("Exit code: 0");
     }
 
     [Theory]
@@ -220,8 +214,8 @@ public sealed class RunCommandToolTests : IDisposable
         // Arrange
         var input = JsonSerializer.SerializeToElement(new
         {
-            executable = "echo",
-            arguments = new[] { "test" }
+            executable = "dotnet",
+            arguments = new[] { "--version" }
         });
 
         // Act
@@ -242,15 +236,15 @@ public sealed class RunCommandToolTests : IDisposable
         // Arrange
         var input = JsonSerializer.SerializeToElement(new
         {
-            executable = "echo",
-            arguments = new[] { "Hello, World!" }
+            executable = "dotnet",
+            arguments = new[] { "--version" }
         });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().Contain("Command executed: echo Hello, World!");
+        result.Should().Contain("Command executed: dotnet --version");
         result.Should().Contain("Exit code: 0");
     }
 
@@ -260,8 +254,8 @@ public sealed class RunCommandToolTests : IDisposable
         // Arrange
         var input = JsonSerializer.SerializeToElement(new
         {
-            executable = "echo",
-            arguments = new[] { "test output" }
+            executable = "dotnet",
+            arguments = new[] { "--version" }
         });
 
         // Act
@@ -269,7 +263,7 @@ public sealed class RunCommandToolTests : IDisposable
 
         // Assert
         result.Should().Contain("=== STDOUT ===");
-        result.Should().Contain("test output");
+        result.Should().Contain("<untrusted_command_output>");
     }
 
     [Fact]
@@ -278,8 +272,8 @@ public sealed class RunCommandToolTests : IDisposable
         // Arrange
         var input = JsonSerializer.SerializeToElement(new
         {
-            executable = "echo",
-            arguments = new[] { "test" }
+            executable = "dotnet",
+            arguments = new[] { "--version" }
         });
 
         // Act
@@ -449,13 +443,13 @@ public sealed class RunCommandToolTests : IDisposable
     public async Task Should_HandleCommandWithoutArguments()
     {
         // Arrange
-        var input = JsonSerializer.SerializeToElement(new { executable = "echo" });
+        var input = JsonSerializer.SerializeToElement(new { executable = "dotnet" });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().Contain("Command executed: echo");
+        result.Should().Contain("Command executed: dotnet");
         result.Should().NotStartWith("Error:");
     }
 
