@@ -162,6 +162,3 @@ The AgentOrchestrator implementing the core agentic loop has been fully implemen
 - Some unit tests need mock refinement for proper multi-turn loop testing
 
 The core agentic loop is functional and ready for integration with the console UI and human approval handler.
-- The AI layer will convert these objects to `Anthropic.Models.Messages.Tool` types when calling Claude API
-- All 291 existing tests continue to pass, plus 15 new tests for ToolRegistry
-- Zero warnings or errors in build

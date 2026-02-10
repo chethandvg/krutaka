@@ -308,7 +308,7 @@ public sealed class AgentOrchestratorTests
             await foreach (var _ in orchestrator.RunAsync("Prompt 1", "System"))
             {
                 count++;
-                await Task.Delay(10); // Simulate slow processing
+                await Task.Delay(1); // Minimal delay to simulate processing
             }
 
             return count;
@@ -320,7 +320,7 @@ public sealed class AgentOrchestratorTests
             await foreach (var _ in orchestrator.RunAsync("Prompt 2", "System"))
             {
                 count++;
-                await Task.Delay(10); // Simulate slow processing
+                await Task.Delay(1); // Minimal delay to simulate processing
             }
 
             return count;
