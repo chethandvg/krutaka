@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-10 (Issue #7 completed — Secrets management and log redaction implemented)
+> **Last updated:** 2026-02-10 (Issue #12 completed — RunCommandTool with timeout enforcement and command validation)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -173,13 +173,28 @@ When user denies a tool call:
 
 ## Process Sandboxing
 
+### Implementation Status
+⚠️ **Partially Complete** (Issue #12 — 2026-02-10)
+- ✅ `RunCommandTool` implemented with timeout enforcement (30 seconds via `CancellationTokenSource`)
+- ✅ Environment variable scrubbing via `EnvironmentScrubber` before process start
+- ✅ Command validation via `CommandPolicy` (allowlist/blocklist, metacharacter detection)
+- ✅ Working directory validation
+- ⚠️ **Job Object sandboxing not implemented**: CliWrap's `ExecuteBufferedAsync` doesn't expose the process handle before execution starts, preventing Job Object assignment. Full sandboxing would require using `Process` class directly or custom CliWrap integration.
+
 ### Job Object Constraints (via Meziantou.Framework.Win32.Jobs)
-- **Memory limit:** 256 MB per process
-- **CPU time limit:** 30 seconds
-- **Kill on job close:** Yes (prevents orphaned processes)
+⚠️ **Not implemented** — requires different process execution strategy
+- **Memory limit:** 256 MB per process (planned, not active)
+- **CPU time limit:** 30 seconds (enforced via CancellationToken timeout instead)
+- **Kill on job close:** Yes (planned, not active)
+
+### Timeout Enforcement
+✅ **Implemented** — Enforced via `CancellationTokenSource(TimeSpan.FromSeconds(30))`
+- Hard timeout of 30 seconds for all command executions
+- Cancellation propagates to CliWrap's execution pipeline
+- Returns clear error message: "Command execution timed out after 30 seconds"
 
 ### Environment Variable Scrubbing
-Before spawning any child process, remove environment variables matching:
+✅ **Implemented** — Before spawning any child process, remove environment variables matching:
 ```
 ANTHROPIC_API_KEY, ANTHROPIC_*
 *_KEY, *_SECRET, *_TOKEN, *_PASSWORD
@@ -187,12 +202,6 @@ AWS_*, AZURE_*, GCP_*, GOOGLE_*
 ```
 
 Implemented in `Krutaka.Tools/EnvironmentScrubber.cs` with case-insensitive pattern matching.
-
-### Job Object Constraints (via Meziantou.Framework.Win32.Jobs)
-⚠️ **Not yet implemented** (planned for Issue #12 — run_command tool)
-- **Memory limit:** 256 MB per process
-- **CPU time limit:** 30 seconds
-- **Kill on job close:** Yes (prevents orphaned processes)
 
 ## Prompt Injection Defense
 
