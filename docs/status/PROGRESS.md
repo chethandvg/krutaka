@@ -1,12 +1,12 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #2 completed)
+> **Last updated:** 2026-02-10 (Issue #2, #3 completed)
 
 ## Phase Summary
 
 | Phase | Name | Issues | Status |
 |---|---|---|---|
-| 0 | Foundation Documentation | #2, #3 | 🟡 In Progress |
+| 0 | Foundation Documentation | #2, #3 | 🟢 Complete |
 | 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🔴 Not Started |
 | 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🔴 Not Started |
 | 3 | Persistence & Memory | #16, #17, #18, #19 | 🔴 Not Started |
@@ -20,7 +20,7 @@
 |---|---|---|---|---|
 | 1 | Krutaka v0.1.0 verification | Epic | 🔴 Not Started | — |
 | 2 | Initialize documentation framework & Copilot instructions | 0 | 🟢 Complete | 2026-02-10 |
-| 3 | Create security threat model documentation | 0 | 🔴 Not Started | — |
+| 3 | Create security threat model documentation | 0 | 🟢 Complete | 2026-02-10 |
 | 5 | Scaffold .NET 10 solution and build infrastructure | 1 | 🔴 Not Started | — |
 | 6 | Implement core interfaces and model types | 1 | 🔴 Not Started | — |
 | 7 | Implement secrets management (Credential Manager) | 1 | 🔴 Not Started | — |
