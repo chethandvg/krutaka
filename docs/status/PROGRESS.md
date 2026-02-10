@@ -1,12 +1,12 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10
+> **Last updated:** 2026-02-10 (Issue #1 completed)
 
 ## Phase Summary
 
 | Phase | Name | Issues | Status |
 |---|---|---|---|
-| 0 | Foundation Documentation | #1, #2 | 🔴 Not Started |
+| 0 | Foundation Documentation | #1, #2 | 🟡 In Progress |
 | 1 | Project Scaffolding & API | #3, #4, #5, #6 | 🔴 Not Started |
 | 2 | Tool System & Agentic Loop | #7, #8, #9, #10, #11, #12, #13 | 🔴 Not Started |
 | 3 | Persistence & Memory | #14, #15, #16, #17 | 🔴 Not Started |
@@ -18,7 +18,7 @@
 
 | # | Issue | Phase | Status | Date Completed |
 |---|---|---|---|---|
-| 1 | Initialize documentation framework & Copilot instructions | 0 | 🔴 Not Started | — |
+| 1 | Initialize documentation framework & Copilot instructions | 0 | 🟢 Complete | 2026-02-10 |
 | 2 | Create security threat model documentation | 0 | 🔴 Not Started | — |
 | 3 | Scaffold .NET 10 solution and build infrastructure | 1 | 🔴 Not Started | — |
 | 4 | Implement core interfaces and model types | 1 | 🔴 Not Started | — |
