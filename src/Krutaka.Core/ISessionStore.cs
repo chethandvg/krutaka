@@ -27,4 +27,12 @@ public interface ISessionStore
     /// <param name="cancellationToken">Cancellation token for async operation.</param>
     /// <returns>The reconstructed message list.</returns>
     Task<IReadOnlyList<object>> ReconstructMessagesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Saves session metadata (start time, project path, model used).
+    /// </summary>
+    /// <param name="projectPath">The project path for this session.</param>
+    /// <param name="modelId">The model identifier used in this session.</param>
+    /// <param name="cancellationToken">Cancellation token for async operation.</param>
+    Task SaveMetadataAsync(string projectPath, string modelId, CancellationToken cancellationToken = default);
 }

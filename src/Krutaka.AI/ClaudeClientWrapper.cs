@@ -41,9 +41,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         // Convert messages to MessageParam
-        var messageParams = messages
-            .Cast<MessageParam>()
-            .ToList();
+        var messageParams = ConvertToMessageParams(messages);
 
         // Build parameters with tools if provided
         var parameters = tools is IReadOnlyList<Tool> toolsList && toolsList.Count > 0
@@ -106,9 +104,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         CancellationToken cancellationToken = default)
     {
         // Convert messages to MessageParam
-        var messageParams = messages
-            .Cast<MessageParam>()
-            .ToList();
+        var messageParams = ConvertToMessageParams(messages);
 
         // Create token counting parameters
         var parameters = new MessageCountTokensParams
@@ -125,6 +121,65 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         LogTokenCount(tokenCount);
 
         return tokenCount;
+    }
+
+    /// <summary>
+    /// Converts objects to MessageParam instances.
+    /// Handles both pre-cast MessageParam objects and anonymous objects from SessionStore.
+    /// </summary>
+    private static List<MessageParam> ConvertToMessageParams(IEnumerable<object> messages)
+    {
+        var result = new List<MessageParam>();
+
+        foreach (var msg in messages)
+        {
+            if (msg is MessageParam messageParam)
+            {
+                // Already a MessageParam, use directly
+                result.Add(messageParam);
+            }
+            else
+            {
+                // Try to extract role and content from anonymous object using reflection
+                var msgType = msg.GetType();
+                var roleProperty = msgType.GetProperty("role");
+                var contentProperty = msgType.GetProperty("content");
+
+                if (roleProperty != null && contentProperty != null)
+                {
+                    var role = roleProperty.GetValue(msg)?.ToString() ?? "user";
+                    var content = contentProperty.GetValue(msg);
+
+                    // Convert content to appropriate type
+                    if (content is string textContent)
+                    {
+                        result.Add(new MessageParam
+                        {
+                            Role = role,
+                            Content = textContent
+                        });
+                    }
+                    else
+                    {
+                        // For complex content (arrays, objects), serialize and parse
+                        // This handles tool_use and tool_result content structures
+                        var contentJson = System.Text.Json.JsonSerializer.Serialize(content);
+                        result.Add(new MessageParam
+                        {
+                            Role = role,
+                            Content = contentJson
+                        });
+                    }
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        $"Message object must be MessageParam or have 'role' and 'content' properties. Got: {msgType.Name}");
+                }
+            }
+        }
+
+        return result;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Received streaming chunk from Claude API")]

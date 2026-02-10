@@ -14,8 +14,11 @@ public static class ServiceExtensions
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddMemory(this IServiceCollection services)
     {
+        // Note: SessionStore requires runtime parameters (projectPath, sessionId)
+        // It should be created via factory pattern or injected directly when needed
+        // Registration deferred to composition root (Program.cs) where these values are available
+        
         // TODO: Register IMemoryService
-        // TODO: Register ISessionStore
         // TODO: Initialize SQLite database
         return services;
     }

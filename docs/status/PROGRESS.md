@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #12 fully complete - RunCommandTool with Job Object sandboxing)
+> **Last updated:** 2026-02-10 (Issue #16 complete - SessionStore with JSONL persistence)
 
 ## Phase Summary
 
@@ -9,7 +9,7 @@
 | 0 | Foundation Documentation | #2, #3 | 🟢 Complete |
 | 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🟡 In Progress |
 | 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🟡 In Progress |
-| 3 | Persistence & Memory | #16, #17, #18, #19 | 🔴 Not Started |
+| 3 | Persistence & Memory | #16, #17, #18, #19 | 🟡 In Progress |
 | 4 | UI & System Prompt | #20, #21, #23 | 🔴 Not Started |
 | 5 | Skills & Observability | #22, #24 | 🔴 Not Started |
 | 6 | Build, Package & Verify | #25, #26, #27, #28 | 🔴 Not Started |
@@ -32,7 +32,7 @@
 | 13 | Implement ToolRegistry and DI registration | 2 | 🟢 Complete | 2026-02-10 |
 | 14 | Implement the agentic loop (CRITICAL) | 2 | 🟢 Complete | 2026-02-10 |
 | 15 | Implement human-in-the-loop approval UI | 2 | 🟢 Complete | 2026-02-10 |
-| 16 | Implement JSONL session persistence | 3 | 🔴 Not Started | — |
+| 16 | Implement JSONL session persistence | 3 | 🟢 Complete | 2026-02-10 |
 | 17 | Implement token counting and context compaction | 3 | 🔴 Not Started | — |
 | 18 | Implement SQLite FTS5 keyword search | 3 | 🔴 Not Started | — |
 | 19 | Implement MEMORY.md and daily log management | 3 | 🔴 Not Started | — |
@@ -187,3 +187,32 @@ The human-in-the-loop approval UI has been fully implemented:
 
 **Deferred to Issue #24 (Audit logging):**
 - Logging approval decisions to audit trail (no audit logging infrastructure exists yet)
+
+### Issue #16 Status (Complete)
+
+The JSONL session persistence system has been fully implemented:
+- ✅ `SessionStore` class implementing `ISessionStore` in `Krutaka.Memory`
+- ✅ Storage path: `~/.krutaka/sessions/{encoded-project-path}/{session-id}.jsonl`
+- ✅ Path encoding: Replaces separators and colons with dashes, removes consecutive dashes, handles edge cases
+- ✅ `AppendAsync(SessionEvent)` appends one JSON line per event
+- ✅ `LoadAsync()` returns `IAsyncEnumerable<SessionEvent>` from JSONL file
+- ✅ `ReconstructMessagesAsync()` rebuilds `List<Message>` from events
+- ✅ Session metadata file `{session-id}.meta.json` with start time, project path, model used
+- ✅ Directory creation handled automatically
+- ✅ Concurrent access safety with `SemaphoreSlim(1,1)`
+- ✅ Resource cleanup via `IDisposable` implementation
+- ✅ 18 comprehensive unit tests (all passing):
+  - JSONL round-trip serialization
+  - Message reconstruction from events
+  - Path encoding edge cases (special characters, consecutive separators)
+  - Concurrent write safety
+  - Metadata file creation and validation
+  - Error handling (null events, empty paths)
+- ✅ Build succeeds with zero warnings
+- ✅ All existing tests still pass (292 passing in Tools.Tests, 18 passing in Memory.Tests)
+
+**Implementation Notes:**
+- Path encoding handles edge cases: paths with only special characters become "root"
+- Consecutive dashes from adjacent special characters (e.g., `C:\` → `C--`) are collapsed to single dash
+- SessionStore requires runtime parameters (projectPath, sessionId) so DI registration is deferred to composition root
+- Message reconstruction creates simple anonymous objects compatible with Claude API client
