@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #16 complete - SessionStore with JSONL persistence)
+> **Last updated:** 2026-02-10 (Issue #17 complete - Token counting and context compaction)
 
 ## Phase Summary
 
@@ -33,7 +33,7 @@
 | 14 | Implement the agentic loop (CRITICAL) | 2 | 🟢 Complete | 2026-02-10 |
 | 15 | Implement human-in-the-loop approval UI | 2 | 🟢 Complete | 2026-02-10 |
 | 16 | Implement JSONL session persistence | 3 | 🟢 Complete | 2026-02-10 |
-| 17 | Implement token counting and context compaction | 3 | 🔴 Not Started | — |
+| 17 | Implement token counting and context compaction | 3 | 🟢 Complete | 2026-02-10 |
 | 18 | Implement SQLite FTS5 keyword search | 3 | 🔴 Not Started | — |
 | 19 | Implement MEMORY.md and daily log management | 3 | 🔴 Not Started | — |
 | 20 | Implement system prompt builder | 4 | 🔴 Not Started | — |
@@ -216,3 +216,47 @@ The JSONL session persistence system has been fully implemented:
 - Consecutive dashes from adjacent special characters (e.g., `C:\` → `C--`) are collapsed to single dash
 - SessionStore requires runtime parameters (projectPath, sessionId) so DI registration is deferred to composition root
 - Message reconstruction creates simple anonymous objects compatible with Claude API client
+
+### Issue #17 Status (Complete)
+
+Token counting and context compaction have been fully implemented:
+
+- ✅ **TokenCounter** class in `Krutaka.AI`:
+  - `CountTokensAsync(IReadOnlyList<object>, string)` calls `IClaudeClient.CountTokensAsync` which uses `/v1/messages/count_tokens` endpoint
+  - LRU cache with 100 entry limit and 60 minute expiry to avoid redundant API calls
+  - Cache eviction removes oldest 20% of entries when cache is full
+  - Hash-based cache key generation using message count, system prompt, and first/last message content
+  - 7 unit tests (all passing): API calls, cache hits/misses, expiry, null validation, eviction
+  
+- ✅ **ContextCompactor** class in `Krutaka.Core`:
+  - `ShouldCompact(int currentTokenCount)` checks if compaction needed when > 160,000 tokens (80% of 200K)
+  - `CompactAsync(...)` triggered when threshold exceeded
+  - Uses Claude Haiku 4.5 (`claude-haiku-4-5-20250929`) via `IClaudeClient.SendMessageAsync` for summarization
+  - Summarization prompt preserves:
+    - File paths mentioned or modified
+    - Action items completed or pending  
+    - Technical decisions made
+    - Error context and debugging insights
+    - Key outcomes from tool executions
+  - Replaces old messages with:
+    - User message: `[Previous conversation summary]\n{summary}`
+    - Assistant message: `Understood. I have the context from our previous discussion.`
+    - Last 6 messages (3 user/assistant pairs) from original conversation
+  - Returns `CompactionResult` with original/compacted counts, token reduction, summary, and compacted message list
+  - Logs compaction via return value (no logging in Core project - zero dependencies)
+  - 11 unit tests (all passing): threshold logic, message preservation, summary structure, null validation, different message counts
+  - 1 integration test (passing): verifies compacted conversation is well-formed for Claude API (alternating roles, starts with user, summary format)
+
+- ✅ **Build status**: All 320 tests passing (7 TokenCounter + 12 ContextCompactor + 301 existing), zero warnings, zero errors
+- ✅ **Documentation**: Updated `docs/architecture/OVERVIEW.md` with TokenCounter and ContextCompactor details
+
+**Deferred to future issues:**
+- `/compact` command for manual trigger in console UI (will be added when UI is implemented)
+- Integration with AgentOrchestrator to automatically trigger compaction (will be added when system prompt builder is implemented)
+
+**Implementation Notes:**
+- ContextCompactor is in `Krutaka.Core` (no logging) as specified in issue requirements
+- TokenCounter is in `Krutaka.AI` (has logging) per issue requirements
+- Both classes follow existing coding conventions (nullable types, ConfigureAwait, argument validation, CultureInfo.InvariantCulture)
+- Messages reported as "removed" = messages summarized (not net reduction) for clarity in logging/reporting
+

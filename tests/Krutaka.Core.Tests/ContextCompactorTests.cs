@@ -242,6 +242,89 @@ public sealed class ContextCompactorTests
 }
 
 /// <summary>
+/// Integration tests for ContextCompactor to verify compacted conversations are well-formed.
+/// </summary>
+public sealed class ContextCompactorIntegrationTests
+{
+    [Fact]
+    public async Task CompactedConversation_Should_BeWellFormedForClaudeAPI()
+    {
+        // Arrange
+        var mockClient = Substitute.For<IClaudeClient>();
+        var compactor = new ContextCompactor(mockClient);
+
+        // Create a realistic conversation
+        var messages = new List<object>
+        {
+            new { role = "user", content = "What is the capital of France?" },
+            new { role = "assistant", content = "The capital of France is Paris." },
+            new { role = "user", content = "What about Germany?" },
+            new { role = "assistant", content = "The capital of Germany is Berlin." },
+            new { role = "user", content = "And Italy?" },
+            new { role = "assistant", content = "The capital of Italy is Rome." },
+            new { role = "user", content = "List all three." },
+            new { role = "assistant", content = "France: Paris, Germany: Berlin, Italy: Rome." },
+            new { role = "user", content = "What about Spain?" },
+            new { role = "assistant", content = "The capital of Spain is Madrid." },
+        };
+
+        var systemPrompt = "You are a helpful geography assistant.";
+
+        // Mock the summarization response
+        var summaryEvents = new List<AgentEvent>
+        {
+            new TextDelta("User asked about capitals: France (Paris), Germany (Berlin), Italy (Rome)."),
+            new FinalResponse("User asked about capitals: France (Paris), Germany (Berlin), Italy (Rome).", "end_turn")
+        };
+        mockClient.SendMessageAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<object?>(), Arg.Any<CancellationToken>())
+            .Returns(summaryEvents.ToAsyncEnumerable());
+
+        // Mock token counting
+        mockClient.CountTokensAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(50_000));
+
+        // Act
+        var result = await compactor.CompactAsync(messages, systemPrompt, 165_000);
+
+        // Assert - Verify structure
+        result.CompactedMessages.Should().HaveCountGreaterThanOrEqualTo(2, "should have at least summary + acknowledgment");
+
+        // Verify first message is a user message with summary
+        var firstMessage = result.CompactedMessages[0];
+        GetMessageRole(firstMessage).Should().Be("user");
+        GetMessageContent(firstMessage).Should().Contain("[Previous conversation summary]");
+
+        // Verify second message is assistant acknowledgment
+        var secondMessage = result.CompactedMessages[1];
+        GetMessageRole(secondMessage).Should().Be("assistant");
+        GetMessageContent(secondMessage).Should().Be("Understood. I have the context from our previous discussion.");
+
+        // Verify alternating roles (required by Claude API)
+        for (int i = 0; i < result.CompactedMessages.Count - 1; i++)
+        {
+            var currentRole = GetMessageRole(result.CompactedMessages[i]);
+            var nextRole = GetMessageRole(result.CompactedMessages[i + 1]);
+            currentRole.Should().NotBe(nextRole, $"messages at index {i} and {i + 1} should have different roles");
+        }
+
+        // Verify first message is from user (Claude API requirement)
+        GetMessageRole(result.CompactedMessages[0]).Should().Be("user");
+    }
+
+    private static string GetMessageRole(object message)
+    {
+        var roleProperty = message.GetType().GetProperty("role");
+        return roleProperty?.GetValue(message)?.ToString() ?? string.Empty;
+    }
+
+    private static string GetMessageContent(object message)
+    {
+        var contentProperty = message.GetType().GetProperty("content");
+        return contentProperty?.GetValue(message)?.ToString() ?? string.Empty;
+    }
+}
+
+/// <summary>
 /// Extension methods for creating async enumerables from collections.
 /// </summary>
 internal static class AsyncEnumerableExtensions
