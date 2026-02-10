@@ -1,6 +1,8 @@
 using System.Text.Json;
 using FluentAssertions;
+using Krutaka.Core;
 using Krutaka.Tools;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Krutaka.Tools.Tests;
 
@@ -48,14 +50,12 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_RegisterAllTools_AndSerializeToValidJSON()
     {
         // Arrange - Register all 6 tools
-        var securityPolicy = new CommandPolicy();
-
         _registry.Register(new ReadFileTool(_testRoot));
         _registry.Register(new WriteFileTool(_testRoot));
         _registry.Register(new EditFileTool(_testRoot));
         _registry.Register(new ListFilesTool(_testRoot));
         _registry.Register(new SearchFilesTool(_testRoot));
-        _registry.Register(new RunCommandTool(_testRoot, securityPolicy));
+        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy()));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -94,14 +94,12 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_ContainExpectedToolNames()
     {
         // Arrange - Register all tools
-        var securityPolicy = new CommandPolicy();
-
         _registry.Register(new ReadFileTool(_testRoot));
         _registry.Register(new WriteFileTool(_testRoot));
         _registry.Register(new EditFileTool(_testRoot));
         _registry.Register(new ListFilesTool(_testRoot));
         _registry.Register(new SearchFilesTool(_testRoot));
-        _registry.Register(new RunCommandTool(_testRoot, securityPolicy));
+        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy()));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -126,14 +124,12 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_HaveValidInputSchemaForEachTool()
     {
         // Arrange
-        var securityPolicy = new CommandPolicy();
-
         _registry.Register(new ReadFileTool(_testRoot));
         _registry.Register(new WriteFileTool(_testRoot));
         _registry.Register(new EditFileTool(_testRoot));
         _registry.Register(new ListFilesTool(_testRoot));
         _registry.Register(new SearchFilesTool(_testRoot));
-        _registry.Register(new RunCommandTool(_testRoot, securityPolicy));
+        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy()));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -195,17 +191,16 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public async Task Should_ExecuteToolsViaRegistry()
     {
         // Arrange
-        var securityPolicy = new CommandPolicy();
         _registry.Register(new ReadFileTool(_testRoot));
         _registry.Register(new ListFilesTool(_testRoot));
 
         // Create a test file
         var testFile = Path.Combine(_testRoot, "test.txt");
-        await File.WriteAllTextAsync(testFile, "Test content").ConfigureAwait(true);
+        await File.WriteAllTextAsync(testFile, "Test content");
 
         // Act - Execute read_file tool
         var readInput = JsonSerializer.SerializeToElement(new { path = "test.txt" });
-        var readResult = await _registry.ExecuteAsync("read_file", readInput, CancellationToken.None).ConfigureAwait(true);
+        var readResult = await _registry.ExecuteAsync("read_file", readInput, CancellationToken.None);
 
         // Assert
         readResult.Should().Contain("Test content");
@@ -231,5 +226,60 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         // Verify it's valid JSON
         var parsed = JsonDocument.Parse(json);
         parsed.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Should_AddAgentTools_RegisterAllServicesCorrectly()
+    {
+        // Arrange
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+
+        // Act
+        services.AddAgentTools(options =>
+        {
+            options.WorkingDirectory = _testRoot;
+            options.CommandTimeoutSeconds = 60;
+            options.RequireApprovalForWrites = false;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Assert - Verify all services are registered
+        var toolOptions = serviceProvider.GetService<ToolOptions>();
+        toolOptions.Should().NotBeNull();
+        toolOptions!.WorkingDirectory.Should().Be(_testRoot);
+        toolOptions.CommandTimeoutSeconds.Should().Be(60);
+        toolOptions.RequireApprovalForWrites.Should().BeFalse();
+
+        var securityPolicy = serviceProvider.GetService<ISecurityPolicy>();
+        securityPolicy.Should().NotBeNull();
+        securityPolicy.Should().BeOfType<CommandPolicy>();
+
+        var toolRegistry = serviceProvider.GetService<IToolRegistry>();
+        toolRegistry.Should().NotBeNull();
+        toolRegistry.Should().BeOfType<ToolRegistry>();
+
+        // Verify all tools are registered in the registry
+        var definitions = toolRegistry!.GetToolDefinitions();
+        var json = JsonSerializer.Serialize(definitions);
+        var jsonDoc = JsonDocument.Parse(json);
+        
+        jsonDoc.RootElement.GetArrayLength().Should().Be(6);
+
+        var toolNames = jsonDoc.RootElement
+            .EnumerateArray()
+            .Select(t => t.GetProperty("name").GetString())
+            .ToList();
+
+        toolNames.Should().Contain("read_file");
+        toolNames.Should().Contain("write_file");
+        toolNames.Should().Contain("edit_file");
+        toolNames.Should().Contain("list_files");
+        toolNames.Should().Contain("search_files");
+        toolNames.Should().Contain("run_command");
+
+        // Verify tools can be resolved from DI
+        var tools = serviceProvider.GetServices<ITool>().ToList();
+        tools.Should().HaveCount(6);
     }
 }

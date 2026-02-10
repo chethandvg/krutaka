@@ -28,7 +28,8 @@ public static class ServiceExtensions
         services.AddSingleton(options);
 
         // Register security policy (singleton - stateless)
-        services.AddSingleton<ISecurityPolicy, CommandPolicy>();
+        var securityPolicy = new CommandPolicy();
+        services.AddSingleton<ISecurityPolicy>(securityPolicy);
 
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
@@ -36,11 +37,6 @@ public static class ServiceExtensions
 
         // Get working directory from options
         var workingDir = options.WorkingDirectory;
-
-        // Get security policy instance for RunCommandTool
-        // Note: We instantiate it here to pass to RunCommandTool constructor
-        // The same instance is registered in DI above
-        var securityPolicy = new CommandPolicy();
 
         // Register and add all tool implementations
         // Read-only tools (auto-approve)

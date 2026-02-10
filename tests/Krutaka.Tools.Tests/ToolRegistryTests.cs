@@ -75,7 +75,7 @@ public sealed class ToolRegistryTests
         var input = JsonSerializer.SerializeToElement(new { param = "value" });
 
         // Act
-        var result = await _registry.ExecuteAsync("test_tool", input, CancellationToken.None).ConfigureAwait(true);
+        var result = await _registry.ExecuteAsync("test_tool", input, CancellationToken.None);
 
         // Assert
         result.Should().Be("MockTool executed with input");
@@ -89,7 +89,7 @@ public sealed class ToolRegistryTests
         var input = JsonSerializer.SerializeToElement(new { param = "value" });
 
         // Act
-        var act = async () => await _registry.ExecuteAsync("unknown_tool", input, CancellationToken.None).ConfigureAwait(true);
+        var act = async () => await _registry.ExecuteAsync("unknown_tool", input, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>()
@@ -103,7 +103,7 @@ public sealed class ToolRegistryTests
         var input = JsonSerializer.SerializeToElement(new { param = "value" });
 
         // Act
-        var act = async () => await _registry.ExecuteAsync(null!, input, CancellationToken.None).ConfigureAwait(true);
+        var act = async () => await _registry.ExecuteAsync(null!, input, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>();
@@ -139,7 +139,7 @@ public sealed class ToolRegistryTests
         var input = JsonSerializer.SerializeToElement(new { param = "value" });
 
         // Act & Assert - should work with different casing
-        var act = async () => await _registry.ExecuteAsync("test_tool", input, CancellationToken.None).ConfigureAwait(true);
+        var act = async () => await _registry.ExecuteAsync("test_tool", input, CancellationToken.None);
         act.Should().NotThrowAsync();
     }
 

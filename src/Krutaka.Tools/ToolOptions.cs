@@ -14,11 +14,17 @@ public sealed class ToolOptions
     /// <summary>
     /// Gets or sets the command timeout in seconds.
     /// Commands exceeding this timeout will be terminated.
+    /// NOTE: This configuration is currently not used by RunCommandTool, which hardcodes a 30-second timeout.
+    /// Reserved for future implementation when timeout becomes configurable.
     /// </summary>
     public int CommandTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
     /// Gets or sets whether write operations (write_file, edit_file, run_command) require human approval.
+    /// NOTE: This configuration is reserved for future human-approval mechanism implementation.
+    /// Currently, approval requirements are determined by CommandPolicy.ToolsRequiringApproval and
+    /// enforced in the agentic loop (not yet implemented). This option should not be relied on for
+    /// security behavior yet.
     /// </summary>
     public bool RequireApprovalForWrites { get; set; } = true;
 }

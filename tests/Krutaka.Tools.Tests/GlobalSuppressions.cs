@@ -13,3 +13,6 @@ using System.Diagnostics.CodeAnalysis;
 
 // Allow constant array arguments in tests (test data is not performance-critical)
 [assembly: SuppressMessage("Performance", "CA1861:Avoid constant arrays as arguments", Justification = "Test data arrays are simple and not performance-critical", Scope = "namespaceanddescendants", Target = "~N:Krutaka.Tools.Tests")]
+
+// Suppress CA2007 in test code - ConfigureAwait is not needed in tests and conflicts with xUnit1030
+[assembly: SuppressMessage("Reliability", "CA2007:Consider calling ConfigureAwait on the awaited task", Justification = "ConfigureAwait is not needed in test code and conflicts with xUnit analyzer xUnit1030", Scope = "namespaceanddescendants", Target = "~N:Krutaka.Tools.Tests")]
