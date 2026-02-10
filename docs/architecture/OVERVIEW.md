@@ -1,0 +1,203 @@
+# Krutaka — Architecture Overview
+
+> **Last updated:** 2026-02-10 (Pre-implementation)
+
+## System Architecture
+
+```mermaid
+flowchart LR
+  subgraph Host["Krutaka Console App (.NET 10, Windows)"]
+    UI["Console UI\n(Spectre.Console)"]
+    Orchestrator["Agent Orchestrator\n(Agentic Loop)"]
+    Tools["Tool Runtime\n(FS / Shell / Memory)"]
+    Memory["Memory & Sessions\n(SQLite FTS5 + JSONL)"]
+    Secrets["Secrets Provider\n(Credential Manager)"]
+    Logging["Audit Logging\n(Serilog)"]
+    Skills["Skill Loader\n(Markdown + YAML)"]
+    PromptBuilder["System Prompt Builder\n(Layered Assembly)"]
+  end
+
+  Claude["Claude API\n(Messages + Streaming + Tools)"]
+
+  UI --> Orchestrator
+  Orchestrator --> Tools
+  Orchestrator --> Memory
+  Orchestrator --> PromptBuilder
+  PromptBuilder --> Skills
+  PromptBuilder --> Memory
+  Secrets --> Orchestrator
+  Orchestrator -->|HTTPS| Claude
+  Claude -->|SSE Stream| Orchestrator
+  Orchestrator --> Logging
+  Tools --> Logging
+```
+
+## Component Map
+
+### Krutaka.Core (net10.0)
+**Status:** Not Started
+**Dependencies:** None (zero NuGet packages)
+
+The shared contract layer. Defines all interfaces that other projects implement and all model types used across the solution.
+
+| Type | Description |
+|---|---|
+| `ITool` | Tool abstraction: Name, Description, InputSchema, ExecuteAsync |
+| `IToolRegistry` | Tool collection, definition serialization, dispatch |
+| `IClaudeClient` | Abstraction over Claude API (streaming, token counting) |
+| `IMemoryService` | Hybrid search: store, search, chunk-and-index |
+| `ISessionStore` | JSONL session persistence: append, load, reconstruct |
+| `ISecurityPolicy` | Path validation, command validation, env scrubbing, approval check |
+| `ToolBase` | Abstract base with `BuildSchema` helper for JSON Schema generation |
+| `AgentEvent` | Event hierarchy: TextDelta, ToolCallStarted/Completed/Failed, HumanApprovalRequired, FinalResponse |
+| `SessionEvent` | JSONL record: Type, Role, Content, Timestamp, ToolName, ToolUseId |
+| `MemoryResult` | Search result: Id, Content, Source, CreatedAt, Score |
+| `AgentConfiguration` | Model settings, approval prefs, paths |
+| `AgentOrchestrator` | The core agentic loop (Pattern A: manual with full control) |
+| `SystemPromptBuilder` | Layered system prompt assembly |
+| `ContextCompactor` | Token counting + conversation summarization |
+
+### Krutaka.AI (net10.0)
+**Status:** Not Started
+**Dependencies:** Krutaka.Core, Anthropic SDK, Microsoft.Extensions.Http.Resilience
+
+Claude API integration layer.
+
+| Type | Description |
+|---|---|
+| `ClaudeClientWrapper` | Wraps Anthropic SDK behind `IClaudeClient` |
+| `TokenCounter` | Token counting via `/v1/messages/count_tokens` |
+| `ServiceExtensions` | `AddClaudeAI(services, config)` DI registration |
+
+**Resilience pipeline:** Exponential backoff retry (5xx, timeouts), `retry-after` on 429, circuit breaker, 120s request timeout.
+
+### Krutaka.Tools (net10.0-windows)
+**Status:** Not Started
+**Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
+
+Tool implementations with security policy enforcement.
+
+| Type | Risk Level | Approval |
+|---|---|---|
+| `ReadFileTool` | Low | Auto-approve |
+| `ListFilesTool` | Low | Auto-approve |
+| `SearchFilesTool` | Low | Auto-approve |
+| `WriteFileTool` | High | Required |
+| `EditFileTool` | High | Required |
+| `RunCommandTool` | Critical | Always required |
+| `MemoryStoreTool` | Medium | Auto-approve |
+| `MemorySearchTool` | Low | Auto-approve |
+| `CommandPolicy` | — | Allowlist/blocklist enforcement |
+| `SafeFileOperations` | — | Path canonicalization + jail |
+| `EnvironmentScrubber` | — | Strips secrets from child process env |
+| `ToolRegistry` | — | Collection + dispatch |
+
+### Krutaka.Memory (net10.0)
+**Status:** Not Started
+**Dependencies:** Krutaka.Core, Microsoft.Data.Sqlite
+
+Persistence layer for sessions, memory search, and daily logs.
+
+| Type | Description |
+|---|---|
+| `SessionStore` | JSONL session files under `~/.krutaka/sessions/` |
+| `SqliteMemoryStore` | FTS5 keyword search + (future) vector search |
+| `TextChunker` | Split text into ~500 token chunks with overlap |
+| `MemoryFileService` | MEMORY.md read/update |
+| `DailyLogService` | Daily log append + indexing |
+| `HybridSearchService` | (Future v2) RRF fusion of FTS5 + vector |
+| `ServiceExtensions` | `AddMemory(services, options)` DI registration |
+
+### Krutaka.Skills (net10.0)
+**Status:** Not Started
+**Dependencies:** Krutaka.Core, YamlDotNet
+
+Markdown-based skill system.
+
+| Type | Description |
+|---|---|
+| `SkillRegistry` | Metadata loading + full content on demand |
+| `SkillLoader` | YAML frontmatter parser |
+| `SkillMetadata` | Name, Description, FilePath, AllowedTools, Model, Version |
+| `ServiceExtensions` | `AddSkills(services, options)` DI registration |
+
+### Krutaka.Console (net10.0-windows)
+**Status:** Not Started
+**Dependencies:** All Krutaka projects, Spectre.Console, Markdig, Serilog, Meziantou CredentialManager
+
+Entry point and console UI.
+
+| Type | Description |
+|---|---|
+| `Program` | Composition root, DI wiring, main loop |
+| `ConsoleUI` | Streaming display, input prompt, tool indicators |
+| `MarkdownRenderer` | Markdig AST → Spectre.Console markup |
+| `ApprovalHandler` | Human-in-the-loop approval prompts |
+| `SetupWizard` | First-run API key configuration |
+| `SecretsProvider` | Windows Credential Manager read/write |
+
+## Project Dependency Graph
+
+```mermaid
+graph TD
+  Console["Krutaka.Console"] --> Core["Krutaka.Core"]
+  Console --> AI["Krutaka.AI"]
+  Console --> Tools["Krutaka.Tools"]
+  Console --> Memory["Krutaka.Memory"]
+  Console --> Skills["Krutaka.Skills"]
+  AI --> Core
+  Tools --> Core
+  Memory --> Core
+  Skills --> Core
+```
+
+**Rule:** Core has no project references. AI, Tools, Memory, Skills reference only Core. Console references all.
+
+## Data Flow: Agent Turn
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant UI as ConsoleUI
+  participant Orch as AgentOrchestrator
+  participant Claude as Claude API
+  participant Tools as ToolRegistry
+  participant Policy as SecurityPolicy
+
+  User->>UI: Input prompt
+  UI->>Orch: RunAsync(prompt)
+  Orch->>Claude: Messages.CreateStreaming()
+  Claude-->>Orch: SSE stream (TextDelta events)
+  Orch-->>UI: yield TextDelta
+  Claude-->>Orch: stop_reason: tool_use
+  Orch->>Policy: IsApprovalRequired(toolName)
+  Policy-->>Orch: true
+  Orch-->>UI: yield HumanApprovalRequired
+  UI->>User: Approval prompt
+  User->>UI: Approved
+  Orch->>Policy: ValidateCommand / ValidatePath
+  Orch->>Tools: ExecuteAsync(toolName, input)
+  Tools-->>Orch: result
+  Orch->>Claude: tool_result message
+  Claude-->>Orch: SSE stream (final response)
+  Orch-->>UI: yield FinalResponse
+  UI->>User: Rendered Markdown response
+```
+
+## Storage Layout
+
+```
+~/.krutaka/
+├── config.json                         # Global settings
+├── MEMORY.md                           # Curated persistent memory
+├── memory.db                           # SQLite (FTS5 + future vectors)
+├── logs/
+│   ├── 2026-02-10.md                   # Daily interaction log
+│   └── audit-2026-02-10.json           # Structured audit log (Serilog)
+├── sessions/
+│   └── C-Users-chethandvg-project/     # Path-encoded project directory
+│       ├── {guid}.jsonl                # Session events
+│       └── {guid}.meta.json            # Session metadata
+└── skills/                             # User-installed skills
+    └── code-reviewer/SKILL.md
+```
