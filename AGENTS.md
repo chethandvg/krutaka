@@ -25,6 +25,37 @@ After every task, update the following files **only with necessary changes**:
 3. **Do NOT create new documentation files** unless the issue explicitly says to.
 4. **Do NOT update `README.md`** unless the issue explicitly says to.
 
+## Build and Test Commands
+
+```bash
+# Build entire solution
+dotnet build
+
+# Build specific project
+dotnet build src/Krutaka.Console
+
+# Clean build artifacts
+dotnet clean
+
+# Run all tests
+dotnet test
+
+# Run tests for specific project
+dotnet test tests/Krutaka.Tools.Tests
+
+# Run tests with detailed output
+dotnet test --logger "console;verbosity=detailed"
+
+# Run specific test by filter
+dotnet test --filter "FullyQualifiedName~SecurityPolicy"
+
+# Format code to match .editorconfig
+dotnet format
+
+# Restore NuGet packages
+dotnet restore
+```
+
 ## Coding Standards
 
 - **Language:** C# 13 (.NET 10, LangVersion `latest`)

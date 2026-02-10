@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Krutaka.AI/Krutaka.AI.csproj" />
+    <Project Path="src/Krutaka.Console/Krutaka.Console.csproj" />
+    <Project Path="src/Krutaka.Core/Krutaka.Core.csproj" />
+    <Project Path="src/Krutaka.Memory/Krutaka.Memory.csproj" />
+    <Project Path="src/Krutaka.Skills/Krutaka.Skills.csproj" />
+    <Project Path="src/Krutaka.Tools/Krutaka.Tools.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Krutaka.AI.Tests/Krutaka.AI.Tests.csproj" />
+    <Project Path="tests/Krutaka.Core.Tests/Krutaka.Core.Tests.csproj" />
+    <Project Path="tests/Krutaka.Memory.Tests/Krutaka.Memory.Tests.csproj" />
+    <Project Path="tests/Krutaka.Tools.Tests/Krutaka.Tools.Tests.csproj" />
+  </Folder>
+</Solution>

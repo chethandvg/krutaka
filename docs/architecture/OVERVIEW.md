@@ -35,7 +35,8 @@ flowchart LR
 ## Component Map
 
 ### Krutaka.Core (net10.0)
-**Status:** Not Started
+**Status:** Scaffolded (Issue #5)  
+**Path:** `src/Krutaka.Core/`  
 **Dependencies:** None (zero NuGet packages)
 
 The shared contract layer. Defines all interfaces that other projects implement and all model types used across the solution.
@@ -58,7 +59,8 @@ The shared contract layer. Defines all interfaces that other projects implement 
 | `ContextCompactor` | Token counting + conversation summarization |
 
 ### Krutaka.AI (net10.0)
-**Status:** Not Started
+**Status:** Scaffolded (Issue #5)  
+**Path:** `src/Krutaka.AI/`  
 **Dependencies:** Krutaka.Core, Anthropic SDK, Microsoft.Extensions.Http.Resilience
 
 Claude API integration layer.
@@ -72,7 +74,8 @@ Claude API integration layer.
 **Resilience pipeline:** Exponential backoff retry (5xx, timeouts), `retry-after` on 429, circuit breaker, 120s request timeout.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** Not Started
+**Status:** Scaffolded (Issue #5)  
+**Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
 Tool implementations with security policy enforcement.
@@ -93,7 +96,8 @@ Tool implementations with security policy enforcement.
 | `ToolRegistry` | — | Collection + dispatch |
 
 ### Krutaka.Memory (net10.0)
-**Status:** Not Started
+**Status:** Scaffolded (Issue #5)  
+**Path:** `src/Krutaka.Memory/`  
 **Dependencies:** Krutaka.Core, Microsoft.Data.Sqlite
 
 Persistence layer for sessions, memory search, and daily logs.
@@ -109,7 +113,8 @@ Persistence layer for sessions, memory search, and daily logs.
 | `ServiceExtensions` | `AddMemory(services, options)` DI registration |
 
 ### Krutaka.Skills (net10.0)
-**Status:** Not Started
+**Status:** Scaffolded (Issue #5)  
+**Path:** `src/Krutaka.Skills/`  
 **Dependencies:** Krutaka.Core, YamlDotNet
 
 Markdown-based skill system.
@@ -122,7 +127,8 @@ Markdown-based skill system.
 | `ServiceExtensions` | `AddSkills(services, options)` DI registration |
 
 ### Krutaka.Console (net10.0-windows)
-**Status:** Not Started
+**Status:** Scaffolded (Issue #5)  
+**Path:** `src/Krutaka.Console/`  
 **Dependencies:** All Krutaka projects, Spectre.Console, Markdig, Serilog, Meziantou CredentialManager
 
 Entry point and console UI.
