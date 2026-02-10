@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Krutaka.AI.Tests/Krutaka.AI.Tests.csproj" />
+    <Project Path="tests/Krutaka.Console.Tests/Krutaka.Console.Tests.csproj" />
     <Project Path="tests/Krutaka.Core.Tests/Krutaka.Core.Tests.csproj" />
     <Project Path="tests/Krutaka.Memory.Tests/Krutaka.Memory.Tests.csproj" />
     <Project Path="tests/Krutaka.Tools.Tests/Krutaka.Tools.Tests.csproj" />
