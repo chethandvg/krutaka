@@ -5,6 +5,21 @@ using Spectre.Console;
 namespace Krutaka.Console;
 
 /// <summary>
+/// Represents the available user choices for approval prompts.
+/// </summary>
+internal enum ApprovalChoice
+{
+    /// <summary>Approve this single operation.</summary>
+    Yes,
+    /// <summary>Deny this operation.</summary>
+    No,
+    /// <summary>Approve all operations of this type for the session.</summary>
+    Always,
+    /// <summary>View full content before deciding.</summary>
+    View
+}
+
+/// <summary>
 /// Handles human-in-the-loop approval for destructive tool operations.
 /// Displays tool information, previews content, and captures user decisions.
 /// </summary>
@@ -267,11 +282,17 @@ internal sealed class ApprovalHandler
         if (toolName == "run_command")
         {
             var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
+                new SelectionPrompt<ApprovalChoice>()
                     .Title("Allow this operation?")
-                    .AddChoices("[green][Y]es - Execute this command[/]", "[red][N]o - Deny this command[/]"));
+                    .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No)
+                    .UseConverter(choice => choice switch
+                    {
+                        ApprovalChoice.Yes => "[green][Y]es - Execute this command[/]",
+                        ApprovalChoice.No => "[red][N]o - Deny this command[/]",
+                        _ => choice.ToString()
+                    }));
 
-            return choice.Contains("Yes", StringComparison.Ordinal)
+            return choice == ApprovalChoice.Yes
                 ? new ApprovalDecision(true, false)
                 : new ApprovalDecision(false, false);
         }
@@ -284,40 +305,35 @@ internal sealed class ApprovalHandler
 
             if (lines.Length > 50)
             {
-                var choices = new List<string>
-                {
-                    "[green][Y]es - Write this file[/]",
-                    "[red][N]o - Deny this operation[/]",
-                    "[yellow][A]lways - Approve all write_file operations this session[/]",
-                    "[cyan][V]iew - View full content[/]"
-                };
-
                 while (true)
                 {
                     var choice = AnsiConsole.Prompt(
-                        new SelectionPrompt<string>()
+                        new SelectionPrompt<ApprovalChoice>()
                             .Title("Allow this operation?")
-                            .AddChoices(choices));
+                            .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always, ApprovalChoice.View)
+                            .UseConverter(c => c switch
+                            {
+                                ApprovalChoice.Yes => "[green][Y]es - Write this file[/]",
+                                ApprovalChoice.No => "[red][N]o - Deny this operation[/]",
+                                ApprovalChoice.Always => "[yellow][A]lways - Approve all write_file operations this session[/]",
+                                ApprovalChoice.View => "[cyan][V]iew - View full content[/]",
+                                _ => c.ToString()
+                            }));
 
-                    if (choice.Contains("View", StringComparison.Ordinal))
+                    switch (choice)
                     {
-                        DisplayFullContent(content ?? "");
-                        continue;
-                    }
-
-                    if (choice.Contains("Yes", StringComparison.Ordinal))
-                    {
-                        return new ApprovalDecision(true, false);
-                    }
-
-                    if (choice.Contains("Always", StringComparison.Ordinal))
-                    {
-                        return new ApprovalDecision(true, true);
-                    }
-
-                    if (choice.Contains("No", StringComparison.Ordinal))
-                    {
-                        return new ApprovalDecision(false, false);
+                        case ApprovalChoice.View:
+                            DisplayFullContent(content ?? "");
+                            continue;
+                        case ApprovalChoice.Yes:
+                            return new ApprovalDecision(true, false);
+                        case ApprovalChoice.Always:
+                            return new ApprovalDecision(true, true);
+                        case ApprovalChoice.No:
+                            return new ApprovalDecision(false, false);
+                        default:
+                            // Should never happen, but return denial as safe default
+                            return new ApprovalDecision(false, false);
                     }
                 }
             }
@@ -325,24 +341,23 @@ internal sealed class ApprovalHandler
 
         // For other tools (write_file with <= 50 lines, edit_file), offer Yes/No/Always
         var standardChoice = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
+            new SelectionPrompt<ApprovalChoice>()
                 .Title("Allow this operation?")
-                .AddChoices(
-                    "[green][Y]es - Approve this operation[/]",
-                    "[red][N]o - Deny this operation[/]",
-                    "[yellow][A]lways - Approve all operations of this type this session[/]"));
+                .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always)
+                .UseConverter(c => c switch
+                {
+                    ApprovalChoice.Yes => "[green][Y]es - Approve this operation[/]",
+                    ApprovalChoice.No => "[red][N]o - Deny this operation[/]",
+                    ApprovalChoice.Always => "[yellow][A]lways - Approve all operations of this type this session[/]",
+                    _ => c.ToString()
+                }));
 
-        if (standardChoice.Contains("Yes", StringComparison.Ordinal))
+        return standardChoice switch
         {
-            return new ApprovalDecision(true, false);
-        }
-
-        if (standardChoice.Contains("Always", StringComparison.Ordinal))
-        {
-            return new ApprovalDecision(true, true);
-        }
-        
-        return new ApprovalDecision(false, false);
+            ApprovalChoice.Yes => new ApprovalDecision(true, false),
+            ApprovalChoice.Always => new ApprovalDecision(true, true),
+            _ => new ApprovalDecision(false, false)
+        };
     }
 
     /// <summary>
