@@ -257,7 +257,9 @@ public class EditFileTool : ToolBase
     private static string GenerateDiff(string[] oldLines, string[] newLines, int startLine, int endLine)
     {
         var diff = new StringBuilder();
-        diff.AppendLine(CultureInfo.InvariantCulture, $"@@ -{startLine},{endLine - startLine + 1} +{startLine},{newLines.Length - oldLines.Length + (endLine - startLine + 1)} @@");
+        var removedCount = endLine - startLine + 1;
+        var addedCount = 1; // We're adding one line of new content
+        diff.AppendLine(CultureInfo.InvariantCulture, $"@@ -{startLine},{removedCount} +{startLine},{addedCount} @@");
 
         // Show removed lines
         for (var i = startLine - 1; i < endLine && i < oldLines.Length; i++)

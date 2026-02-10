@@ -128,7 +128,6 @@ public class WriteFileTool : ToolBase
                 return $"Error: I/O error writing file: '{path}' - {ex.Message}";
             }
 
-            var action = File.Exists(validatedPath) ? "created" : "overwritten";
             return $"Successfully wrote file: '{path}' ({content.Length} characters)";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
