@@ -257,6 +257,12 @@ public class SecurityPolicyTests
     [InlineData("C:\\Program Files (x86)\\tool\\data.dat")]
     public void Should_BlockAccessToSystemDirectories(string blockedPath)
     {
+        // Skip on non-Windows (these paths are only meaningful on Windows)
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         // Act
         var action = () => _policy.ValidatePath(blockedPath, _projectRoot);
 

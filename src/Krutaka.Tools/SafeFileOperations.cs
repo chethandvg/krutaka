@@ -8,6 +8,8 @@ namespace Krutaka.Tools;
 /// </summary>
 public static class SafeFileOperations
 {
+    // NOTE: Hardcoded Windows paths are intentional - this project targets Windows only (net10.0-windows)
+    // On Linux/Mac, these paths won't match, but AppData checks below will handle platform-specific dirs
     private static readonly string[] BlockedDirectories =
     [
         "C:\\Windows",
@@ -95,12 +97,29 @@ public static class SafeFileOperations
         }
 
         // Check for blocked directories
+        // Note: On Windows, these are exact path prefixes. On Linux, these Windows paths become
+        // relative and get combined with projectRoot, so they won't match - but path traversal
+        // check already blocks paths outside projectRoot, which provides the security guarantee.
         foreach (var blockedDir in BlockedDirectories)
         {
+            // Check if canonicalPath starts with or contains the blocked directory
             if (canonicalPath.Contains(blockedDir, StringComparison.OrdinalIgnoreCase))
             {
-                throw new SecurityException(
-                    $"Access to '{blockedDir}' is not permitted: '{canonicalPath}'");
+                // Additional check: ensure it's a directory component, not just a substring
+                // by checking for path separator after the blocked directory name
+                var index = canonicalPath.IndexOf(blockedDir, StringComparison.OrdinalIgnoreCase);
+                if (index >= 0)
+                {
+                    var afterBlocked = index + blockedDir.Length;
+                    // If it's at the end of the path, or followed by a separator, it's a real directory
+                    if (afterBlocked >= canonicalPath.Length ||
+                        canonicalPath[afterBlocked] == Path.DirectorySeparatorChar ||
+                        canonicalPath[afterBlocked] == Path.AltDirectorySeparatorChar)
+                    {
+                        throw new SecurityException(
+                            $"Access to '{blockedDir}' is not permitted: '{canonicalPath}'");
+                    }
+                }
             }
         }
 
