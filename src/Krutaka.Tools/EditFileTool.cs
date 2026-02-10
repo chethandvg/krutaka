@@ -152,7 +152,9 @@ public class EditFileTool : ToolBase
                 }
                 else
                 {
-                    lineEnding = Environment.NewLine; // Default for empty/single-line files
+                    // Default to LF for empty or single-line files without line endings
+                    // This ensures consistent behavior across platforms
+                    lineEnding = "\n";
                 }
 
                 // Check if file has trailing newline
@@ -298,6 +300,9 @@ public class EditFileTool : ToolBase
         // Calculate number of lines added: newLength = oldLength - removedCount + addedCount
         // => addedCount = newLength - oldLength + removedCount
         var addedCount = newLines.Length - oldLines.Length + removedCount;
+        
+        // This should never be negative with correct line range validation,
+        // but we clamp to 0 for defensive programming in case of edge cases
         if (addedCount < 0)
         {
             addedCount = 0;
