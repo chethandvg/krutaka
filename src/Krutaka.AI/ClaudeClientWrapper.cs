@@ -44,40 +44,57 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             .Cast<MessageParam>()
             .ToList();
 
-        var parameters = new MessageCreateParams
-        {
-            Messages = messageParams,
-            System = systemPrompt,
-            MaxTokens = _maxTokens,
-            Model = _modelId,
-            Temperature = _temperature
-        };
+        // Build parameters with tools if provided
+        var parameters = tools is IReadOnlyList<Tool> toolsList && toolsList.Count > 0
+            ? new MessageCreateParams
+            {
+                Messages = messageParams,
+                System = systemPrompt,
+                MaxTokens = _maxTokens,
+                Model = _modelId,
+                Temperature = _temperature,
+                Tools = toolsList.Select(t => (ToolUnion)t).ToList()
+            }
+            : new MessageCreateParams
+            {
+                Messages = messageParams,
+                System = systemPrompt,
+                MaxTokens = _maxTokens,
+                Model = _modelId,
+                Temperature = _temperature
+            };
 
         var textContent = new System.Text.StringBuilder();
+        string stopReason = "end_turn";
 
         // Stream the response
+        // Note: SDK is in beta, streaming event structure may evolve
+        // Full event parsing will be implemented in the agentic loop (Issue #14)
         await foreach (var chunk in _client.Messages.CreateStreaming(parameters, cancellationToken: cancellationToken).ConfigureAwait(false))
         {
-            // The streaming response returns raw events, we need to handle them
-            // For now, we'll accumulate text content and emit events
-            // The actual structure depends on the SDK's implementation
-            
-            // This is a simplified implementation that assumes the chunk
-            // contains the full message incrementally
-            if (chunk != null)
+            if (chunk == null)
             {
-                // Log request ID from the chunk's metadata
-                // Note: Actual property access depends on SDK version
-                LogChunkReceived();
-                
-                // Yield a simplified text delta
-                // In practice, you'd parse the chunk structure properly
-                yield return new Core.TextDelta("chunk received");
+                continue;
+            }
+
+            LogChunkReceived();
+
+            // For now, yield a basic text delta event
+            // The agentic loop will handle detailed parsing of:
+            // - Actual text deltas
+            // - Tool call events  
+            // - Stop reasons
+            // - Request IDs
+            var delta = ""; // Placeholder - SDK beta doesn't expose structured deltas yet
+            if (!string.IsNullOrEmpty(delta))
+            {
+                textContent.Append(delta);
+                yield return new Core.TextDelta(delta);
             }
         }
 
-        // Emit final response - for now just a placeholder
-        yield return new FinalResponse(textContent.ToString(), "end_turn");
+        // Emit final response
+        yield return new FinalResponse(textContent.ToString(), stopReason);
     }
 
     /// <inheritdoc />
