@@ -59,6 +59,17 @@ internal sealed class ApprovalHandler
     }
 
     /// <summary>
+    /// Creates a denial message to send back to Claude when a tool is denied.
+    /// This is sent as a tool result (not an error) so Claude can adjust its approach.
+    /// </summary>
+    /// <param name="toolName">The name of the tool that was denied.</param>
+    /// <returns>A descriptive message explaining the denial.</returns>
+    public static string CreateDenialMessage(string toolName)
+    {
+        return $"The user denied execution of {toolName}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
+    }
+
+    /// <summary>
     /// Displays the approval prompt with tool information and input parameters.
     /// </summary>
     private static void DisplayApprovalPrompt(string toolName, JsonElement input)
