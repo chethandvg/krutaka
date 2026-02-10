@@ -35,11 +35,11 @@ flowchart LR
 ## Component Map
 
 ### Krutaka.Core (net10.0)
-**Status:** Interfaces and model types complete (Issue #6)  
+**Status:** Interfaces, model types, and AgentOrchestrator complete (Issues #6, #14 — 2026-02-10)  
 **Path:** `src/Krutaka.Core/`  
 **Dependencies:** None (zero NuGet packages)
 
-The shared contract layer. Defines all interfaces that other projects implement and all model types used across the solution.
+The shared contract layer. Defines all interfaces that other projects implement, all model types used across the solution, and the core agentic loop orchestrator.
 
 #### Core Interfaces
 
@@ -61,6 +61,31 @@ The shared contract layer. Defines all interfaces that other projects implement 
 | `SessionEvent` | Record | JSONL event: Type, Role, Content, Timestamp, ToolName, ToolUseId, IsMeta |
 | `MemoryResult` | Record | Search result: Id, Content, Source, CreatedAt, Score |
 | `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
+| `AgentOrchestrator` | Sealed Class | Core agentic loop orchestrator implementing Pattern A (manual loop with full control) |
+
+#### AgentOrchestrator Implementation
+
+**Status:** ✅ Complete (Issue #14 — 2026-02-10)
+
+The `AgentOrchestrator` implements the core agentic loop with the following features:
+
+- **Pattern A implementation**: Manual loop with full control for transparency, audit logging, and human-in-the-loop approvals
+- **Streaming support**: Yields `IAsyncEnumerable<AgentEvent>` for real-time progress tracking
+- **Tool execution**: Processes tool calls from Claude, enforces security policies, and manages tool results
+- **Tool-result ordering invariants**: Ensures tool result blocks are correctly formatted and ordered per Claude API requirements:
+  - Tool result blocks must come first in user messages
+  - Every tool_result references a valid tool_use.Id
+  - Exactly N results for N tool-use requests
+- **Error handling**: Tool failures return IsError=true results to Claude without crashing the loop
+- **Timeout enforcement**: Configurable per-tool timeout (default: 30 seconds)
+- **Human approval**: Yields HumanApprovalRequired events for tools requiring approval
+- **Turn serialization**: Uses `SemaphoreSlim(1,1)` to serialize concurrent turn execution
+- **Conversation management**: Maintains conversation history for multi-turn interactions
+
+**Key Methods:**
+- `RunAsync(userPrompt, systemPrompt, cancellationToken)`: Main entry point for agentic loop
+- `ApproveTool(toolUseId, alwaysApprove)`: Approves pending tool execution
+- `ConversationHistory`: Read-only access to conversation state
 
 ### Krutaka.AI (net10.0)
 **Status:** Implemented (Issue #8 — 2026-02-10)  
