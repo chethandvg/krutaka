@@ -21,7 +21,7 @@
 | 1 | Krutaka v0.1.0 verification | Epic | 🔴 Not Started | — |
 | 2 | Initialize documentation framework & Copilot instructions | 0 | 🟢 Complete | 2026-02-10 |
 | 3 | Create security threat model documentation | 0 | 🟢 Complete | 2026-02-10 |
-| 5 | Scaffold .NET 10 solution and build infrastructure | 1 | 🔴 Not Started | — |
+| 5 | Scaffold .NET 10 solution and build infrastructure | 1 | 🟢 Complete | 2026-02-10 |
 | 6 | Implement core interfaces and model types | 1 | 🔴 Not Started | — |
 | 7 | Implement secrets management (Credential Manager) | 1 | 🔴 Not Started | — |
 | 8 | Implement Claude API client wrapper | 1 | 🔴 Not Started | — |
