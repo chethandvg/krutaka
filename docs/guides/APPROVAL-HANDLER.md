@@ -75,7 +75,8 @@ When a tool is denied:
 using Krutaka.Console;
 
 // Create the handler (maintains session state)
-var handler = new ApprovalHandler();
+// projectRoot is the allowed root directory for file access
+var handler = new ApprovalHandler(projectRoot: "/path/to/project");
 
 // Request approval for a tool invocation
 var toolInput = @"{

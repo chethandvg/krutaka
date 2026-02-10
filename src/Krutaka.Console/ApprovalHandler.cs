@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Security;
 using System.Text.Json;
+using Krutaka.Tools;
 using Spectre.Console;
 
 namespace Krutaka.Console;
@@ -26,7 +28,18 @@ internal enum ApprovalChoice
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "Class will be instantiated for human-in-the-loop approval flow integration")]
 internal sealed class ApprovalHandler
 {
-    private readonly Dictionary<string, bool> _alwaysApproveCache = [];
+    private readonly Dictionary<string, bool> _alwaysApproveCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string _projectRoot;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ApprovalHandler"/> class.
+    /// </summary>
+    /// <param name="projectRoot">The project root directory for path validation.</param>
+    public ApprovalHandler(string projectRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+        _projectRoot = projectRoot;
+    }
 
     /// <summary>
     /// Requests approval for a tool invocation.
@@ -42,19 +55,20 @@ internal sealed class ApprovalHandler
         // Check if user previously selected "Always approve" for this tool
         if (_alwaysApproveCache.ContainsKey(toolName))
         {
-            AnsiConsole.MarkupLine($"[dim]⚙ Auto-approving {toolName} (user selected 'Always' for this session)[/]");
-            return new ApprovalDecision(true, false);
+            AnsiConsole.MarkupLine($"[dim]⚙ Auto-approving {Markup.Escape(toolName)} (user selected 'Always' for this session)[/]");
+            return new ApprovalDecision(true, true);
         }
 
         // Parse the input JSON
         JsonElement inputElement;
         try
         {
-            inputElement = JsonDocument.Parse(input).RootElement;
+            using var doc = JsonDocument.Parse(input);
+            inputElement = doc.RootElement.Clone();
         }
         catch (JsonException ex)
         {
-            AnsiConsole.MarkupLine($"[red]✗ Failed to parse tool input: {ex.Message}[/]");
+            AnsiConsole.MarkupLine($"[red]✗ Failed to parse tool input: {Markup.Escape(ex.Message)}[/]");
             return new ApprovalDecision(false, false);
         }
 
@@ -87,14 +101,15 @@ internal sealed class ApprovalHandler
     /// <summary>
     /// Displays the approval prompt with tool information and input parameters.
     /// </summary>
-    private static void DisplayApprovalPrompt(string toolName, JsonElement input)
+    private void DisplayApprovalPrompt(string toolName, JsonElement input)
     {
         AnsiConsole.WriteLine();
         
+        var escapedToolName = Markup.Escape(toolName);
         var panel = new Panel(BuildPromptContent(toolName, input))
             .Border(BoxBorder.Rounded)
             .BorderColor(GetRiskColor(toolName))
-            .Header($"[bold]{GetRiskIcon(toolName)} Claude wants to use: {toolName}[/]");
+            .Header($"[bold]{GetRiskIcon(toolName)} Claude wants to use: {escapedToolName}[/]");
 
         AnsiConsole.Write(panel);
         AnsiConsole.WriteLine();
@@ -103,7 +118,7 @@ internal sealed class ApprovalHandler
     /// <summary>
     /// Builds the content for the approval prompt based on the tool and its input.
     /// </summary>
-    private static string BuildPromptContent(string toolName, JsonElement input)
+    private string BuildPromptContent(string toolName, JsonElement input)
     {
         var content = new System.Text.StringBuilder();
 
@@ -175,7 +190,7 @@ internal sealed class ApprovalHandler
     /// <summary>
     /// Builds the prompt content for edit_file tool.
     /// </summary>
-    private static void BuildEditFilePrompt(System.Text.StringBuilder content, JsonElement input)
+    private void BuildEditFilePrompt(System.Text.StringBuilder content, JsonElement input)
     {
         var path = input.TryGetProperty("path", out var pathProp) ? pathProp.GetString() : "(not specified)";
         var newContent = input.TryGetProperty("content", out var contentProp) ? contentProp.GetString() : "";
@@ -190,34 +205,48 @@ internal sealed class ApprovalHandler
         // Show diff preview
         content.AppendLine("[bold]Changes to be made:[/]");
         
-        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+        if (!string.IsNullOrEmpty(path))
         {
             try
             {
-                var fileLines = File.ReadAllLines(path);
+                // Validate the path using SafeFileOperations before accessing the file
+                var validatedPath = SafeFileOperations.ValidatePath(path, _projectRoot);
                 
-                // Show lines being replaced
-                if (startLine > 0 && endLine > 0 && startLine <= fileLines.Length)
+                if (File.Exists(validatedPath))
                 {
-                    content.AppendLine("  [red]- Lines to remove:[/]");
-                    var actualEndLine = Math.Min(endLine, fileLines.Length);
-                    for (int i = startLine - 1; i < actualEndLine; i++)
-                    {
-                        content.AppendLine(CultureInfo.InvariantCulture, $"  [red]- {Markup.Escape(fileLines[i])}[/]");
-                    }
+                    var fileLines = File.ReadAllLines(validatedPath);
                     
-                    content.AppendLine();
-                    content.AppendLine("  [green]+ New content:[/]");
-                    var newLines = newContent?.Split('\n') ?? [];
-                    foreach (var line in newLines)
+                    // Show lines being replaced
+                    if (startLine > 0 && endLine > 0 && startLine <= fileLines.Length)
                     {
-                        content.AppendLine(CultureInfo.InvariantCulture, $"  [green]+ {Markup.Escape(line)}[/]");
+                        content.AppendLine("  [red]- Lines to remove:[/]");
+                        var actualEndLine = Math.Min(endLine, fileLines.Length);
+                        for (int i = startLine - 1; i < actualEndLine; i++)
+                        {
+                            content.AppendLine(CultureInfo.InvariantCulture, $"  [red]- {Markup.Escape(fileLines[i])}[/]");
+                        }
+                        
+                        content.AppendLine();
+                        content.AppendLine("  [green]+ New content:[/]");
+                        var newLines = newContent?.Split('\n') ?? [];
+                        foreach (var line in newLines)
+                        {
+                            content.AppendLine(CultureInfo.InvariantCulture, $"  [green]+ {Markup.Escape(line)}[/]");
+                        }
+                    }
+                    else
+                    {
+                        content.AppendLine("  [yellow](line range is outside file bounds)[/]");
                     }
                 }
                 else
                 {
-                    content.AppendLine("  [yellow](line range is outside file bounds)[/]");
+                    content.AppendLine("  [yellow](file does not exist)[/]");
                 }
+            }
+            catch (SecurityException ex)
+            {
+                content.AppendLine(CultureInfo.InvariantCulture, $"  [yellow](path validation failed: {Markup.Escape(ex.Message)})[/]");
             }
             catch (IOException ex)
             {
@@ -230,7 +259,7 @@ internal sealed class ApprovalHandler
         }
         else
         {
-            content.AppendLine("  [yellow](file does not exist or path not specified)[/]");
+            content.AppendLine("  [yellow](path not specified)[/]");
         }
     }
 
@@ -269,7 +298,7 @@ internal sealed class ApprovalHandler
                 ? prop.Value.GetString() 
                 : prop.Value.ToString();
             
-            content.AppendLine(CultureInfo.InvariantCulture, $"  [cyan]{prop.Name}:[/] {Markup.Escape(valueStr ?? "(null)")}");
+            content.AppendLine(CultureInfo.InvariantCulture, $"  [cyan]{Markup.Escape(prop.Name)}:[/] {Markup.Escape(valueStr ?? "(null)")}");
         }
     }
 

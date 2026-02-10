@@ -12,7 +12,7 @@ public class ApprovalHandlerTests
     public void RequestApproval_WithNullToolName_ThrowsArgumentNullException()
     {
         // Arrange
-        var handler = new ApprovalHandler();
+        var handler = new ApprovalHandler(Environment.CurrentDirectory);
         var input = "{}";
 
         // Act & Assert
@@ -24,7 +24,7 @@ public class ApprovalHandlerTests
     public void RequestApproval_WithEmptyToolName_ThrowsArgumentException()
     {
         // Arrange
-        var handler = new ApprovalHandler();
+        var handler = new ApprovalHandler(Environment.CurrentDirectory);
         var input = "{}";
 
         // Act & Assert
@@ -36,7 +36,7 @@ public class ApprovalHandlerTests
     public void RequestApproval_WithWhitespaceToolName_ThrowsArgumentException()
     {
         // Arrange
-        var handler = new ApprovalHandler();
+        var handler = new ApprovalHandler(Environment.CurrentDirectory);
         var input = "{}";
 
         // Act & Assert
@@ -48,7 +48,7 @@ public class ApprovalHandlerTests
     public void RequestApproval_WithNullInput_ThrowsArgumentNullException()
     {
         // Arrange
-        var handler = new ApprovalHandler();
+        var handler = new ApprovalHandler(Environment.CurrentDirectory);
 
         // Act & Assert
         var act = () => handler.RequestApproval("write_file", null!);
@@ -59,7 +59,7 @@ public class ApprovalHandlerTests
     public void RequestApproval_WithEmptyInput_ThrowsArgumentException()
     {
         // Arrange
-        var handler = new ApprovalHandler();
+        var handler = new ApprovalHandler(Environment.CurrentDirectory);
 
         // Act & Assert
         var act = () => handler.RequestApproval("write_file", "");
@@ -70,7 +70,7 @@ public class ApprovalHandlerTests
     public void RequestApproval_WithInvalidJson_ReturnsDenied()
     {
         // Arrange
-        var handler = new ApprovalHandler();
+        var handler = new ApprovalHandler(Environment.CurrentDirectory);
         var invalidJson = "{ invalid json }";
 
         // Act
