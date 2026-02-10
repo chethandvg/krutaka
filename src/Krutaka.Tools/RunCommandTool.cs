@@ -119,59 +119,116 @@ public class RunCommandTool : ToolBase
 
             var scrubbedEnvironment = _securityPolicy.ScrubEnvironment(environment);
 
-            // Execute command with CliWrap and timeout enforcement
+            // Execute command with CliWrap streaming API and Job Object sandboxing
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
             try
             {
-                // Note: Job Object sandboxing with CliWrap is not straightforward because:
-                // 1. CliWrap doesn't expose the process until after it starts
-                // 2. We need to assign the process to the job BEFORE it starts executing
-                // 3. The BufferedCommandTask doesn't give us access to the underlying Process
-                //
-                // For production use, we would need to either:
-                // - Use CliWrap's PipeTarget to stream output and manually manage the process
-                // - Or use Process class directly with job assignment before process start
-                //
-                // For now, we rely on timeout enforcement via CancellationToken (30 seconds)
-                // Memory limits would require a different execution strategy
-
-                // Configure command with CliWrap
-                var command = Cli.Wrap(executable)
-                    .WithArguments(arguments)
-                    .WithWorkingDirectory(workingDirectory)
-                    .WithEnvironmentVariables(scrubbedEnvironment.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)) // Convert to Dictionary for CliWrap
-                    .WithValidation(CommandResultValidation.None); // We'll handle exit codes ourselves
-
-                // Execute command and capture output
-                var result = await command.ExecuteBufferedAsync(linkedCts.Token);
-
-                // Format output with clear labeling
-                var output = new StringBuilder();
-                output.AppendLine(CultureInfo.InvariantCulture, $"Command executed: {executable} {string.Join(" ", arguments)}");
-                output.AppendLine(CultureInfo.InvariantCulture, $"Working directory: {workingDirectory}");
-                output.AppendLine(CultureInfo.InvariantCulture, $"Exit code: {result.ExitCode}");
-                output.AppendLine();
-
-                if (!string.IsNullOrWhiteSpace(result.StandardOutput))
+                // Create Job Object for process sandboxing (Windows only)
+                JobObject? job = null;
+#pragma warning disable CA1031 // Do not catch general exception types - Job Object creation may fail, continue without it
+                try
                 {
-                    output.AppendLine("=== STDOUT ===");
-                    output.AppendLine(result.StandardOutput);
-                }
-
-                if (!string.IsNullOrWhiteSpace(result.StandardError))
-                {
-                    if (!string.IsNullOrWhiteSpace(result.StandardOutput))
+                    if (OperatingSystem.IsWindows())
                     {
-                        output.AppendLine();
+                        job = new JobObject();
+                        
+                        // Set Job Object limits:
+                        // - Memory limit: 256 MB
+                        // - CPU time limit: 30 seconds
+                        // - Kill on job close: prevents orphaned processes
+                        job.SetLimits(new JobObjectLimits
+                        {
+                            Flags = JobObjectLimitFlags.KillOnJobClose | JobObjectLimitFlags.DieOnUnhandledException,
+                            ProcessMemoryLimit = (UIntPtr)(256 * 1024 * 1024), // 256 MB
+                            PerProcessUserTimeLimit = 30 * 10_000_000L // 30 seconds in 100-nanosecond units
+                        });
+                    }
+                }
+                catch (Exception)
+                {
+                    // Job Object creation may fail - continue without it
+                    job?.Dispose();
+                    job = null;
+                }
+#pragma warning restore CA1031
+
+                try
+                {
+                    // Use StringBuilder to capture stdout/stderr (same as ExecuteBufferedAsync)
+                    var stdOutBuffer = new StringBuilder();
+                    var stdErrBuffer = new StringBuilder();
+
+                    // Configure command with CliWrap using streaming API (ExecuteAsync)
+                    // This gives us access to ProcessId for Job Object assignment
+                    var command = Cli.Wrap(executable)
+                        .WithArguments(arguments)
+                        .WithWorkingDirectory(workingDirectory)
+                        .WithEnvironmentVariables(scrubbedEnvironment.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
+                        .WithValidation(CommandResultValidation.None) // We'll handle exit codes ourselves
+                        | (PipeTarget.ToStringBuilder(stdOutBuffer), PipeTarget.ToStringBuilder(stdErrBuffer));
+
+                    // Start the process
+                    var commandTask = command.ExecuteAsync(linkedCts.Token);
+
+                    // Assign process to Job Object if available (Windows only)
+                    if (job != null && OperatingSystem.IsWindows())
+                    {
+                        try
+                        {
+                            // Small delay to ensure process has started
+                            await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
+                            
+                            // Get Process object from ProcessId and assign to Job Object
+                            using var process = System.Diagnostics.Process.GetProcessById(commandTask.ProcessId);
+                            job.AssignProcess(process);
+                        }
+#pragma warning disable CA1031 // Do not catch general exception types - Job Object assignment may fail if process has already exited
+                        catch (Exception)
+                        {
+                            // Job Object assignment may fail if process has already exited
+                            // Continue execution - timeout and other controls are still in place
+                        }
+#pragma warning restore CA1031
                     }
 
-                    output.AppendLine("=== STDERR ===");
-                    output.AppendLine(result.StandardError);
-                }
+                    // Wait for command completion
+                    var result = await commandTask;
 
-                return output.ToString();
+                    // Format output with clear labeling
+                    var output = new StringBuilder();
+                    output.AppendLine(CultureInfo.InvariantCulture, $"Command executed: {executable} {string.Join(" ", arguments)}");
+                    output.AppendLine(CultureInfo.InvariantCulture, $"Working directory: {workingDirectory}");
+                    output.AppendLine(CultureInfo.InvariantCulture, $"Exit code: {result.ExitCode}");
+                    output.AppendLine();
+
+                    var stdOut = stdOutBuffer.ToString();
+                    var stdErr = stdErrBuffer.ToString();
+
+                    if (!string.IsNullOrWhiteSpace(stdOut))
+                    {
+                        output.AppendLine("=== STDOUT ===");
+                        output.AppendLine(stdOut);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(stdErr))
+                    {
+                        if (!string.IsNullOrWhiteSpace(stdOut))
+                        {
+                            output.AppendLine();
+                        }
+
+                        output.AppendLine("=== STDERR ===");
+                        output.AppendLine(stdErr);
+                    }
+
+                    return output.ToString();
+                }
+                finally
+                {
+                    job?.Dispose();
+                }
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
             {
