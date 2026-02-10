@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using Anthropic;
 using Anthropic.Models.Messages;
 using Krutaka.Core;
@@ -92,18 +91,21 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             .Cast<MessageParam>()
             .ToList();
 
-        // Note: The official Anthropic SDK v12.4.0 may not have CountTokens method yet.
-        // The API endpoint exists at /v1/messages/count_tokens
-        // For now, we'll throw NotImplementedException and implement this later
-        // or use direct HTTP call if the SDK doesn't support it
-        
-        throw new NotImplementedException(
-            "Token counting will be implemented in a future update. " +
-            "The SDK may not expose CountTokens method yet.");
-        
-        // TODO: Implement this using either:
-        // 1. SDK's CountTokens method if available
-        // 2. Direct HTTP call to /v1/messages/count_tokens endpoint
+        // Create token counting parameters
+        var parameters = new MessageCountTokensParams
+        {
+            Model = _modelId,
+            Messages = messageParams,
+            System = systemPrompt
+        };
+
+        // Call the CountTokens method
+        var response = await _client.Messages.CountTokens(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var tokenCount = (int)response.InputTokens;
+        LogTokenCount(tokenCount);
+
+        return tokenCount;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Received streaming chunk from Claude API")]

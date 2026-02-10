@@ -26,8 +26,24 @@ public static class ServiceExtensions
         // Register IClaudeClient implementation
         services.AddSingleton<IClaudeClient>(sp =>
         {
-            var apiKey = configuration["Claude:ApiKey"]
-                ?? throw new InvalidOperationException("Claude API key not found in configuration");
+            // Get API key from secure credential store
+            var secretsProvider = sp.GetService<ISecretsProvider>();
+            string apiKey;
+
+            if (secretsProvider != null)
+            {
+                apiKey = secretsProvider.GetSecret("Claude:ApiKey")
+                    ?? throw new InvalidOperationException(
+                        "Claude API key not found in secure credential store. " +
+                        "Please run the setup wizard to configure your Anthropic API key.");
+            }
+            else
+            {
+                // Fallback to configuration for testing/development
+                apiKey = configuration["Claude:ApiKey"]
+                    ?? throw new InvalidOperationException(
+                        "Claude API key not found. Please configure ISecretsProvider or set Claude:ApiKey in configuration.");
+            }
 
             var modelId = configuration["Claude:ModelId"] ?? "claude-4-sonnet-20250514";
             var maxTokens = int.Parse(configuration["Claude:MaxTokens"] ?? "8192", CultureInfo.InvariantCulture);
@@ -35,13 +51,22 @@ public static class ServiceExtensions
 
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClaudeClientWrapper>>();
 
-            // Create Anthropic client
-            var client = new AnthropicClient { ApiKey = apiKey };
+            // Create Anthropic client with retry configuration
+            // Note: The SDK has built-in retry logic (2 retries by default)
+            // We configure it to use 3 retries and 120s timeout
+            var client = new AnthropicClient 
+            { 
+                ApiKey = apiKey,
+                MaxRetries = 3,
+                Timeout = TimeSpan.FromSeconds(120)
+            };
 
             return new ClaudeClientWrapper(client, logger, modelId, maxTokens, temperature);
         });
 
-        // Add HTTP resilience pipeline for Anthropic API calls
+        // Configure HTTP resilience pipeline for general use
+        // Note: AnthropicClient has its own internal HttpClient with built-in retry logic
+        // This configuration is provided for potential future extensibility
         services.AddHttpClient("AnthropicAPI")
             .AddStandardResilienceHandler(options =>
             {

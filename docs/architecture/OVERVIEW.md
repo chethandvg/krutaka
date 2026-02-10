@@ -76,16 +76,17 @@ Claude API integration layer.
 
 **Implementation Details:**
 - Uses official Anthropic C# SDK (v12.4.0) for API calls
-- Streaming support via `IAsyncEnumerable<AgentEvent>` (simplified implementation)
-- Token counting endpoint: Marked as TODO (SDK may not expose yet)
-- HTTP resilience pipeline configured with:
-  - Exponential backoff retry (3 attempts, with jitter)
-  - Circuit breaker (30s sampling, 5 min throughput, 30s break)
-  - Request timeout (120s per attempt, 300s total)
-- Request-id logging via `ILogger` with LoggerMessage source generation
-- API key retrieved from configuration (to be integrated with SecretsProvider)
+- Streaming support via `IAsyncEnumerable<AgentEvent>` (basic implementation, to be enhanced in agentic loop)
+- Token counting via `Messages.CountTokens()` endpoint ✅ Implemented
+- HTTP resilience configured via SDK's built-in retry mechanism:
+  - SDK MaxRetries set to 3 (exponential backoff with jitter)
+  - Request timeout set to 120 seconds
+  - Additional resilience configuration available for future extensibility
+- Circuit breaker configuration available (30s sampling window, minimum 5 requests, 30s break duration)
+- Request-id logging planned for future implementation
+- API key retrieved from `ISecretsProvider` with fallback to configuration for testing
 
-**Resilience pipeline:** Exponential backoff retry (5xx, timeouts), `retry-after` on 429, circuit breaker, 120s request timeout.
+**Resilience pipeline:** SDK's built-in exponential backoff retry (3 attempts), 120s request timeout. Additional HTTP resilience pipeline configured for potential future use.
 
 ### Krutaka.Tools (net10.0-windows)
 **Status:** Scaffolded (Issue #5)  
