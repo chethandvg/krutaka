@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #12 completed - RunCommandTool)
+> **Last updated:** 2026-02-10 (Issue #12 fully complete - RunCommandTool with Job Object sandboxing)
 
 ## Phase Summary
 
@@ -28,7 +28,7 @@
 | 9 | Implement security policy enforcement (CRITICAL) | 2 | 🟢 Complete | 2026-02-10 |
 | 10 | Implement read-only file tools | 2 | 🟢 Complete | 2026-02-10 |
 | 11 | Implement write tools with approval gate | 2 | 🟢 Complete | 2026-02-10 |
-| 12 | Implement run_command with full sandboxing | 2 | ⚠️ Partially Complete | 2026-02-10 |
+| 12 | Implement run_command with full sandboxing | 2 | 🟢 Complete | 2026-02-10 |
 | 13 | Implement ToolRegistry and DI registration | 2 | 🔴 Not Started | — |
 | 14 | Implement the agentic loop (CRITICAL) | 2 | 🔴 Not Started | — |
 | 15 | Implement human-in-the-loop approval UI | 2 | 🔴 Not Started | — |
@@ -71,20 +71,25 @@ Deferred to agentic loop implementation (Issue #14):
 
 This partial implementation provides a working foundation for the agentic loop while acknowledging the official package's evolving API surface.
 
-### Issue #12 Status (Partially Complete)
+### Issue #12 Status (Complete)
 
-The `run_command` tool has been implemented with the following completed:
+The `run_command` tool has been fully implemented with all security controls:
 - ✅ `RunCommandTool` class extending `ToolBase`
 - ✅ Command validation via `CommandPolicy.ValidateCommand()` (allowlist/blocklist, metacharacters)
 - ✅ Environment variable scrubbing via `EnvironmentScrubber`
 - ✅ CliWrap integration with explicit argument arrays (no string interpolation)
 - ✅ Working directory validation via `ISecurityPolicy.ValidatePath()`
 - ✅ Timeout enforcement (30 seconds via `CancellationTokenSource`)
+- ✅ **Job Object sandboxing (memory/CPU limits)** implemented via CliWrap streaming API
+  - Memory limit: 256 MB (Windows only)
+  - CPU time limit: 30 seconds (Windows only)
+  - Kill-on-job-close (Windows only)
+  - Platform-aware with graceful fallback on non-Windows systems
 - ✅ Stdout/stderr capture with clear labeling and exit codes
 - ✅ Marked as requiring approval (already in `CommandPolicy.ToolsRequiringApproval`)
 - ✅ Comprehensive unit tests (66 tests passing, 1 skipped)
 
-Not implemented (technical limitation):
-- ❌ Job Object sandboxing (memory/CPU limits): CliWrap's `ExecuteBufferedAsync` doesn't expose the process handle before execution, preventing Job Object assignment. Full sandboxing would require using `Process` class directly or custom CliWrap integration.
+**Implementation Approach:**
+Used CliWrap's `ExecuteAsync` (streaming API) with `PipeTarget.ToStringBuilder` instead of `ExecuteBufferedAsync`. This exposes the `ProcessId` property immediately after process start, allowing Job Object assignment via `Process.GetProcessById()` and `job.AssignProcess()`.
 
-The tool provides strong security controls through command validation, environment scrubbing, and timeout enforcement. Memory/CPU limits via Job Objects would require a different process execution strategy.
+The tool provides complete security controls including memory/CPU limits on Windows, with timeout enforcement on all platforms.
