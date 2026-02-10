@@ -63,17 +63,27 @@ The shared contract layer. Defines all interfaces that other projects implement 
 | `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
 
 ### Krutaka.AI (net10.0)
-**Status:** Scaffolded (Issue #5)  
+**Status:** Implemented (Issue #8 — 2026-02-10)  
 **Path:** `src/Krutaka.AI/`  
 **Dependencies:** Krutaka.Core, Anthropic SDK, Microsoft.Extensions.Http.Resilience
 
 Claude API integration layer.
 
-| Type | Description |
-|---|---|
-| `ClaudeClientWrapper` | Wraps Anthropic SDK behind `IClaudeClient` |
-| `TokenCounter` | Token counting via `/v1/messages/count_tokens` |
-| `ServiceExtensions` | `AddClaudeAI(services, config)` DI registration |
+| Type | Description | Status |
+|---|---|---|
+| `ClaudeClientWrapper` | Wraps Anthropic SDK behind `IClaudeClient` | ✅ Implemented |
+| `ServiceExtensions` | `AddClaudeAI(services, config)` DI registration | ✅ Implemented |
+
+**Implementation Details:**
+- Uses official Anthropic C# SDK (v12.4.0) for API calls
+- Streaming support via `IAsyncEnumerable<AgentEvent>` (simplified implementation)
+- Token counting endpoint: Marked as TODO (SDK may not expose yet)
+- HTTP resilience pipeline configured with:
+  - Exponential backoff retry (3 attempts, with jitter)
+  - Circuit breaker (30s sampling, 5 min throughput, 30s break)
+  - Request timeout (120s per attempt, 300s total)
+- Request-id logging via `ILogger` with LoggerMessage source generation
+- API key retrieved from configuration (to be integrated with SecretsProvider)
 
 **Resilience pipeline:** Exponential backoff retry (5xx, timeouts), `retry-after` on 429, circuit breaker, 120s request timeout.
 
