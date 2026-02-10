@@ -144,6 +144,20 @@ known_hosts, authorized_keys
 
 ## Human-in-the-Loop Approval Matrix
 
+### Implementation Status
+✅ **Complete** (Issue #15 — 2026-02-10)
+- ✅ `ApprovalHandler` class implemented in `src/Krutaka.Console/ApprovalHandler.cs`
+- ✅ Displays tool name, input parameters, and risk level in formatted panels
+- ✅ For `write_file`: shows content preview (truncated at 50 lines with "View full" option)
+- ✅ For `edit_file`: shows diff preview of lines being replaced vs new content
+- ✅ For `run_command`: shows only [Y]es and [N]o options (no "Always" per security policy)
+- ✅ For other tools: shows [Y]es, [N]o, [A]lways for this session, [V]iew full content
+- ✅ Session-level "always approve" cache per tool name (except `run_command`)
+- ✅ Denial creates descriptive message (not error) for Claude: "The user denied execution of {tool_name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification."
+- ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/ApprovalHandlerTests.cs` (8 tests, all passing)
+- ⚠️ **Not yet integrated**: ApprovalHandler not wired into AgentOrchestrator (deferred to Issue #23 — Program.cs composition root)
+- ⚠️ **Not yet implemented**: Audit logging (no audit infrastructure exists yet — deferred to Issue #24)
+
 | Tool | Risk Level | Approval Required | "Always" Option Available |
 |---|---|---|---|
 | `read_file` | Low | No (auto-approve) | N/A |

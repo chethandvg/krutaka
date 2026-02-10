@@ -26,4 +26,8 @@
     <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Krutaka.Console.Tests" />
+  </ItemGroup>
+
 </Project>
