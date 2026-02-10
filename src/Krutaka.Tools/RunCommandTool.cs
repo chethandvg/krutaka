@@ -167,7 +167,8 @@ public class RunCommandTool : ToolBase
                         .WithWorkingDirectory(workingDirectory)
                         .WithEnvironmentVariables(scrubbedEnvironment.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
                         .WithValidation(CommandResultValidation.None) // We'll handle exit codes ourselves
-                        | (PipeTarget.ToStringBuilder(stdOutBuffer), PipeTarget.ToStringBuilder(stdErrBuffer));
+                        .WithStandardOutputPipe(PipeTarget.ToStringBuilder(stdOutBuffer))
+                        .WithStandardErrorPipe(PipeTarget.ToStringBuilder(stdErrBuffer));
 
                     // Start the process
                     var commandTask = command.ExecuteAsync(linkedCts.Token);
@@ -177,7 +178,11 @@ public class RunCommandTool : ToolBase
                     {
                         try
                         {
-                            // Small delay to ensure process has started
+                            // Brief delay to ensure process has started and ProcessId is available
+                            // This is a race condition mitigation: CliWrap's ExecuteAsync returns immediately
+                            // but the underlying process may take a few milliseconds to fully initialize.
+                            // 10ms is empirically sufficient for process startup on typical systems.
+                            // If the process exits before this delay completes, the catch block handles it gracefully.
                             await Task.Delay(10, CancellationToken.None).ConfigureAwait(false);
                             
                             // Get Process object from ProcessId and assign to Job Object
