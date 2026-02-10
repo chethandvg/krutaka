@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup Label="AI and Claude API">
-    <PackageVersion Include="Anthropic.SDK" Version="1.0.0" />
+    <PackageVersion Include="Anthropic" Version="12.4.0" />
     <PackageVersion Include="Microsoft.Extensions.AI" Version="10.0.0" />
     <PackageVersion Include="System.Net.ServerSentEvents" Version="10.0.0" />
   </ItemGroup>

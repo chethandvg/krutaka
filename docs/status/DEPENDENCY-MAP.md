@@ -8,9 +8,8 @@ All packages are managed centrally via `Directory.Packages.props`.
 
 | Package | Version | Project(s) | Purpose |
 |---|---|---|---|
-| `Anthropic.SDK` | 1.0.0 | Krutaka.AI | Official Anthropic Claude API client (GA) |
+| `Anthropic` | 12.4.0 | Krutaka.AI | Official Anthropic Claude API client (GA) |
 | `Microsoft.Extensions.AI` | 10.0.0 | Krutaka.AI | Provider-agnostic AI abstraction layer |
-| `System.Net.ServerSentEvents` | 10.0.0 | Krutaka.AI | SSE streaming support |
 | `Microsoft.Extensions.Http.Resilience` | 10.0.0 | Krutaka.AI | Retry, timeout, circuit breaker for HTTP |
 | `Microsoft.Extensions.Hosting` | 10.0.2 | Krutaka.Console | DI container, configuration, logging host |
 | `Microsoft.Extensions.DependencyInjection` | 10.0.2 | All projects | Dependency injection abstractions |
@@ -43,7 +42,7 @@ All packages are managed centrally via `Directory.Packages.props`.
 
 | Package | Original Version | Actual Version | Reason |
 |---|---|---|---|
-| Anthropic | 12.4.0 | Anthropic.SDK 1.0.0 | Using official SDK package name |
+| Anthropic.SDK | 5.9.0 (community) | Anthropic 12.4.0 (official) | Using official vendor SDK per ADR-003 |
 | Microsoft.Extensions.AI | 10.0.0-preview | 10.0.0 | GA release available |
 | Meziantou.Framework.Win32.CredentialManager | 1.7.11 | 1.7.17 | Latest stable version |
 
@@ -53,6 +52,14 @@ All packages are managed centrally via `Directory.Packages.props`.
 |---|---|---|---|
 | `Microsoft.SemanticKernel.Connectors.Onnx` | 1.45.0+ | Krutaka.Memory | Local ONNX embeddings (bge-micro-v2) |
 | `Microsoft.Extensions.VectorData.Abstractions` | 9.7.0 | Krutaka.Memory | Vector store abstraction |
+
+## Transitive Dependencies
+
+The following packages are automatically included as transitive dependencies:
+
+- **System.Net.ServerSentEvents** (10.0.1) — SSE streaming (via Anthropic package)
+- **SQLitePCLRaw.bundle_e_sqlite3** (2.1.11) — Native SQLite library (via Microsoft.Data.Sqlite)
+- **Microsoft.Extensions.*** — Core framework packages (via Microsoft.Extensions.Hosting)
 
 ## Version Pinning Rules
 
