@@ -10,13 +10,13 @@
 | Threat | OpenClaw CVE Parallel | Severity | Mitigation in Krutaka | Status |
 |---|---|---|---|---|
 | Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. | ⚠️ Partially Complete (Issue #7) |
-| Remote Code Execution via tool abuse | CVE-2026-25253 — Arbitrary command execution through agent tools | Critical | Command allowlist in code. Human approval for all execute operations. Kill switch via CancellationToken. | Not Started |
-| Command injection | CVE-2026-25157 — SSH command injection | Critical | CliWrap with argument arrays (never string interpolation). Block shell metacharacters. | Not Started |
-| Path traversal / sandbox escape | CVE-2026-24763 — Docker sandbox escape via path manipulation | Critical | Path.GetFullPath() + StartsWith(projectRoot). Block system directories. Block sensitive files. | Not Started |
+| Remote Code Execution via tool abuse | CVE-2026-25253 — Arbitrary command execution through agent tools | Critical | Command allowlist in code. Human approval for all execute operations. Kill switch via CancellationToken. | ✅ Complete (Issue #9) |
+| Command injection | CVE-2026-25157 — SSH command injection | Critical | CliWrap with argument arrays (never string interpolation). Block shell metacharacters. | ✅ Complete (Issue #9) |
+| Path traversal / sandbox escape | CVE-2026-24763 — Docker sandbox escape via path manipulation | Critical | Path.GetFullPath() + StartsWith(projectRoot). Block system directories. Block sensitive files. | ✅ Complete (Issue #9) |
 | Prompt injection via file contents | General agentic AI risk | High | Wrap untrusted content in `<untrusted_content>` XML tags. System prompt instructs model to treat tagged content as data only. | Not Started |
 | Supply chain (malicious skills) | OpenClaw ClawHub compromise | High | No remote skill marketplace. Local files only. | Not Started (by design) |
 | Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | Console app. No HTTP listener. No WebSocket. No network surface. Outbound HTTPS to api.anthropic.com only. | Mitigated (by design) |
-| Environment variable leakage | API keys inherited by child processes | High | EnvironmentScrubber removes *_KEY, *_SECRET, *_TOKEN, ANTHROPIC_* before child process start. | Not Started |
+| Environment variable leakage | API keys inherited by child processes | High | EnvironmentScrubber removes *_KEY, *_SECRET, *_TOKEN, ANTHROPIC_* before child process start. | ✅ Complete (Issue #9) |
 | Log leakage | API keys or secrets appearing in log output | High | Log redaction filter scrubs sk-ant-* patterns and other secret patterns. | ⚠️ Partially Complete (Issue #7) |
 
 ## Secrets Management Rules
@@ -60,6 +60,12 @@ The following patterns are scrubbed from all log output by `LogRedactionEnricher
 
 ## Command Execution Policy
 
+### Implementation Status
+✅ **Complete** (Issue #9 — 2026-02-10)
+- ✅ `CommandPolicy` class implemented in `src/Krutaka.Tools/CommandPolicy.cs`
+- ✅ Comprehensive tests in `tests/Krutaka.Tools.Tests/SecurityPolicyTests.cs` (40 command validation tests)
+- ✅ Registered in DI via `ServiceExtensions.AddTools()`
+
 ### Allowlist (permitted executables)
 ```
 git, dotnet, node, npm, npx, python, python3, pip,
@@ -90,8 +96,16 @@ Any command or argument containing these characters must be rejected:
 - Validation is case-insensitive
 - Both the executable name and all arguments are validated
 - Implemented in `Krutaka.Tools/CommandPolicy.cs`
+- **Shell metacharacters are checked BEFORE allowlist/blocklist** to prevent injection attacks from bypassing list checks
 
 ## Path Validation Rules
+
+### Implementation Status
+✅ **Complete** (Issue #9 — 2026-02-10)
+- ✅ `SafeFileOperations` class implemented in `src/Krutaka.Tools/SafeFileOperations.cs`
+- ✅ Comprehensive tests in `tests/Krutaka.Tools.Tests/SecurityPolicyTests.cs` (40 path validation tests)
+- ✅ Path traversal attack vectors tested (10+ test cases)
+- ✅ Used by `CommandPolicy.ValidatePath()` via `ISecurityPolicy`
 
 ### Canonicalization
 1. Resolve to absolute: `Path.GetFullPath(Path.Combine(projectRoot, relativePath))`
@@ -172,7 +186,13 @@ ANTHROPIC_API_KEY, ANTHROPIC_*
 AWS_*, AZURE_*, GCP_*, GOOGLE_*
 ```
 
-Implemented in `Krutaka.Tools/EnvironmentScrubber.cs`.
+Implemented in `Krutaka.Tools/EnvironmentScrubber.cs` with case-insensitive pattern matching.
+
+### Job Object Constraints (via Meziantou.Framework.Win32.Jobs)
+⚠️ **Not yet implemented** (planned for Issue #12 — run_command tool)
+- **Memory limit:** 256 MB per process
+- **CPU time limit:** 30 seconds
+- **Kill on job close:** Yes (prevents orphaned processes)
 
 ## Prompt Injection Defense
 
