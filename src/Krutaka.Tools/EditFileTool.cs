@@ -40,8 +40,8 @@ public class EditFileTool : ToolBase
     public override JsonElement InputSchema => BuildSchema(
         ("path", "string", "The file path to edit (relative to project root or absolute within project)", true),
         ("content", "string", "The new content to replace the specified line range", true),
-        ("start_line", "number", "The starting line number (1-indexed, inclusive)", true),
-        ("end_line", "number", "The ending line number (1-indexed, inclusive)", true)
+        ("start_line", "integer", "The starting line number (1-indexed, inclusive)", true),
+        ("end_line", "integer", "The ending line number (1-indexed, inclusive)", true)
     );
 
     /// <inheritdoc/>
@@ -133,12 +133,44 @@ public class EditFileTool : ToolBase
                 return $"Error: File size validation failed - {ex.Message}";
             }
 
-            // Read existing file content
+            // Read existing file content (CRLF-aware)
             string[] lines;
+            string lineEnding;
+            bool hasTrailingNewline = false;
             try
             {
                 var fileContent = await File.ReadAllTextAsync(validatedPath, cancellationToken).ConfigureAwait(false);
-                lines = fileContent.Split('\n');
+                
+                // Detect line ending from file content
+                if (fileContent.Contains("\r\n", StringComparison.Ordinal))
+                {
+                    lineEnding = "\r\n";
+                }
+                else if (fileContent.Contains('\n', StringComparison.Ordinal))
+                {
+                    lineEnding = "\n";
+                }
+                else
+                {
+                    lineEnding = Environment.NewLine; // Default for empty/single-line files
+                }
+
+                // Check if file has trailing newline
+                hasTrailingNewline = fileContent.EndsWith(lineEnding, StringComparison.Ordinal);
+
+                // Parse lines using StringReader to handle all line ending types properly
+                var lineList = new List<string>();
+                using var reader = new StringReader(fileContent);
+
+                string? line;
+#pragma warning disable CA2016 // StringReader.ReadLineAsync does not support CancellationToken
+                while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) is not null)
+#pragma warning restore CA2016
+                {
+                    lineList.Add(line);
+                }
+
+                lines = lineList.ToArray();
             }
             catch (UnauthorizedAccessException)
             {
@@ -163,17 +195,14 @@ public class EditFileTool : ToolBase
             // Create backup before editing
             try
             {
-                _ = CreateBackup(validatedPath);
+                _ = BackupHelper.CreateBackup(validatedPath);
             }
-#pragma warning disable CA1031 // Do not catch general exception types - backup failure should not prevent edit
+#pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
             catch (Exception ex)
 #pragma warning restore CA1031
             {
                 return $"Error: Failed to create backup - {ex.Message}";
             }
-
-            // Preserve original line endings
-            var originalContent = string.Join('\n', lines);
 
             // Build new file content with replaced line range
             var newLines = new List<string>();
@@ -193,7 +222,12 @@ public class EditFileTool : ToolBase
                 newLines.Add(lines[i]);
             }
 
-            var newContent = string.Join('\n', newLines);
+            var newContent = string.Join(lineEnding, newLines);
+            // Preserve trailing newline if original file had one
+            if (hasTrailingNewline)
+            {
+                newContent += lineEnding;
+            }
 
             // Write updated content
             try
@@ -212,7 +246,7 @@ public class EditFileTool : ToolBase
             // Generate diff
             var diff = GenerateDiff(lines, newLines.ToArray(), startLine, endLine);
 
-            return $"Successfully edited file: '{path}'\n\nDiff:\n{diff}";
+            return $"Successfully edited file: '{path}'\n\nDiff:\n<untrusted_content>\n{diff}</untrusted_content>";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)
@@ -257,9 +291,21 @@ public class EditFileTool : ToolBase
     private static string GenerateDiff(string[] oldLines, string[] newLines, int startLine, int endLine)
     {
         var diff = new StringBuilder();
+        
+        // Number of lines removed from the original file in the edited range
         var removedCount = endLine - startLine + 1;
-        var addedCount = 1; // We're adding one line of new content
-        diff.AppendLine(CultureInfo.InvariantCulture, $"@@ -{startLine},{removedCount} +{startLine},{addedCount} @@");
+        
+        // Calculate number of lines added: newLength = oldLength - removedCount + addedCount
+        // => addedCount = newLength - oldLength + removedCount
+        var addedCount = newLines.Length - oldLines.Length + removedCount;
+        if (addedCount < 0)
+        {
+            addedCount = 0;
+        }
+
+        diff.AppendLine(
+            CultureInfo.InvariantCulture,
+            $"@@ -{startLine},{removedCount} +{startLine},{addedCount} @@");
 
         // Show removed lines
         for (var i = startLine - 1; i < endLine && i < oldLines.Length; i++)
@@ -268,11 +314,15 @@ public class EditFileTool : ToolBase
         }
 
         // Show added lines (the new content in the range)
-        // Find the new content lines (between startLine-1 and the replacement)
-        if (newLines.Length >= startLine)
+        if (newLines.Length >= startLine && addedCount > 0)
         {
-            var replacementLine = newLines[startLine - 1];
-            diff.AppendLine(CultureInfo.InvariantCulture, $"+ {replacementLine}");
+            var addedStartIndex = startLine - 1;
+            var addedEndIndex = addedStartIndex + addedCount;
+
+            for (var i = addedStartIndex; i < addedEndIndex && i < newLines.Length; i++)
+            {
+                diff.AppendLine(CultureInfo.InvariantCulture, $"+ {newLines[i]}");
+            }
         }
 
         return diff.ToString();

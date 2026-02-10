@@ -61,10 +61,10 @@ public sealed class EditFileToolTests : IDisposable
         contentProp.GetProperty("type").GetString().Should().Be("string");
 
         properties.TryGetProperty("start_line", out var startLineProp).Should().BeTrue();
-        startLineProp.GetProperty("type").GetString().Should().Be("number");
+        startLineProp.GetProperty("type").GetString().Should().Be("integer");
 
         properties.TryGetProperty("end_line", out var endLineProp).Should().BeTrue();
-        endLineProp.GetProperty("type").GetString().Should().Be("number");
+        endLineProp.GetProperty("type").GetString().Should().Be("integer");
 
         var required = schema.GetProperty("required");
         required.ValueKind.Should().Be(JsonValueKind.Array);

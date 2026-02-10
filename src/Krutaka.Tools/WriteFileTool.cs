@@ -103,10 +103,10 @@ public class WriteFileTool : ToolBase
             {
                 try
                 {
-                    _ = CreateBackup(validatedPath);
+                    _ = BackupHelper.CreateBackup(validatedPath);
                     // Note: Backup path is logged but not returned to prevent temp directory disclosure
                 }
-#pragma warning disable CA1031 // Do not catch general exception types - backup failure should not prevent write
+#pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
                 catch (Exception ex)
 #pragma warning restore CA1031
                 {
@@ -136,29 +136,5 @@ public class WriteFileTool : ToolBase
             return $"Error: Unexpected error writing file - {ex.Message}";
         }
 #pragma warning restore CA1031
-    }
-
-    /// <summary>
-    /// Creates a backup copy of the specified file in a temporary directory.
-    /// </summary>
-    /// <param name="filePath">The file to backup.</param>
-    /// <returns>The path to the backup file.</returns>
-    private static string CreateBackup(string filePath)
-    {
-        ArgumentNullException.ThrowIfNull(filePath);
-
-        var fileName = Path.GetFileName(filePath);
-        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        var backupFileName = $"{fileName}.{timestamp}.bak";
-        var backupPath = Path.Combine(Path.GetTempPath(), "krutaka-backups", backupFileName);
-
-        var backupDir = Path.GetDirectoryName(backupPath);
-        if (!string.IsNullOrEmpty(backupDir))
-        {
-            Directory.CreateDirectory(backupDir);
-        }
-
-        File.Copy(filePath, backupPath, overwrite: true);
-        return backupPath;
     }
 }
