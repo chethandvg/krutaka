@@ -60,6 +60,8 @@ public sealed class AgentOrchestrator : IDisposable
         string systemPrompt,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         if (string.IsNullOrWhiteSpace(userPrompt))
         {
             throw new ArgumentException("User prompt cannot be null or whitespace.", nameof(userPrompt));
@@ -94,18 +96,18 @@ public sealed class AgentOrchestrator : IDisposable
     /// <summary>
     /// Approves a pending tool call. This should be called in response to HumanApprovalRequired events.
     /// </summary>
-    /// <param name="toolUseId">The tool use ID to approve.</param>
+    /// <param name="toolName">The name of the tool to approve.</param>
     /// <param name="alwaysApprove">Whether to always approve this tool for the session.</param>
-    public void ApproveTool(string toolUseId, bool alwaysApprove = false)
+    public void ApproveTool(string toolName, bool alwaysApprove = false)
     {
-        if (string.IsNullOrWhiteSpace(toolUseId))
+        if (string.IsNullOrWhiteSpace(toolName))
         {
-            throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
+            throw new ArgumentException("Tool name cannot be null or whitespace.", nameof(toolName));
         }
 
         if (alwaysApprove)
         {
-            _approvalCache[toolUseId] = true;
+            _approvalCache[toolName] = true;
         }
     }
 
@@ -153,9 +155,8 @@ public sealed class AgentOrchestrator : IDisposable
             }
 
             // Add assistant message to conversation history
-            // Note: In a real implementation, this would include the actual content blocks
-            // For now, we use a placeholder that the AI layer will convert properly
-            var assistantMessage = CreateAssistantMessage(finalStopReason ?? "end_turn");
+            // Include the actual content and tool calls to preserve conversation context
+            var assistantMessage = CreateAssistantMessage(finalResponseContent, toolCalls, finalStopReason ?? "end_turn");
             _conversationHistory.Add(assistantMessage);
 
             // Check if we're done (no tool use)
@@ -169,16 +170,12 @@ public sealed class AgentOrchestrator : IDisposable
 
             foreach (var toolCall in toolCalls)
             {
-                // Check if approval is required
-                if (_securityPolicy.IsApprovalRequired(toolCall.Name))
+                // Check if approval is required and not already granted for this session
+                if (_securityPolicy.IsApprovalRequired(toolCall.Name) && !_approvalCache.ContainsKey(toolCall.Name))
                 {
-                    // Check if already approved for session
-                    if (!_approvalCache.ContainsKey(toolCall.Id))
-                    {
-                        yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
-                        // Note: The caller must call ApproveTool before continuing
-                        // For now, we'll assume approval is granted (will be enhanced in Issue #15)
-                    }
+                    yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
+                    // Note: The caller must call ApproveTool before continuing
+                    // For now, we'll assume approval is granted (will be enhanced in Issue #15)
                 }
 
                 // Execute the tool with timeout
@@ -223,16 +220,40 @@ public sealed class AgentOrchestrator : IDisposable
     }
 
     /// <summary>
-    /// Creates an assistant message.
+    /// Creates an assistant message with content and tool calls preserved.
     /// This is a placeholder that returns an object compatible with the Claude API.
     /// </summary>
-    private static object CreateAssistantMessage(string stopReason)
+    private static object CreateAssistantMessage(string? content, List<ToolCall> toolCalls, string stopReason)
     {
+        var contentBlocks = new List<object>();
+        
+        // Add text content if present
+        if (!string.IsNullOrEmpty(content))
+        {
+            contentBlocks.Add(new
+            {
+                type = "text",
+                text = content
+            });
+        }
+        
+        // Add tool use blocks
+        foreach (var toolCall in toolCalls)
+        {
+            contentBlocks.Add(new
+            {
+                type = "tool_use",
+                id = toolCall.Id,
+                name = toolCall.Name,
+                input = toolCall.Input
+            });
+        }
+        
         // Return a simple object structure that will be converted to MessageParam by the AI layer
         return new
         {
             role = "assistant",
-            content = Array.Empty<object>(),
+            content = contentBlocks,
             stop_reason = stopReason
         };
     }
@@ -291,7 +312,17 @@ public sealed class AgentOrchestrator : IDisposable
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(_toolTimeout);
 
-            var inputElement = JsonSerializer.Deserialize<JsonElement>(toolCall.Input);
+            JsonElement inputElement;
+            try
+            {
+                inputElement = JsonSerializer.Deserialize<JsonElement>(toolCall.Input);
+            }
+            catch (JsonException ex)
+            {
+                var errorMessage = $"Invalid JSON input for tool {toolCall.Name}: {ex.Message}";
+                return new ToolResult(errorMessage, IsError: true);
+            }
+
             var result = await _toolRegistry.ExecuteAsync(toolCall.Name, inputElement, timeoutCts.Token).ConfigureAwait(false);
 
             return new ToolResult(result, IsError: false);

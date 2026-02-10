@@ -144,9 +144,9 @@ The AgentOrchestrator implementing the core agentic loop has been fully implemen
 - ✅ Configurable per-tool timeout (default: 30 seconds) via `CancellationTokenSource`
 - ✅ Error handling: tool failures return IsError=true results to Claude without crashing the loop
 - ✅ `SemaphoreSlim(1, 1)` for serialized turn execution preventing concurrent runs
-- ✅ Unit tests: 14 tests created, 9 passing (constructor validation, argument validation, basic flow, conversation history, disposal, serialization)
-  - Remaining 5 tests need mock client refinement for multi-turn scenarios
-  - Core functionality verified through passing tests
+- ✅ Unit tests: 14 tests created; 9 currently passing (constructor validation, argument validation, basic single-turn flow, conversation history, disposal, serialization)
+  - 5 tests are currently failing due to incomplete mock client refinement for multi-turn scenarios
+  - Core functionality for single-turn scenarios is verified through the passing tests; multi-turn behavior remains partially unverified until mocks are refined
 - ✅ Build succeeds with zero warnings
 
 **Implementation Details:**

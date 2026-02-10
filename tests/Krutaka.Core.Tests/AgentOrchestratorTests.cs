@@ -58,6 +58,7 @@ public sealed class AgentOrchestratorTests
         {
             await foreach (var _ in orchestrator.RunAsync(null!, "system prompt"))
             {
+                // Empty - we expect an exception before any events are yielded
             }
         };
 
@@ -76,6 +77,7 @@ public sealed class AgentOrchestratorTests
         {
             await foreach (var _ in orchestrator.RunAsync("   ", "system prompt"))
             {
+                // Empty - we expect an exception before any events are yielded
             }
         };
 
@@ -94,6 +96,7 @@ public sealed class AgentOrchestratorTests
         {
             await foreach (var _ in orchestrator.RunAsync("user prompt", null!))
             {
+                // Empty - we expect an exception before any events are yielded
             }
         };
 
@@ -239,6 +242,7 @@ public sealed class AgentOrchestratorTests
         // Act
         await foreach (var _ in orchestrator.RunAsync("Hi", "System prompt"))
         {
+            // Intentionally iterate to drive the orchestrator and populate conversation history
         }
 
         // Assert
@@ -297,7 +301,9 @@ public sealed class AgentOrchestratorTests
     {
         // Arrange
         var claudeClient = new MockClaudeClient();
-        claudeClient.AddFinalResponse("Response", "end_turn");
+        // Configure two batches for two separate calls
+        claudeClient.AddFinalResponse("Response 1", "end_turn");
+        claudeClient.AddFinalResponse("Response 2", "end_turn");
 
         using var orchestrator = CreateOrchestrator(claudeClient);
 
@@ -326,7 +332,7 @@ public sealed class AgentOrchestratorTests
             return count;
         });
 
-        // Assert - both should complete without deadlock
+        // Assert - both should complete without deadlock (serialized execution enforced by SemaphoreSlim)
         var results = await Task.WhenAll(task1, task2);
         results.Should().AllSatisfy(r => r.Should().BeGreaterThan(0));
     }
