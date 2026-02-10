@@ -49,6 +49,11 @@ public static class SafeFileOperations
     /// <param name="allowedRoot">The allowed root directory (project root).</param>
     /// <returns>The canonicalized, validated absolute path.</returns>
     /// <exception cref="SecurityException">Thrown if the path violates security policy.</exception>
+    /// <remarks>
+    /// KNOWN LIMITATION: This method does not detect symlinks/junctions that may escape the allowed root.
+    /// On Windows, reparse points (symlinks, junctions) could potentially bypass the path traversal check.
+    /// Future enhancement: Add FileAttributes.ReparsePoint detection for additional security.
+    /// </remarks>
     public static string ValidatePath(string path, string allowedRoot)
     {
         ArgumentNullException.ThrowIfNull(path);
@@ -64,8 +69,12 @@ public static class SafeFileOperations
             throw new SecurityException("Allowed root cannot be empty.");
         }
 
-        // Canonicalize the allowed root
+        // Canonicalize the allowed root and ensure it ends with a separator for safe prefix checking
         var canonicalRoot = Path.GetFullPath(allowedRoot);
+        if (!canonicalRoot.EndsWith(Path.DirectorySeparatorChar))
+        {
+            canonicalRoot += Path.DirectorySeparatorChar;
+        }
 
         // Block UNC paths
         if (path.StartsWith("\\\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
@@ -89,11 +98,13 @@ public static class SafeFileOperations
             throw new SecurityException($"Invalid path: '{path}'. {ex.Message}", ex);
         }
 
-        // Verify the path starts with the allowed root (prevents path traversal)
-        if (!canonicalPath.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+        // Verify the path starts with the allowed root (prevents path traversal and sibling directory access)
+        // canonicalRoot already has trailing separator, so this check is safe
+        if (!canonicalPath.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(canonicalPath, canonicalRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
         {
             throw new SecurityException(
-                $"Path traversal detected: '{path}' resolves to '{canonicalPath}' which is outside the allowed root '{canonicalRoot}'");
+                $"Path traversal detected: '{path}' resolves to '{canonicalPath}' which is outside the allowed root '{allowedRoot}'");
         }
 
         // Check for blocked directories
@@ -102,24 +113,31 @@ public static class SafeFileOperations
         // check already blocks paths outside projectRoot, which provides the security guarantee.
         foreach (var blockedDir in BlockedDirectories)
         {
-            // Check if canonicalPath starts with or contains the blocked directory
-            if (canonicalPath.Contains(blockedDir, StringComparison.OrdinalIgnoreCase))
+            var index = canonicalPath.IndexOf(blockedDir, StringComparison.OrdinalIgnoreCase);
+            while (index >= 0)
             {
-                // Additional check: ensure it's a directory component, not just a substring
-                // by checking for path separator after the blocked directory name
-                var index = canonicalPath.IndexOf(blockedDir, StringComparison.OrdinalIgnoreCase);
-                if (index >= 0)
+                // Ensure the match starts at a directory boundary (or at the very start)
+                var isAtComponentStart = index == 0 ||
+                    canonicalPath[index - 1] == Path.DirectorySeparatorChar ||
+                    canonicalPath[index - 1] == Path.AltDirectorySeparatorChar;
+
+                if (isAtComponentStart)
                 {
                     var afterBlocked = index + blockedDir.Length;
-                    // If it's at the end of the path, or followed by a separator, it's a real directory
-                    if (afterBlocked >= canonicalPath.Length ||
+                    // Ensure the match ends at a directory boundary (or at the very end)
+                    var isAtComponentEnd = afterBlocked >= canonicalPath.Length ||
                         canonicalPath[afterBlocked] == Path.DirectorySeparatorChar ||
-                        canonicalPath[afterBlocked] == Path.AltDirectorySeparatorChar)
+                        canonicalPath[afterBlocked] == Path.AltDirectorySeparatorChar;
+
+                    if (isAtComponentEnd)
                     {
                         throw new SecurityException(
                             $"Access to '{blockedDir}' is not permitted: '{canonicalPath}'");
                     }
                 }
+
+                // Look for any additional occurrences of the blocked directory name
+                index = canonicalPath.IndexOf(blockedDir, index + blockedDir.Length, StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -152,26 +170,26 @@ public static class SafeFileOperations
 
         // Check for blocked file patterns
         var fileName = Path.GetFileName(canonicalPath);
-        foreach (var pattern in BlockedFilePatterns)
+        var matchedPattern = BlockedFilePatterns
+            .FirstOrDefault(pattern => fileName.StartsWith(pattern, StringComparison.OrdinalIgnoreCase));
+        
+        if (matchedPattern != null)
         {
-            if (fileName.StartsWith(pattern, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new SecurityException(
-                    $"Access to files matching pattern '{pattern}' is not permitted: '{fileName}'");
-            }
+            throw new SecurityException(
+                $"Access to files matching pattern '{matchedPattern}' is not permitted: '{fileName}'");
         }
 
         // Check for blocked file extensions
         var extension = Path.GetExtension(canonicalPath);
         if (!string.IsNullOrEmpty(extension))
         {
-            foreach (var blockedExt in BlockedFileExtensions)
+            var matchedExtension = BlockedFileExtensions
+                .FirstOrDefault(blockedExt => extension.Equals(blockedExt, StringComparison.OrdinalIgnoreCase));
+            
+            if (matchedExtension != null)
             {
-                if (extension.Equals(blockedExt, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new SecurityException(
-                        $"Access to '{blockedExt}' files is not permitted: '{fileName}'");
-                }
+                throw new SecurityException(
+                    $"Access to '{matchedExtension}' files is not permitted: '{fileName}'");
             }
         }
 

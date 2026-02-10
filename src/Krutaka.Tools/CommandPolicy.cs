@@ -53,6 +53,16 @@ public class CommandPolicy : ISecurityPolicy
             throw new SecurityException("Executable name cannot be empty.");
         }
 
+        // Security: Reject any path with directory separators - only allow simple executable names
+        // This prevents executing arbitrary binaries by providing a path to a maliciously named file
+        if (executable.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal) || 
+            executable.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
+            Path.IsPathRooted(executable))
+        {
+            throw new SecurityException(
+                $"Executable path must be a simple name without directory separators: '{executable}'. Only executables resolved from PATH are permitted.");
+        }
+
         // Validate executable path doesn't contain shell metacharacters FIRST
         if (executable.Any(c => ShellMetacharacters.Contains(c)))
         {
@@ -60,24 +70,25 @@ public class CommandPolicy : ISecurityPolicy
                 $"Executable path contains shell metacharacters: '{executable}'. This is a potential command injection attack.");
         }
 
-        // Extract just the executable name (remove path if present)
-        var executableName = Path.GetFileName(executable).ToUpperInvariant();
+        // Extract just the executable name and preserve original casing for error messages
+        var executableName = Path.GetFileName(executable);
+        var executableNameForComparison = executableName;
         
         // Remove .exe extension if present for comparison
-        if (executableName.EndsWith(".EXE", StringComparison.Ordinal))
+        if (executableName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {
-            executableName = executableName[..^4];
+            executableNameForComparison = executableName[..^4];
         }
 
-        // Check blocklist
-        if (BlockedExecutables.Contains(executableName))
+        // Check blocklist (case-insensitive via HashSet comparer)
+        if (BlockedExecutables.Contains(executableNameForComparison))
         {
             throw new SecurityException(
                 $"Blocked executable: '{executableName}'. This command is not permitted for security reasons.");
         }
 
-        // Check allowlist
-        if (!AllowedExecutables.Contains(executableName))
+        // Check allowlist (case-insensitive via HashSet comparer)
+        if (!AllowedExecutables.Contains(executableNameForComparison))
         {
             throw new SecurityException(
                 $"Executable '{executableName}' is not in the allowlist. Only the following commands are permitted: {string.Join(", ", AllowedExecutables)}");

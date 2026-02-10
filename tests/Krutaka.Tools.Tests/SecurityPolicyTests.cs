@@ -1,5 +1,4 @@
 using FluentAssertions;
-using Krutaka.Core;
 using Krutaka.Tools;
 using System.Security;
 
@@ -13,7 +12,10 @@ public class SecurityPolicyTests
     public SecurityPolicyTests()
     {
         _policy = new CommandPolicy();
-        _projectRoot = Path.Combine(Path.GetTempPath(), "test-project");
+        // Use a unique directory that won't be blocked by path validation
+        // and won't collide with parallel test runs
+        var uniqueId = Guid.NewGuid().ToString("N")[..8];
+        _projectRoot = Path.Combine(Path.GetTempPath(), $"krutaka-test-{uniqueId}");
         Directory.CreateDirectory(_projectRoot);
     }
 

@@ -60,21 +60,15 @@ public static class EnvironmentScrubber
         var upperName = variableName.ToUpperInvariant();
 
         // Check for sensitive suffixes
-        foreach (var suffix in SensitiveSuffixes)
+        if (SensitiveSuffixes.Any(suffix => upperName.EndsWith(suffix, StringComparison.Ordinal)))
         {
-            if (upperName.EndsWith(suffix, StringComparison.Ordinal))
-            {
-                return true;
-            }
+            return true;
         }
 
         // Check for sensitive prefixes
-        foreach (var prefix in SensitivePrefixes)
+        if (SensitivePrefixes.Any(prefix => upperName.StartsWith(prefix, StringComparison.Ordinal)))
         {
-            if (upperName.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                return true;
-            }
+            return true;
         }
 
         return false;
