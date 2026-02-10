@@ -188,7 +188,7 @@ Persistence layer for sessions, memory search, and daily logs.
 | `MemoryFileService` | MEMORY.md read/update | Not Started |
 | `DailyLogService` | Daily log append + indexing | Not Started |
 | `HybridSearchService` | (Future v2) RRF fusion of FTS5 + vector | Not Started |
-| `ServiceExtensions` | `AddMemory(services, options)` DI registration | Implemented |
+| `ServiceExtensions` | `AddMemory(services, options)` DI registration | In Progress |
 
 **SessionStore Implementation Details:**
 - **Storage path**: `~/.krutaka/sessions/{encoded-project-path}/{session-id}.jsonl`

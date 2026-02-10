@@ -35,15 +35,11 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange & Act
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         // Assert
         var encodedPath = SessionStore.EncodeProjectPath(_projectPath);
-        var sessionDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".krutaka",
-            "sessions",
-            encodedPath);
+        var sessionDir = Path.Combine(_testRoot, "sessions", encodedPath);
 
         Directory.Exists(sessionDir).Should().BeTrue();
     }
@@ -53,7 +49,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         var event1 = new SessionEvent(
             Type: "user",
@@ -90,7 +86,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         // Act
         var loadedEvents = new List<SessionEvent>();
@@ -108,7 +104,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         var toolEvent = new SessionEvent(
             Type: "tool_use",
@@ -144,7 +140,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         await store.AppendAsync(new SessionEvent(
             Type: "user",
@@ -180,7 +176,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         await store.AppendAsync(new SessionEvent(
             Type: "user",
@@ -207,7 +203,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         // Act
         await store.SaveMetadataAsync(_projectPath, "claude-sonnet-4-5-20250929");
@@ -215,8 +211,7 @@ public sealed class SessionStoreTests : IDisposable
         // Assert
         var encodedPath = SessionStore.EncodeProjectPath(_projectPath);
         var metadataPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".krutaka",
+            _testRoot,
             "sessions",
             encodedPath,
             $"{sessionId}.meta.json");
@@ -272,7 +267,7 @@ public sealed class SessionStoreTests : IDisposable
     public async Task Should_ThrowOnNullEvent()
     {
         // Arrange
-        using var store = new SessionStore(_projectPath, Guid.NewGuid());
+        using var store = new SessionStore(_projectPath, Guid.NewGuid(), _testRoot);
 
         // Act & Assert
         var action = async () => await store.AppendAsync(null!);
@@ -284,7 +279,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         // Act - Write 10 events concurrently
         var tasks = Enumerable.Range(1, 10).Select(i =>
@@ -311,7 +306,7 @@ public sealed class SessionStoreTests : IDisposable
     {
         // Arrange
         var sessionId = Guid.NewGuid();
-        using var store = new SessionStore(_projectPath, sessionId);
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         var events = new[]
         {

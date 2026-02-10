@@ -13,6 +13,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
 {
     private readonly string _sessionPath;
     private readonly string _metadataPath;
+    private readonly DateTimeOffset _startedAt;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -29,15 +30,28 @@ public sealed class SessionStore : ISessionStore, IDisposable
     /// <param name="projectPath">The project directory path (will be encoded for safe storage).</param>
     /// <param name="sessionId">The session identifier (creates new if null).</param>
     public SessionStore(string projectPath, Guid? sessionId = null)
+        : this(projectPath, sessionId, null)
+    {
+    }
+
+    /// <summary>
+    /// Creates a new SessionStore instance with an optional custom storage root (primarily for testing).
+    /// </summary>
+    /// <param name="projectPath">The project directory path (will be encoded for safe storage).</param>
+    /// <param name="sessionId">The session identifier (creates new if null).</param>
+    /// <param name="storageRoot">Custom storage root directory (defaults to ~/.krutaka if null).</param>
+    public SessionStore(string projectPath, Guid? sessionId, string? storageRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectPath, nameof(projectPath));
 
+        _startedAt = DateTimeOffset.UtcNow;
+
         var encodedPath = EncodeProjectPath(projectPath);
-        var sessionDir = Path.Combine(
+        var baseDir = storageRoot ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".krutaka",
-            "sessions",
-            encodedPath);
+            ".krutaka");
+        
+        var sessionDir = Path.Combine(baseDir, "sessions", encodedPath);
 
         // Ensure directory exists
         Directory.CreateDirectory(sessionDir);
@@ -78,24 +92,29 @@ public sealed class SessionStore : ISessionStore, IDisposable
             yield break;
         }
 
+        // Read all lines under lock, then release before yielding
+        string[] lines;
         await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await foreach (var line in File.ReadLinesAsync(_sessionPath, cancellationToken).ConfigureAwait(false))
-            {
-                if (!string.IsNullOrWhiteSpace(line))
-                {
-                    var evt = JsonSerializer.Deserialize<SessionEvent>(line, JsonOptions);
-                    if (evt is not null)
-                    {
-                        yield return evt;
-                    }
-                }
-            }
+            lines = await File.ReadAllLinesAsync(_sessionPath, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _fileLock.Release();
+        }
+
+        // Now yield events without holding the lock
+        foreach (var line in lines)
+        {
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                var evt = JsonSerializer.Deserialize<SessionEvent>(line, JsonOptions);
+                if (evt is not null)
+                {
+                    yield return evt;
+                }
+            }
         }
     }
 
@@ -182,7 +201,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
 
         var metadata = new
         {
-            started_at = DateTimeOffset.UtcNow,
+            started_at = _startedAt,
             project_path = projectPath,
             model = modelId
         };

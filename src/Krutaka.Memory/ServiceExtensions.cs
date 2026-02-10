@@ -1,4 +1,3 @@
-using Krutaka.Core;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Krutaka.Memory;
