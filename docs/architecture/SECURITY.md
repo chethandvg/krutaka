@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-10 (Pre-implementation)
+> **Last updated:** 2026-02-10 (Issue #7 completed — Secrets management and log redaction implemented)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -9,7 +9,7 @@
 
 | Threat | OpenClaw CVE Parallel | Severity | Mitigation in Krutaka | Status |
 |---|---|---|---|---|
-| Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. | Not Started |
+| Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. | ⚠️ Partially Complete (Issue #7) |
 | Remote Code Execution via tool abuse | CVE-2026-25253 — Arbitrary command execution through agent tools | Critical | Command allowlist in code. Human approval for all execute operations. Kill switch via CancellationToken. | Not Started |
 | Command injection | CVE-2026-25157 — SSH command injection | Critical | CliWrap with argument arrays (never string interpolation). Block shell metacharacters. | Not Started |
 | Path traversal / sandbox escape | CVE-2026-24763 — Docker sandbox escape via path manipulation | Critical | Path.GetFullPath() + StartsWith(projectRoot). Block system directories. Block sensitive files. | Not Started |
@@ -17,9 +17,18 @@
 | Supply chain (malicious skills) | OpenClaw ClawHub compromise | High | No remote skill marketplace. Local files only. | Not Started (by design) |
 | Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | Console app. No HTTP listener. No WebSocket. No network surface. Outbound HTTPS to api.anthropic.com only. | Mitigated (by design) |
 | Environment variable leakage | API keys inherited by child processes | High | EnvironmentScrubber removes *_KEY, *_SECRET, *_TOKEN, ANTHROPIC_* before child process start. | Not Started |
-| Log leakage | API keys or secrets appearing in log output | High | Log redaction filter scrubs sk-ant-* patterns and other secret patterns. | Not Started |
+| Log leakage | API keys or secrets appearing in log output | High | Log redaction filter scrubs sk-ant-* patterns and other secret patterns. | ⚠️ Partially Complete (Issue #7) |
 
 ## Secrets Management Rules
+
+### Implementation Status
+⚠️ **Partially Complete** (Issue #7 — 2026-02-10)
+- ✅ `SecretsProvider` class implemented in `src/Krutaka.Console/SecretsProvider.cs`
+- ✅ `SetupWizard` class implemented in `src/Krutaka.Console/SetupWizard.cs`
+- ✅ `LogRedactionEnricher` implemented in `src/Krutaka.Console/Logging/LogRedactionEnricher.cs`
+- ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/LogRedactionEnricherTests.cs` (10 tests, all passing)
+- ⚠️ **Not yet integrated**: Components not wired into console application entry point (`Program.cs`)
+- ⚠️ **Limitation**: Redaction only works on structured log properties, not message templates
 
 ### Storage
 - API keys are stored in **Windows Credential Manager** under `Krutaka_ApiKey` with `CredentialPersistence.LocalMachine`
@@ -34,10 +43,20 @@
 - ❌ NEVER log API keys — use redaction filter for `sk-ant-*` pattern
 
 ### Log Redaction Patterns
-The following patterns must be scrubbed from all log output:
-- `sk-ant-*` (Anthropic API keys)
-- Any string matching `*_KEY=*`, `*_SECRET=*`, `*_TOKEN=*`
-- Connection strings containing passwords
+The following patterns are scrubbed from all log output by `LogRedactionEnricher`:
+- `sk-ant-[a-zA-Z0-9_-]{95,}` (Anthropic API keys — regex pattern for 100+ character keys)
+- `([a-zA-Z0-9_]+_(KEY|SECRET|TOKEN|PASSWORD))=([^\s;,]+)` (Environment variable patterns)
+
+**Implementation details:**
+- Redaction uses compiled regex for performance
+- Works on structured log properties (not message templates)
+- Recursively redacts nested objects, arrays, and dictionaries (including dictionary keys)
+- Redacted values are replaced with `***REDACTED***`
+- Tested with 10 comprehensive unit tests covering edge cases
+
+**Not yet implemented:**
+- Connection string redaction
+- Message template redaction (only structured properties are redacted)
 
 ## Command Execution Policy
 

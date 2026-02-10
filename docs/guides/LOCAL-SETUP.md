@@ -1,6 +1,6 @@
 # Krutaka — Local Development Setup
 
-> **Last updated:** 2026-02-10 (Issue #5 — Build infrastructure complete)
+> **Last updated:** 2026-02-10 (Issue #7 — API key setup wizard added)
 
 ## Prerequisites
 
@@ -61,7 +61,8 @@ krutaka/
     ├── Krutaka.Core.Tests/
     ├── Krutaka.AI.Tests/
     ├── Krutaka.Tools.Tests/
-    └── Krutaka.Memory.Tests/
+    ├── Krutaka.Memory.Tests/
+    └── Krutaka.Console.Tests/
 ```
 
 ## Build Commands
@@ -98,15 +99,64 @@ dotnet test --filter "FullyQualifiedName~SecurityPolicy"
 
 ## Run the Application
 
+### First-Run Setup Wizard
+
+On first launch, Krutaka will run an interactive setup wizard to configure your Anthropic API key:
+
 ```bash
-# Run from source
+dotnet run --project src/Krutaka.Console
+```
+
+The wizard will:
+1. Check if an API key is already stored in Windows Credential Manager
+2. Prompt you to enter your Anthropic API key (masked input with `*`)
+3. Validate that the key starts with `sk-ant-` (Anthropic's key format)
+4. Store the key securely using DPAPI (Data Protection API) in Windows Credential Manager
+
+**API Key Security:**
+- ✅ Encrypted at rest using Windows DPAPI
+- ✅ Never stored in files, environment variables, or appsettings.json
+- ✅ Never logged (redacted by `LogRedactionEnricher`)
+- ✅ Not visible in process listings or memory dumps
+- ✅ Stored under credential name: `Krutaka_ApiKey` with `LocalMachine` persistence
+
+**To get your API key:**
+1. Go to [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys)
+2. Create a new API key (starts with `sk-ant-api03-...`)
+3. Copy the key (you won't be able to see it again!)
+4. Paste it into the Krutaka setup wizard
+
+**To update or replace your API key:**
+```bash
+# Delete credential from Windows Credential Manager and restart
+# Open Credential Manager: Control Panel > User Accounts > Credential Manager
+# Under "Windows Credentials" > "Generic Credentials", delete "Krutaka_ApiKey"
+# Then run the app again to trigger setup wizard
+```
+
+**To verify your stored credential:**
+- Open Windows Credential Manager (`Control Panel > User Accounts > Credential Manager`)
+- Look for "Windows Credentials" → "Generic Credentials"
+- Find entry: `Krutaka_ApiKey`
+
+### Running After Setup
+
+After the initial setup, the application will automatically load the API key from Credential Manager:
+
+```bash
+# Run from source (after setup)
 dotnet run --project src/Krutaka.Console
 
 # Run with specific configuration
 dotnet run --project src/Krutaka.Console -c Release
 ```
 
-On first run, the setup wizard will prompt for your Claude API key. The key is stored in Windows Credential Manager (DPAPI-encrypted) — not in any file.
+If the API key is not found, the app will display a clear error:
+```
+API key not found in Windows Credential Manager.
+Please run the setup wizard to configure your Anthropic API key.
+Expected credential name: 'Krutaka_ApiKey'
+```
 
 ## Publish Single-File Executable
 
@@ -145,7 +195,8 @@ dotnet format
 |---|---|
 | `dotnet build` fails with SDK error | Verify .NET 10 SDK: `dotnet --list-sdks` should show 10.0.102 |
 | `NU1603` package version warning | Check `Directory.Packages.props` for version mismatches |
-| API key not found at runtime | Re-run setup: the app will prompt if no credential is found |
+| API key not found at runtime | Run setup wizard with `--setup` flag or delete credential and restart |
+| API key invalid format | Key must start with `sk-ant-` — get a new key from console.anthropic.com |
 | SQLite native library not found | Run `dotnet restore` to ensure `Microsoft.Data.Sqlite` is restored |
 | Tests fail on non-Windows | Some tests require Windows APIs (Credential Manager, Job Objects) |
 | `.slnx` file not supported | Use Visual Studio 2026 or `dotnet` CLI (VS 2025 may not support .slnx) |
