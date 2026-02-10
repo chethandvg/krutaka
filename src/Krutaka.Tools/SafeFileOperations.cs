@@ -98,13 +98,17 @@ public static class SafeFileOperations
             throw new SecurityException($"Invalid path: '{path}'. {ex.Message}", ex);
         }
 
-        // Verify the path starts with the allowed root (prevents path traversal and sibling directory access)
-        // canonicalRoot already has trailing separator, so this check is safe
-        if (!canonicalPath.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(canonicalPath, canonicalRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        // Verify the path is within the allowed root (prevents path traversal and sibling directory access)
+        // The canonicalRoot has a trailing separator, so we check:
+        // 1. If canonicalPath starts with canonicalRoot (handles subdirectories)
+        // 2. OR if canonicalPath equals canonicalRoot without the trailing separator (handles the root itself)
+        var isWithinRoot = canonicalPath.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(canonicalPath, canonicalRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+        
+        if (!isWithinRoot)
         {
             throw new SecurityException(
-                $"Path traversal detected: '{path}' resolves to '{canonicalPath}' which is outside the allowed root '{allowedRoot}'");
+                $"Path traversal detected: '{path}' resolves to '{canonicalPath}' which is outside the allowed root '{canonicalRoot.TrimEnd(Path.DirectorySeparatorChar)}'");
         }
 
         // Check for blocked directories
