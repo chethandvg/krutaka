@@ -174,21 +174,35 @@ Tool implementations with security policy enforcement.
   - Accepts optional `Action<ToolOptions>` for configuration
 
 ### Krutaka.Memory (net10.0)
-**Status:** Scaffolded (Issue #5)  
+**Status:** SessionStore implemented (Issue #16 — 2026-02-10)  
 **Path:** `src/Krutaka.Memory/`  
 **Dependencies:** Krutaka.Core, Microsoft.Data.Sqlite
 
 Persistence layer for sessions, memory search, and daily logs.
 
-| Type | Description |
-|---|---|
-| `SessionStore` | JSONL session files under `~/.krutaka/sessions/` |
-| `SqliteMemoryStore` | FTS5 keyword search + (future) vector search |
-| `TextChunker` | Split text into ~500 token chunks with overlap |
-| `MemoryFileService` | MEMORY.md read/update |
-| `DailyLogService` | Daily log append + indexing |
-| `HybridSearchService` | (Future v2) RRF fusion of FTS5 + vector |
-| `ServiceExtensions` | `AddMemory(services, options)` DI registration |
+| Type | Description | Status |
+|---|---|---|
+| `SessionStore` | JSONL session files under `~/.krutaka/sessions/` | ✅ Implemented |
+| `SqliteMemoryStore` | FTS5 keyword search + (future) vector search | Not Started |
+| `TextChunker` | Split text into ~500 token chunks with overlap | Not Started |
+| `MemoryFileService` | MEMORY.md read/update | Not Started |
+| `DailyLogService` | Daily log append + indexing | Not Started |
+| `HybridSearchService` | (Future v2) RRF fusion of FTS5 + vector | Not Started |
+| `ServiceExtensions` | `AddMemory(services, options)` DI registration | Implemented |
+
+**SessionStore Implementation Details:**
+- **Storage path**: `~/.krutaka/sessions/{encoded-project-path}/{session-id}.jsonl`
+- **Path encoding**: Replaces directory separators (`/`, `\`) and colons (`:`) with dashes, removes consecutive dashes, trims leading/trailing dashes
+- **File format**: One JSON object per line (JSONL) for efficient append-only writes
+- **Concurrency**: Thread-safe with `SemaphoreSlim(1,1)` protecting file I/O
+- **Metadata**: Companion `.meta.json` file stores session start time, project path, and model ID
+- **Key methods**:
+  - `AppendAsync(SessionEvent)`: Appends events to JSONL file immediately
+  - `LoadAsync()`: Returns `IAsyncEnumerable<SessionEvent>` from JSONL file
+  - `ReconstructMessagesAsync()`: Rebuilds message list from events for Claude API
+  - `SaveMetadataAsync(projectPath, modelId)`: Writes session metadata
+- **Resource management**: Implements `IDisposable` for `SemaphoreSlim` cleanup
+- **Testing**: 18 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, and concurrent access
 
 ### Krutaka.Skills (net10.0)
 **Status:** Scaffolded (Issue #5)  
