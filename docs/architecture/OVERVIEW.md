@@ -91,7 +91,7 @@ Claude API integration layer.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
+**Status:** Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
@@ -102,8 +102,8 @@ Tool implementations with security policy enforcement.
 | `ReadFileTool` | Low | Auto-approve | ✅ Implemented |
 | `ListFilesTool` | Low | Auto-approve | ✅ Implemented |
 | `SearchFilesTool` | Low | Auto-approve | ✅ Implemented |
-| `WriteFileTool` | High | Required | Not Started |
-| `EditFileTool` | High | Required | Not Started |
+| `WriteFileTool` | High | Required | ✅ Implemented |
+| `EditFileTool` | High | Required | ✅ Implemented |
 | `RunCommandTool` | Critical | Always required | Not Started |
 | `MemoryStoreTool` | Medium | Auto-approve | Not Started |
 | `MemorySearchTool` | Low | Auto-approve | Not Started |
@@ -116,6 +116,8 @@ Tool implementations with security policy enforcement.
 - **ReadFileTool**: Reads file contents with path validation and 1MB size limit. Wraps output in `<untrusted_content>` tags for prompt injection defense.
 - **ListFilesTool**: Lists files matching glob patterns recursively. Validates all paths and filters blocked files/directories.
 - **SearchFilesTool**: Grep-like text/regex search across files. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
+- **WriteFileTool**: Creates or overwrites files with security validation. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
+- **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Creates backups before editing. Returns a diff showing changes. Requires human approval.
 
 ### Krutaka.Memory (net10.0)
 **Status:** Scaffolded (Issue #5)  
