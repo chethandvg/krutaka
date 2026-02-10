@@ -1,6 +1,6 @@
 # Krutaka — Testing Guide
 
-> **Last updated:** 2026-02-10 (Pre-implementation — will be updated as tests are added)
+> **Last updated:** 2026-02-10 (Issue #9 completed — Security policy implementation)
 
 ## Test Strategy
 
@@ -43,6 +43,48 @@ dotnet test --collect:"XPlat Code Coverage"
 ## Security Test Corpus
 
 > ⚠️ These tests are the most critical in the entire project. They must ALL pass before any release.
+
+**Status:** ✅ **Implemented** (125 tests in `tests/Krutaka.Tools.Tests/SecurityPolicyTests.cs`)
+
+### Running Security Tests
+
+```bash
+# Run all security policy tests
+dotnet test tests/Krutaka.Tools.Tests --filter FullyQualifiedName~SecurityPolicyTests
+
+# Run with detailed output
+dotnet test tests/Krutaka.Tools.Tests \
+  --filter FullyQualifiedName~SecurityPolicyTests \
+  --logger "console;verbosity=detailed"
+```
+
+**Expected Result:** All 125 tests should pass.
+
+### Test Coverage Summary
+
+- **Command Validation**: 40 tests
+  - Allowlist enforcement (case-insensitive)
+  - Blocklist enforcement (25 blocked executables)
+  - Shell metacharacter detection (12 metacharacters)
+  - Command injection prevention
+  
+- **Path Validation**: 40 tests
+  - Path traversal prevention (10+ attack vectors)
+  - Blocked directory enforcement
+  - Blocked file pattern enforcement
+  - UNC path blocking
+  - File size limits (1 MB)
+
+- **Environment Scrubbing**: 20 tests
+  - API key, secret, token removal
+  - Cloud provider credentials removal
+  - Case-insensitive matching
+
+- **Approval Logic**: 10 tests
+  - High-risk vs. low-risk tool classification
+
+- **File Operations**: 15 tests
+  - File size validation, path canonicalization
 
 ### Path Traversal Vectors
 Tests that must be **blocked** by `SafeFileOperations`:

@@ -1,3 +1,4 @@
+using Krutaka.Core;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Krutaka.Tools;
@@ -14,9 +15,11 @@ public static class ServiceExtensions
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddTools(this IServiceCollection services)
     {
+        // Register security policy (singleton - stateless)
+        services.AddSingleton<ISecurityPolicy, CommandPolicy>();
+
         // TODO: Register IToolRegistry
         // TODO: Register tool implementations
-        // TODO: Register ISecurityPolicy
         return services;
     }
 }
