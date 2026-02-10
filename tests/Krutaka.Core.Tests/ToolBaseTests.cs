@@ -1,5 +1,5 @@
-using FluentAssertions;
 using System.Text.Json;
+using FluentAssertions;
 
 namespace Krutaka.Core.Tests;
 
@@ -32,12 +32,12 @@ public class ToolBaseTests
         schema.ValueKind.Should().Be(JsonValueKind.Object);
         schema.GetProperty("type").GetString().Should().Be("object");
         schema.GetProperty("properties").ValueKind.Should().Be(JsonValueKind.Object);
-        
+
         var properties = schema.GetProperty("properties");
         properties.TryGetProperty("path", out var pathProp).Should().BeTrue();
         pathProp.GetProperty("type").GetString().Should().Be("string");
         pathProp.GetProperty("description").GetString().Should().Be("The file path");
-        
+
         var required = schema.GetProperty("required");
         required.ValueKind.Should().Be(JsonValueKind.Array);
         required.GetArrayLength().Should().Be(1);
