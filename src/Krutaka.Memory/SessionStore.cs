@@ -1,0 +1,241 @@
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using Krutaka.Core;
+
+namespace Krutaka.Memory;
+
+/// <summary>
+/// JSONL-based session persistence implementation.
+/// Each session is stored as a UUID-named JSONL file with one event per line.
+/// Storage path: ~/.krutaka/sessions/{encoded-project-path}/{session-id}.jsonl
+/// </summary>
+public sealed class SessionStore : ISessionStore, IDisposable
+{
+    private readonly string _sessionPath;
+    private readonly string _metadataPath;
+    private readonly SemaphoreSlim _fileLock = new(1, 1);
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = false
+    };
+    private static readonly JsonSerializerOptions MetadataJsonOptions = new()
+    {
+        WriteIndented = true
+    };
+
+    /// <summary>
+    /// Creates a new SessionStore instance for the specified project and session.
+    /// </summary>
+    /// <param name="projectPath">The project directory path (will be encoded for safe storage).</param>
+    /// <param name="sessionId">The session identifier (creates new if null).</param>
+    public SessionStore(string projectPath, Guid? sessionId = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath, nameof(projectPath));
+
+        var encodedPath = EncodeProjectPath(projectPath);
+        var sessionDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".krutaka",
+            "sessions",
+            encodedPath);
+
+        // Ensure directory exists
+        Directory.CreateDirectory(sessionDir);
+
+        var id = sessionId ?? Guid.NewGuid();
+        _sessionPath = Path.Combine(sessionDir, $"{id}.jsonl");
+        _metadataPath = Path.Combine(sessionDir, $"{id}.meta.json");
+    }
+
+    /// <summary>
+    /// Appends a session event to the JSONL file.
+    /// Thread-safe with SemaphoreSlim.
+    /// </summary>
+    public async Task AppendAsync(SessionEvent sessionEvent, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(sessionEvent);
+
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var json = JsonSerializer.Serialize(sessionEvent, JsonOptions);
+            await File.AppendAllTextAsync(_sessionPath, json + "\n", cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Loads all events from the session JSONL file.
+    /// </summary>
+    public async IAsyncEnumerable<SessionEvent> LoadAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(_sessionPath))
+        {
+            yield break;
+        }
+
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await foreach (var line in File.ReadLinesAsync(_sessionPath, cancellationToken).ConfigureAwait(false))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    var evt = JsonSerializer.Deserialize<SessionEvent>(line, JsonOptions);
+                    if (evt is not null)
+                    {
+                        yield return evt;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reconstructs the message list from session events.
+    /// Converts SessionEvent records back into Claude API message format.
+    /// </summary>
+    public async Task<IReadOnlyList<object>> ReconstructMessagesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var messages = new List<object>();
+
+        await foreach (var evt in LoadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // Skip metadata events (not sent to Claude)
+            if (evt.IsMeta)
+            {
+                continue;
+            }
+
+            // Reconstruct message objects based on event type
+            // For now, we create simple message objects
+            // The actual format depends on the Claude API client implementation
+            if (evt.Type == "user" || evt.Type == "assistant")
+            {
+                messages.Add(new
+                {
+                    role = evt.Role,
+                    content = evt.Content
+                });
+            }
+            else if (evt.Type == "tool_use")
+            {
+                // Tool use events are part of assistant messages
+                // This is a simplified reconstruction - actual implementation
+                // may need more sophisticated handling based on Claude API format
+                messages.Add(new
+                {
+                    role = "assistant",
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "tool_use",
+                            id = evt.ToolUseId,
+                            name = evt.ToolName,
+                            input = evt.Content
+                        }
+                    }
+                });
+            }
+            else if (evt.Type == "tool_result")
+            {
+                // Tool results are sent as user messages
+                messages.Add(new
+                {
+                    role = "user",
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "tool_result",
+                            tool_use_id = evt.ToolUseId,
+                            content = evt.Content
+                        }
+                    }
+                });
+            }
+        }
+
+        return messages.AsReadOnly();
+    }
+
+    /// <summary>
+    /// Saves session metadata (start time, project path, model used).
+    /// </summary>
+    public async Task SaveMetadataAsync(
+        string projectPath,
+        string modelId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath, nameof(projectPath));
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelId, nameof(modelId));
+
+        var metadata = new
+        {
+            started_at = DateTimeOffset.UtcNow,
+            project_path = projectPath,
+            model = modelId
+        };
+
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var json = JsonSerializer.Serialize(metadata, MetadataJsonOptions);
+            await File.WriteAllTextAsync(_metadataPath, json, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Disposes resources held by this instance.
+    /// </summary>
+    public void Dispose()
+    {
+        _fileLock.Dispose();
+    }
+
+    /// <summary>
+    /// Encodes a project path for safe file system storage.
+    /// Replaces directory separators and colons with dashes, trims leading dashes.
+    /// </summary>
+    public static string EncodeProjectPath(string projectPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath, nameof(projectPath));
+
+        // Replace all path separators and colons with dashes
+        var encoded = projectPath
+            .Replace('\\', '-')
+            .Replace('/', '-')
+            .Replace(':', '-');
+
+        // Remove consecutive dashes
+        while (encoded.Contains("--", StringComparison.Ordinal))
+        {
+            encoded = encoded.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        // Trim leading and trailing dashes
+        encoded = encoded.Trim('-');
+
+        // If the result is empty (path was all special chars), use a placeholder
+        if (string.IsNullOrWhiteSpace(encoded))
+        {
+            encoded = "root";
+        }
+
+        return encoded;
+    }
+}
