@@ -14,13 +14,18 @@ internal static class SecretsProvider
     /// Stores the API key securely in Windows Credential Manager.
     /// </summary>
     /// <param name="apiKey">The Anthropic API key to store.</param>
-    /// <exception cref="ArgumentNullException">Thrown when apiKey is null or whitespace.</exception>
-    /// <exception cref="ArgumentException">Thrown when apiKey doesn't match the required pattern.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when apiKey is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when apiKey is empty, whitespace, or doesn't match the required pattern.</exception>
     public static void WriteCredential(string apiKey)
     {
+        if (apiKey is null)
+        {
+            throw new ArgumentNullException(nameof(apiKey), "API key cannot be null.");
+        }
+
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            throw new ArgumentNullException(nameof(apiKey), "API key cannot be null or empty.");
+            throw new ArgumentException("API key cannot be empty or whitespace.", nameof(apiKey));
         }
 
         if (!IsValidApiKey(apiKey))

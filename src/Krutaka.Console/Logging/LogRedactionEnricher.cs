@@ -12,30 +12,17 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
 {
     private const string RedactedPlaceholder = "***REDACTED***";
 
-    // Regex patterns for sensitive data (compiled for performance)
-    [GeneratedRegex(@"sk-ant-[a-zA-Z0-9_-]{95,}", RegexOptions.Compiled)]
+    // Regex patterns for sensitive data
+    [GeneratedRegex(@"sk-ant-[a-zA-Z0-9_-]{95,}")]
     private static partial Regex AnthropicApiKeyPattern();
 
-    [GeneratedRegex(@"([a-zA-Z0-9_]+_(KEY|SECRET|TOKEN|PASSWORD))=([^\s;,]+)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"([a-zA-Z0-9_]+_(KEY|SECRET|TOKEN|PASSWORD))=([^\s;,]+)", RegexOptions.IgnoreCase)]
     private static partial Regex EnvironmentVariablePattern();
 
     public void Enrich(LogEvent logEvent, ILogEventPropertyFactory propertyFactory)
     {
         ArgumentNullException.ThrowIfNull(logEvent);
         ArgumentNullException.ThrowIfNull(propertyFactory);
-
-        // Redact the message template
-        if (logEvent.MessageTemplate?.Text != null)
-        {
-            var redactedTemplate = RedactSensitiveData(logEvent.MessageTemplate.Text);
-            if (redactedTemplate != logEvent.MessageTemplate.Text)
-            {
-                logEvent.AddOrUpdateProperty(
-                    propertyFactory.CreateProperty("OriginalMessageTemplate", logEvent.MessageTemplate.Text));
-                logEvent.AddOrUpdateProperty(
-                    propertyFactory.CreateProperty("MessageTemplate", redactedTemplate));
-            }
-        }
 
         // Redact all properties
         foreach (var property in logEvent.Properties.ToList())
@@ -69,9 +56,15 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
             DictionaryValue dictionary =>
                 new DictionaryValue(
                     dictionary.Elements.Select(kvp =>
-                        new KeyValuePair<ScalarValue, LogEventPropertyValue>(
-                            kvp.Key,
-                            RedactProperty(kvp.Value)))),
+                    {
+                        var redactedKey = kvp.Key.Value is string keyString
+                            ? new ScalarValue(RedactSensitiveData(keyString))
+                            : kvp.Key;
+
+                        var redactedValue = RedactProperty(kvp.Value);
+
+                        return new KeyValuePair<ScalarValue, LogEventPropertyValue>(redactedKey, redactedValue);
+                    })),
             
             _ => value
         };

@@ -128,9 +128,10 @@ The wizard will:
 
 **To update or replace your API key:**
 ```bash
-# Run the setup wizard again
-dotnet run --project src/Krutaka.Console -- --setup
-# or manually delete from Windows Credential Manager and restart
+# Delete credential from Windows Credential Manager and restart
+# Open Credential Manager: Control Panel > User Accounts > Credential Manager
+# Under "Windows Credentials" > "Generic Credentials", delete "Krutaka_ApiKey"
+# Then run the app again to trigger setup wizard
 ```
 
 **To verify your stored credential:**
