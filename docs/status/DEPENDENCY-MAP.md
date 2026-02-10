@@ -1,6 +1,6 @@
 # Krutaka — NuGet Dependency Map
 
-> **Last updated:** 2026-02-10 (Pre-implementation — versions to be confirmed during Issue #3)
+> **Last updated:** 2026-02-10 (Pre-implementation — versions to be confirmed during Issue #4)
 
 ## Package Registry
 
