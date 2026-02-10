@@ -73,6 +73,8 @@ public sealed class ListFilesToolTests : IDisposable
         result.Should().Contain("file1.txt");
         result.Should().Contain("file2.txt");
         result.Should().Contain("file3.cs");
+        result.Should().Contain("<untrusted_content>");
+        result.Should().Contain("</untrusted_content>");
     }
 
     [Fact]

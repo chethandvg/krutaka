@@ -43,6 +43,9 @@ public class ListFilesTool : ToolBase
     {
         try
         {
+            // Check for cancellation
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Extract path parameter (default to project root)
             var path = _projectRoot;
             if (input.TryGetProperty("path", out var pathElement))
@@ -82,11 +85,41 @@ public class ListFilesTool : ToolBase
                 return Task.FromResult($"Error: Directory not found: '{path}'");
             }
 
-            // Enumerate files matching the pattern
-            IEnumerable<string> files;
+            // Filter files through security validation and build result
+            var result = new StringBuilder();
+            var fileCount = 0;
+            var blockedCount = 0;
+
+            // Use EnumerationOptions to handle inaccessible directories gracefully
+            var enumerationOptions = new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                RecurseSubdirectories = true
+            };
+
             try
             {
-                files = Directory.EnumerateFiles(validatedPath, pattern, SearchOption.AllDirectories);
+                foreach (var file in Directory.EnumerateFiles(validatedPath, pattern, enumerationOptions))
+                {
+                    // Check for cancellation periodically
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    // Validate each file path
+                    try
+                    {
+                        SafeFileOperations.ValidatePath(file, _projectRoot);
+                        
+                        // Make path relative to project root for cleaner output
+                        var relativePath = Path.GetRelativePath(_projectRoot, file);
+                        result.AppendLine(relativePath);
+                        fileCount++;
+                    }
+                    catch (SecurityException)
+                    {
+                        // Silently skip blocked files (don't reveal their existence)
+                        blockedCount++;
+                    }
+                }
             }
             catch (UnauthorizedAccessException)
             {
@@ -95,30 +128,6 @@ public class ListFilesTool : ToolBase
             catch (IOException ex)
             {
                 return Task.FromResult($"Error: I/O error accessing directory: '{path}' - {ex.Message}");
-            }
-
-            // Filter files through security validation and build result
-            var result = new StringBuilder();
-            var fileCount = 0;
-            var blockedCount = 0;
-
-            foreach (var file in files)
-            {
-                // Validate each file path
-                try
-                {
-                    SafeFileOperations.ValidatePath(file, _projectRoot);
-                    
-                    // Make path relative to project root for cleaner output
-                    var relativePath = Path.GetRelativePath(_projectRoot, file);
-                    result.AppendLine(relativePath);
-                    fileCount++;
-                }
-                catch (SecurityException)
-                {
-                    // Silently skip blocked files (don't reveal their existence)
-                    blockedCount++;
-                }
             }
 
             if (fileCount == 0)
@@ -131,7 +140,10 @@ public class ListFilesTool : ToolBase
                 return Task.FromResult($"No files found matching pattern '{pattern}' in '{path}'.");
             }
 
-            return Task.FromResult(result.ToString().TrimEnd());
+            // Wrap output in untrusted_content tags for prompt injection defense
+            var listPayload = result.ToString().TrimEnd();
+            var wrappedPayload = $"<untrusted_content>\n{listPayload}\n</untrusted_content>";
+            return Task.FromResult(wrappedPayload);
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)

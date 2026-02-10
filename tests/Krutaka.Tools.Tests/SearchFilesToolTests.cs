@@ -77,6 +77,8 @@ public sealed class SearchFilesToolTests : IDisposable
         result.Should().Contain("2:"); // Line number
         result.Should().Contain("Hello World");
         result.Should().Contain("Found 1 match");
+        result.Should().Contain("<untrusted_content>");
+        result.Should().Contain("</untrusted_content>");
     }
 
     [Fact]

@@ -110,14 +110,14 @@ public class SearchFilesTool : ToolBase
                 return $"Error: Directory not found: '{path}'";
             }
 
-            // Compile regex if needed
+            // Compile regex if needed (without Compiled option for user-supplied patterns)
             Regex? regex = null;
             if (useRegex)
             {
                 try
                 {
                     var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
-                    regex = new Regex(searchPattern, options | RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+                    regex = new Regex(searchPattern, options, TimeSpan.FromSeconds(1));
                 }
                 catch (ArgumentException ex)
                 {
@@ -125,11 +125,101 @@ public class SearchFilesTool : ToolBase
                 }
             }
 
-            // Enumerate files
-            IEnumerable<string> files;
+            // Search files and collect matches
+            var result = new StringBuilder();
+            var matchCount = 0;
+            var fileCount = 0;
+            var stringComparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+
+            // Use EnumerationOptions to handle inaccessible directories gracefully
+            var enumerationOptions = new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                RecurseSubdirectories = true
+            };
+
             try
             {
-                files = Directory.EnumerateFiles(validatedPath, filePattern, SearchOption.AllDirectories);
+                foreach (var file in Directory.EnumerateFiles(validatedPath, filePattern, enumerationOptions))
+                {
+                    // Check for cancellation periodically
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    // Validate file path
+                    try
+                    {
+                        SafeFileOperations.ValidatePath(file, _projectRoot);
+                    }
+                    catch (SecurityException)
+                    {
+                        // Silently skip blocked files
+                        continue;
+                    }
+
+                    // Validate file size
+                    try
+                    {
+                        SafeFileOperations.ValidateFileSize(file);
+                    }
+                    catch (SecurityException)
+                    {
+                        // Silently skip files that are too large
+                        continue;
+                    }
+
+                    // Search file content
+                    try
+                    {
+                        var relativePath = Path.GetRelativePath(_projectRoot, file);
+                        var lineNumber = 0;
+                        var fileHasMatches = false;
+
+                        await foreach (var line in File.ReadLinesAsync(file, cancellationToken).ConfigureAwait(false))
+                        {
+                            lineNumber++;
+                            var isMatch = false;
+
+                            if (useRegex)
+                            {
+                                try
+                                {
+                                    isMatch = regex!.IsMatch(line);
+                                }
+                                catch (RegexMatchTimeoutException)
+                                {
+                                    // Skip lines that timeout
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                isMatch = line.Contains(searchPattern, stringComparison);
+                            }
+
+                            if (isMatch)
+                            {
+                                result.AppendLine(CultureInfo.InvariantCulture, $"{relativePath}:{lineNumber}: {line}");
+                                matchCount++;
+                                fileHasMatches = true;
+                            }
+                        }
+
+                        if (fileHasMatches)
+                        {
+                            fileCount++;
+                        }
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        // Silently skip files we can't read
+                        continue;
+                    }
+                    catch (IOException)
+                    {
+                        // Silently skip files with I/O errors (e.g., binary files)
+                        continue;
+                    }
+                }
             }
             catch (UnauthorizedAccessException)
             {
@@ -140,97 +230,15 @@ public class SearchFilesTool : ToolBase
                 return $"Error: I/O error accessing directory: '{path}' - {ex.Message}";
             }
 
-            // Search files and collect matches
-            var result = new StringBuilder();
-            var matchCount = 0;
-            var fileCount = 0;
-            var stringComparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
-
-            foreach (var file in files)
-            {
-                // Validate file path
-                try
-                {
-                    SafeFileOperations.ValidatePath(file, _projectRoot);
-                }
-                catch (SecurityException)
-                {
-                    // Silently skip blocked files
-                    continue;
-                }
-
-                // Validate file size
-                try
-                {
-                    SafeFileOperations.ValidateFileSize(file);
-                }
-                catch (SecurityException)
-                {
-                    // Silently skip files that are too large
-                    continue;
-                }
-
-                // Search file content
-                try
-                {
-                    var relativePath = Path.GetRelativePath(_projectRoot, file);
-                    var lineNumber = 0;
-                    var fileHasMatches = false;
-
-                    await foreach (var line in File.ReadLinesAsync(file, cancellationToken).ConfigureAwait(false))
-                    {
-                        lineNumber++;
-                        var isMatch = false;
-
-                        if (useRegex && regex != null)
-                        {
-                            try
-                            {
-                                isMatch = regex.IsMatch(line);
-                            }
-                            catch (RegexMatchTimeoutException)
-                            {
-                                // Skip lines that timeout
-                                continue;
-                            }
-                        }
-                        else
-                        {
-                            isMatch = line.Contains(searchPattern, stringComparison);
-                        }
-
-                        if (isMatch)
-                        {
-                            result.AppendLine(CultureInfo.InvariantCulture, $"{relativePath}:{lineNumber}: {line}");
-                            matchCount++;
-                            fileHasMatches = true;
-                        }
-                    }
-
-                    if (fileHasMatches)
-                    {
-                        fileCount++;
-                    }
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // Silently skip files we can't read
-                    continue;
-                }
-                catch (IOException)
-                {
-                    // Silently skip files with I/O errors (e.g., binary files)
-                    continue;
-                }
-            }
-
             if (matchCount == 0)
             {
                 return $"No matches found for pattern '{searchPattern}' in files matching '{filePattern}'";
             }
 
+            // Wrap output in untrusted_content tags for prompt injection defense
             var summary = $"Found {matchCount} match(es) in {fileCount} file(s):\n\n";
-            return summary + result.ToString().TrimEnd();
+            var searchResults = result.ToString().TrimEnd();
+            return $"<untrusted_content>\n{summary}{searchResults}\n</untrusted_content>";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)
