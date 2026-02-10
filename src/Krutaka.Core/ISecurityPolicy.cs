@@ -1,3 +1,5 @@
+using System.Security;
+
 namespace Krutaka.Core;
 
 /// <summary>
