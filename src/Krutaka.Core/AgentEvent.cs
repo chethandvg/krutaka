@@ -56,3 +56,10 @@ public sealed record FinalResponse(string Content, string StopReason) : AgentEve
 /// <param name="ToolUseId">The unique identifier for this tool use.</param>
 /// <param name="Input">The input parameters for the tool.</param>
 public sealed record HumanApprovalRequired(string ToolName, string ToolUseId, string Input) : AgentEvent;
+
+/// <summary>
+/// Represents the capture of a request ID from the Claude API response header.
+/// Emitted at the start of each streaming response to enable correlation tracking.
+/// </summary>
+/// <param name="RequestId">The request ID from the Claude API response header.</param>
+public sealed record RequestIdCaptured(string RequestId) : AgentEvent;

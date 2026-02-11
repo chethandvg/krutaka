@@ -40,7 +40,7 @@ Identify and resolve all build errors in the Krutaka repository, and fully compl
 1. **Correlation Tracking** (src/Krutaka.Core/CorrelationContext.cs)
    - SessionId (Guid) - per session
    - TurnId (int) - per user turn
-   - RequestId (string) - placeholder for Claude API request-id
+   - RequestId (string) - Claude API request-id from response header (captured via `WithRawResponse`)
 
 2. **Audit Event Models** (src/Krutaka.Core/AuditEvent.cs)
    - Base AuditEvent class with correlation IDs
@@ -98,9 +98,9 @@ Identify and resolve all build errors in the Krutaka repository, and fully compl
 ### Why Some Items Are Deferred:
 
 1. **Request-id extraction from Claude API**
-   - The official Anthropic package (NuGet: `Anthropic` v12.4.0) doesn't expose response headers
-   - Cannot be implemented until the package supports it
-   - Low impact: correlation still works with SessionId/TurnId
+   - The official Anthropic package (NuGet: `Anthropic` v12.4.0) supports `WithRawResponse` API for accessing HTTP response headers
+   - `ClaudeClientWrapper` uses `client.WithRawResponse.Messages.CreateStreaming()` and `client.WithRawResponse.Messages.CountTokens()` to capture `RequestID`
+   - Request IDs are propagated through `RequestIdCaptured` agent events and set on `CorrelationContext`
 
 2. **Security violation logging in CommandPolicy/SafeFileOperations**
    - Both are static classes without dependency injection

@@ -212,7 +212,7 @@ Claude API integration layer with token counting and context management.
   - Request timeout set to 120 seconds
   - Additional resilience configuration available for future extensibility
 - Circuit breaker configuration available (30s sampling window, minimum 5 requests, 30s break duration)
-- Request-id logging planned for future implementation
+- Request-id extraction implemented via `WithRawResponse` API, logged at Information level
 - API key retrieved from `ISecretsProvider` with fallback to configuration for testing
 
 **Resilience pipeline:** Official package's built-in exponential backoff retry (3 attempts), 120s request timeout. Additional HTTP resilience pipeline configured for potential future use.
@@ -554,7 +554,7 @@ Audit logging is integrated at the following points:
 - **User input**: Logged in `Program.cs` main loop
 - **Tool execution**: Logged in `AgentOrchestrator.ExecuteToolAsync` with timing and error tracking
 - **Compaction events**: Supported via `ContextCompactor` (emitted when compaction is invoked with `IAuditLogger`/`CorrelationContext`)
-- **Claude API calls**: Deferred (requires request-id extraction from API client)
+- **Claude API calls**: Request-id captured via `WithRawResponse` API and propagated through `RequestIdCaptured` event
 - **Security violations**: Deferred (requires CommandPolicy/SafeFileOperations refactoring for DI support)
 
 #### Testing
