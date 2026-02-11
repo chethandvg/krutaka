@@ -275,13 +275,13 @@ public class RunCommandTool : ToolBase
 #pragma warning disable CA1031 // Do not catch general exception types - we handle specific exceptions inline
             catch (ArgumentException) when (attempt < maxAssignAttempts - 1)
             {
-                // Process not yet observable; wait briefly then retry
-                Thread.Sleep(retryDelay);
+                // Process not yet observable; wait briefly then retry (cancellation-aware)
+                cancellationToken.WaitHandle.WaitOne(retryDelay);
             }
             catch (System.ComponentModel.Win32Exception) when (attempt < maxAssignAttempts - 1)
             {
-                // Transient OS error while process is starting; wait briefly then retry
-                Thread.Sleep(retryDelay);
+                // Transient OS error while process is starting; wait briefly then retry (cancellation-aware)
+                cancellationToken.WaitHandle.WaitOne(retryDelay);
             }
             catch (Exception ex)
             {
