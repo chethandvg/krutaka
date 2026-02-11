@@ -287,13 +287,20 @@ The project uses GitHub Actions for continuous integration:
 
 **Triggers:** Push to `main`, pull requests to `main`
 
-**Steps:**
-1. Setup .NET 10
-2. Restore dependencies
-3. Build (Release mode, warnings as errors)
-4. Run tests (excludes 5 failing AgentOrchestratorTests - see note below)
-5. Publish self-contained win-x64 executable
-6. Upload build artifact (90-day retention)
+**Jobs:**
+
+1. **build** - Main build and test job
+   - Setup .NET 10.0.102 (pinned version from global.json)
+   - Restore dependencies with locked-mode (deterministic builds)
+   - Build (Release mode, warnings as errors)
+   - Run tests (excludes Quarantined category - see note below)
+   - Publish self-contained win-x64 executable
+   - Upload build artifact (90-day retention)
+
+2. **quarantined-tests** - Runs failing tests separately (allowed to fail)
+   - Runs tests marked with `[Trait("Category", "Quarantined")]`
+   - Results are visible but don't fail the build
+   - Helps track progress on fixing these tests
 
 **Downloadable Artifacts:**
 - Navigate to [Actions tab](https://github.com/chethandvg/krutaka/actions)
@@ -306,16 +313,20 @@ The project uses GitHub Actions for continuous integration:
 
 **Runs:** All security policy and security violation logging tests (133 tests)
 
-**Note on Failing Tests:**
+**Configuration:**
+- Uses .NET 10.0.102 (pinned version)
+- Locked-mode restore for deterministic builds
 
-Currently, 5 tests in `AgentOrchestratorTests` are failing and temporarily excluded from CI:
+**Note on Quarantined Tests:**
+
+5 tests in `AgentOrchestratorTests` are marked as `[Trait("Category", "Quarantined")]` and run separately:
 - `RunAsync_Should_ProcessToolCalls_WhenClaudeRequestsTools`
 - `RunAsync_Should_YieldHumanApprovalRequired_WhenToolRequiresApproval`
 - `RunAsync_Should_ProcessMultipleToolCalls_InSingleResponse`
 - `RunAsync_Should_SerializeTurnExecution`
 - `RunAsync_Should_HandleToolExecutionFailure_WithoutCrashingLoop`
 
-These tests define expected behavior for the AgentOrchestrator's agentic loop (tool execution, approval flows, error handling). The failures appear to be related to event emission in the orchestrator implementation or mock setup. These tests should be fixed in a future issue rather than removed, as they validate critical functionality.
+These tests validate critical AgentOrchestrator functionality (tool execution, approval flows, error handling). They are preserved in the codebase and run in a separate CI job that's allowed to fail, keeping them visible until fixed.
 
 ## Troubleshooting
 

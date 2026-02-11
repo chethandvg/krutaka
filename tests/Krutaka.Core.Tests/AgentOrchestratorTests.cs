@@ -130,6 +130,7 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_ProcessToolCalls_WhenClaudeRequestsTools()
     {
         // Arrange
@@ -165,6 +166,7 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_YieldHumanApprovalRequired_WhenToolRequiresApproval()
     {
         // Arrange
@@ -199,6 +201,7 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_HandleToolExecutionFailure_WithoutCrashingLoop()
     {
         // Arrange
@@ -251,6 +254,7 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_ProcessMultipleToolCalls_InSingleResponse()
     {
         // Arrange
@@ -297,6 +301,7 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_SerializeTurnExecution()
     {
         // Arrange
