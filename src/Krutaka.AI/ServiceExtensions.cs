@@ -50,6 +50,8 @@ public static class ServiceExtensions
             var temperature = double.Parse(configuration["Claude:Temperature"] ?? "0.7", CultureInfo.InvariantCulture);
 
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClaudeClientWrapper>>();
+            var auditLogger = sp.GetService<IAuditLogger>();
+            var correlationContext = sp.GetService<CorrelationContext>();
 
             // Create Anthropic client with retry configuration
             // Note: The SDK has built-in retry logic (2 retries by default)
@@ -61,7 +63,7 @@ public static class ServiceExtensions
                 Timeout = TimeSpan.FromSeconds(120)
             };
 
-            return new ClaudeClientWrapper(client, logger, modelId, maxTokens, temperature);
+            return new ClaudeClientWrapper(client, logger, modelId, maxTokens, temperature, auditLogger, correlationContext);
         });
 
         // Configure HTTP resilience pipeline for general use

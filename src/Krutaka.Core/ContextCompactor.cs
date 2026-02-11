@@ -10,6 +10,8 @@ namespace Krutaka.Core;
 public sealed class ContextCompactor
 {
     private readonly IClaudeClient _claudeClient;
+    private readonly IAuditLogger? _auditLogger;
+    private readonly CorrelationContext? _correlationContext;
     private readonly int _maxTokens;
     private readonly double _compactionThreshold;
     private readonly int _messagesToKeep;
@@ -21,13 +23,19 @@ public sealed class ContextCompactor
     /// <param name="maxTokens">Maximum context window size (default: 200,000).</param>
     /// <param name="compactionThreshold">Threshold percentage for compaction (default: 0.80 = 80%).</param>
     /// <param name="messagesToKeep">Number of recent messages to keep after compaction (default: 6 = 3 pairs).</param>
+    /// <param name="auditLogger">Optional audit logger for structured logging.</param>
+    /// <param name="correlationContext">Optional correlation context for request tracing.</param>
     public ContextCompactor(
         IClaudeClient claudeClient,
         int maxTokens = 200_000,
         double compactionThreshold = 0.80,
-        int messagesToKeep = 6)
+        int messagesToKeep = 6,
+        IAuditLogger? auditLogger = null,
+        CorrelationContext? correlationContext = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
+        _auditLogger = auditLogger;
+        _correlationContext = correlationContext;
         _maxTokens = maxTokens;
         _compactionThreshold = compactionThreshold;
         _messagesToKeep = messagesToKeep;
@@ -113,6 +121,16 @@ public sealed class ContextCompactor
 
         // Calculate messages removed (from the original conversation, not counting added summary messages)
         var messagesRemoved = messagesToSummarize.Count;
+
+        // Log compaction event (only if audit logger and correlation context are provided)
+        if (_auditLogger != null && _correlationContext != null)
+        {
+            _auditLogger.LogCompaction(
+                _correlationContext,
+                currentTokenCount,
+                newTokenCount,
+                messagesRemoved);
+        }
 
         return new CompactionResult(
             OriginalMessageCount: messages.Count,

@@ -15,6 +15,8 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 {
     private readonly AnthropicClient _client;
     private readonly ILogger<ClaudeClientWrapper> _logger;
+    private readonly IAuditLogger? _auditLogger;
+    private readonly CorrelationContext? _correlationContext;
     private readonly string _modelId;
     private readonly int _maxTokens;
     private readonly double _temperature;
@@ -24,10 +26,14 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         ILogger<ClaudeClientWrapper> logger,
         string modelId = "claude-4-sonnet-20250514",
         int maxTokens = 8192,
-        double temperature = 0.7)
+        double temperature = 0.7,
+        IAuditLogger? auditLogger = null,
+        CorrelationContext? correlationContext = null)
     {
         _client = client;
         _logger = logger;
+        _auditLogger = auditLogger;
+        _correlationContext = correlationContext;
         _modelId = modelId;
         _maxTokens = maxTokens;
         _temperature = temperature;
