@@ -24,6 +24,7 @@ var logsDir = Path.Combine(krutakaDir, "logs");
 Directory.CreateDirectory(logsDir);
 
 var logPath = Path.Combine(logsDir, "krutaka-.log");
+var auditLogPath = Path.Combine(logsDir, "audit-.json");
 
 // Create Serilog logger with file output and redaction
 Log.Logger = new LoggerConfiguration()
@@ -40,6 +41,12 @@ Log.Logger = new LoggerConfiguration()
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
         retainedFileCountLimit: 30,
         formatProvider: CultureInfo.InvariantCulture)
+    .WriteTo.File(
+        new Serilog.Formatting.Json.JsonFormatter(),
+        auditLogPath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
     .CreateLogger();
 
 try
@@ -75,6 +82,19 @@ try
 
     // Add Serilog to host
     builder.Services.AddSerilog();
+
+    // Register CorrelationContext (scoped per session)
+    builder.Services.AddSingleton(sp =>
+    {
+        var sessionId = Guid.NewGuid();
+        return new CorrelationContext(sessionId);
+    });
+
+    // Register IAuditLogger
+    builder.Services.AddSingleton<IAuditLogger>(sp =>
+    {
+        return new AuditLogger(Log.Logger);
+    });
 
     // Register ISecretsProvider (WindowsSecretsProvider)
     builder.Services.AddSingleton<ISecretsProvider, WindowsSecretsProvider>();
@@ -202,6 +222,8 @@ try
     var orchestrator = host.Services.GetRequiredService<AgentOrchestrator>();
     var systemPromptBuilder = host.Services.GetRequiredService<SystemPromptBuilder>();
     var sessionStore = host.Services.GetRequiredService<SessionStore>();
+    var correlationContext = host.Services.GetRequiredService<CorrelationContext>();
+    var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
 
     // Display banner
     ui.DisplayBanner();
@@ -252,6 +274,12 @@ try
 
         try
         {
+            // Increment turn ID for new user input
+            correlationContext.IncrementTurn();
+
+            // Log user input
+            auditLogger.LogUserInput(correlationContext, input);
+
             // Build system prompt
             var systemPrompt = await systemPromptBuilder.BuildAsync(input, ui.ShutdownToken).ConfigureAwait(false);
 
