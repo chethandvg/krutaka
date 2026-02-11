@@ -66,6 +66,9 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         var textContent = new System.Text.StringBuilder();
         string stopReason = "end_turn";
 
+        // Track tool use content block state for accumulating partial JSON input
+        var toolUseBuilders = new Dictionary<long, (string Name, string Id, System.Text.StringBuilder JsonInput)>();
+
         // Stream the response using WithRawResponse to capture HTTP headers including request-id.
         // Note: Using official Anthropic package (v12.4.0), NOT community Anthropic.SDK
         var rawResponse = await _client.WithRawResponse.Messages.CreateStreaming(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -87,20 +90,70 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
             LogChunkReceived();
 
-            // For now, yield a basic text delta event
-            // The agentic loop will handle detailed parsing of:
-            // - Actual text deltas
-            // - Tool call events  
-            // - Stop reasons
-            var delta = ""; // Placeholder - SDK beta doesn't expose structured deltas yet
-            if (!string.IsNullOrEmpty(delta))
+            // Parse streaming events from the official Anthropic SDK (v12.4.0).
+            // The SDK exposes RawMessageStreamEvent with TryPick* methods for each event type.
+            if (chunk.TryPickContentBlockStart(out var contentBlockStart))
             {
-                textContent.Append(delta);
-                yield return new Core.TextDelta(delta);
+                // A new content block has started - check if it's a tool_use block
+                if (contentBlockStart.ContentBlock.TryPickToolUse(out var toolUseBlock))
+                {
+                    // Start tracking this tool use block's input JSON accumulation
+                    toolUseBuilders[contentBlockStart.Index] = (
+                        toolUseBlock.Name,
+                        toolUseBlock.ID,
+                        new System.Text.StringBuilder());
+                }
+            }
+            else if (chunk.TryPickContentBlockDelta(out var contentBlockDelta))
+            {
+                // A content block delta with incremental content
+                if (contentBlockDelta.Delta.TryPickText(out var textDelta))
+                {
+                    // Text delta - accumulate and yield
+                    textContent.Append(textDelta.Text);
+                    yield return new Core.TextDelta(textDelta.Text);
+                }
+                else if (contentBlockDelta.Delta.TryPickInputJson(out var inputJsonDelta))
+                {
+                    // Tool input JSON delta - accumulate partial JSON for this content block
+                    if (toolUseBuilders.TryGetValue(contentBlockDelta.Index, out var builder))
+                    {
+                        builder.JsonInput.Append(inputJsonDelta.PartialJson);
+                    }
+                }
+            }
+            else if (chunk.TryPickContentBlockStop(out var contentBlockStop))
+            {
+                // Content block finished - emit ToolCallStarted if it was a tool_use block
+                if (toolUseBuilders.TryGetValue(contentBlockStop.Index, out var completed))
+                {
+                    var inputJson = completed.JsonInput.ToString();
+                    if (string.IsNullOrEmpty(inputJson))
+                    {
+                        inputJson = "{}";
+                    }
+
+                    yield return new ToolCallStarted(completed.Name, completed.Id, inputJson);
+                    toolUseBuilders.Remove(contentBlockStop.Index);
+                }
+            }
+            else if (chunk.TryPickDelta(out var messageDelta))
+            {
+                // Message-level delta with stop reason and usage.
+                // StopReason is an ApiEnum<string, StopReason> which implicitly converts to string.
+                var stopReasonEnum = messageDelta.Delta.StopReason;
+                if (stopReasonEnum is not null)
+                {
+                    string reason = stopReasonEnum;
+                    if (!string.IsNullOrEmpty(reason))
+                    {
+                        stopReason = reason;
+                    }
+                }
             }
         }
 
-        // Emit final response
+        // Emit final response with accumulated text and the actual stop reason
         yield return new FinalResponse(textContent.ToString(), stopReason);
     }
 

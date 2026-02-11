@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Krutaka.Core;
 using Serilog;
 using Serilog.Events;
@@ -27,18 +28,28 @@ internal sealed class AuditLogger : IAuditLogger
     {
         ArgumentNullException.ThrowIfNull(auditEvent);
 
-        // Log the entire event as a structured property
-        // Use GetType() to ensure derived type properties are captured
+        // Build EventData dictionary from event-specific (derived type) properties,
+        // excluding base AuditEvent properties which are logged separately as correlation IDs.
         var eventType = auditEvent.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p => p.GetValue(auditEvent));
+
+        // Serialize EventData as JSON to ensure consistent formatting
+        // (lowercase booleans, proper string escaping for paths)
+        var eventDataJson = JsonSerializer.Serialize(eventData);
 
         _logger.Write(
             LogEventLevel.Information,
-            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {@AuditEvent}",
+            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
             eventType.Name,
             auditEvent.SessionId,
             auditEvent.TurnId,
             auditEvent.RequestId ?? "N/A",
-            auditEvent);
+            eventDataJson);
     }
 
     /// <inheritdoc />

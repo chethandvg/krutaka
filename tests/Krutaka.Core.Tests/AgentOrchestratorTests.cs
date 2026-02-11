@@ -200,7 +200,6 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_ProcessToolCalls_WhenClaudeRequestsTools()
     {
         // Arrange
@@ -236,7 +235,6 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_YieldHumanApprovalRequired_WhenToolRequiresApproval()
     {
         // Arrange
@@ -256,11 +254,15 @@ public sealed class AgentOrchestratorTests
 
         using var orchestrator = CreateOrchestrator(claudeClient, toolRegistry, securityPolicy);
 
-        // Act
+        // Act - approve the tool when the approval event is received
         var events = new List<AgentEvent>();
         await foreach (var evt in orchestrator.RunAsync("Write file", "System prompt"))
         {
             events.Add(evt);
+            if (evt is HumanApprovalRequired approval)
+            {
+                orchestrator.ApproveTool(approval.ToolName);
+            }
         }
 
         // Assert
@@ -271,7 +273,6 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_HandleToolExecutionFailure_WithoutCrashingLoop()
     {
         // Arrange
@@ -324,7 +325,6 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_ProcessMultipleToolCalls_InSingleResponse()
     {
         // Arrange
@@ -371,7 +371,6 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_SerializeTurnExecution()
     {
         // Arrange
@@ -431,41 +430,43 @@ public sealed class AgentOrchestratorTests
 
     private sealed class MockClaudeClient : IClaudeClient
     {
-        private readonly Queue<List<AgentEvent>> _eventBatches = new();
+        private readonly List<List<AgentEvent>> _eventBatches = [];
 
         public void AddTextDelta(string text)
         {
             EnsureCurrentBatch();
-            _eventBatches.Peek().Add(new TextDelta(text));
+            _eventBatches[^1].Add(new TextDelta(text));
         }
 
         public void AddRequestIdCaptured(string requestId)
         {
             EnsureCurrentBatch();
-            _eventBatches.Peek().Add(new RequestIdCaptured(requestId));
+            _eventBatches[^1].Add(new RequestIdCaptured(requestId));
         }
 
         public void AddToolCallStarted(string name, string id, string input)
         {
             EnsureCurrentBatch();
-            _eventBatches.Peek().Add(new ToolCallStarted(name, id, input));
+            _eventBatches[^1].Add(new ToolCallStarted(name, id, input));
         }
 
         public void AddFinalResponse(string content, string stopReason)
         {
             EnsureCurrentBatch();
-            _eventBatches.Peek().Add(new FinalResponse(content, stopReason));
+            _eventBatches[^1].Add(new FinalResponse(content, stopReason));
             // Start a new batch for the next call
-            _eventBatches.Enqueue([]);
+            _eventBatches.Add([]);
         }
 
         private void EnsureCurrentBatch()
         {
             if (_eventBatches.Count == 0)
             {
-                _eventBatches.Enqueue([]);
+                _eventBatches.Add([]);
             }
         }
+
+        private int _callIndex;
 
         public async IAsyncEnumerable<AgentEvent> SendMessageAsync(
             IEnumerable<object> messages,
@@ -475,9 +476,10 @@ public sealed class AgentOrchestratorTests
         {
             await Task.Yield();
 
-            if (_eventBatches.Count > 0)
+            if (_callIndex < _eventBatches.Count)
             {
-                var events = _eventBatches.Dequeue();
+                var events = _eventBatches[_callIndex];
+                _callIndex++;
                 foreach (var evt in events)
                 {
                     yield return evt;

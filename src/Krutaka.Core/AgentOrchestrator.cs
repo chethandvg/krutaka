@@ -20,6 +20,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
     private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
+    private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision
     private bool _disposed;
 
     /// <summary>
@@ -103,6 +104,7 @@ public sealed class AgentOrchestrator : IDisposable
 
     /// <summary>
     /// Approves a pending tool call. This should be called in response to HumanApprovalRequired events.
+    /// Unblocks the orchestrator to proceed with tool execution.
     /// </summary>
     /// <param name="toolName">The name of the tool to approve.</param>
     /// <param name="alwaysApprove">Whether to always approve this tool for the session.</param>
@@ -117,6 +119,25 @@ public sealed class AgentOrchestrator : IDisposable
         {
             _approvalCache[toolName] = true;
         }
+
+        // Signal the pending approval to proceed
+        _pendingApproval?.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// Denies a pending tool call. This should be called in response to HumanApprovalRequired events.
+    /// The tool will not be executed and a denial message is returned to Claude.
+    /// </summary>
+    /// <param name="toolUseId">The tool use ID to deny.</param>
+    public void DenyTool(string toolUseId)
+    {
+        if (string.IsNullOrWhiteSpace(toolUseId))
+        {
+            throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
+        }
+
+        // Signal the pending approval as denied
+        _pendingApproval?.TrySetResult(false);
     }
 
     /// <summary>
@@ -194,9 +215,26 @@ public sealed class AgentOrchestrator : IDisposable
                 
                 if (approvalRequired && !alwaysApprove)
                 {
+                    // Create a TaskCompletionSource to block until the caller approves or denies
+                    _pendingApproval = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
-                    // Note: The caller must call ApproveTool before continuing
-                    // For now, we'll assume approval is granted (will be enhanced in Issue #15)
+                    
+                    // Block until ApproveTool or DenyTool is called
+                    var approved = await _pendingApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    _pendingApproval = null;
+                    
+                    if (!approved)
+                    {
+                        // Tool was denied - send denial message as tool result
+                        var denialMessage = $"The user denied execution of {toolCall.Name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
+                        yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMessage);
+                        toolResults.Add(CreateToolResult(toolCall.Id, denialMessage, false));
+                        continue;
+                    }
+                    
+                    // Update alwaysApprove state (may have been set by ApproveTool)
+                    alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
                 }
 
                 // Execute the tool with timeout
