@@ -1,0 +1,57 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+        
+    - name: Display .NET version
+      run: dotnet --version
+      
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build solution
+      run: dotnet build --no-restore --configuration Release /p:TreatWarningsAsErrors=true
+      
+    - name: Run tests
+      run: dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx"
+      
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: '**/test-results.trx'
+        retention-days: 30
+        
+    - name: Publish self-contained win-x64
+      run: |
+        dotnet publish src/Krutaka.Console `
+          --configuration Release `
+          --runtime win-x64 `
+          --self-contained `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          --output ./publish
+          
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: krutaka-win-x64
+        path: ./publish/Krutaka.Console.exe
+        retention-days: 90

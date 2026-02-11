@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #24 complete - Structured audit logging with correlation IDs)
+> **Last updated:** 2026-02-11 (Issue #25 complete - GitHub Actions CI pipeline)
 
 ## Phase Summary
 
@@ -12,7 +12,7 @@
 | 3 | Persistence & Memory | #16, #17, #18, #19 | 🟢 Complete |
 | 4 | UI & System Prompt | #20, #21, #23 | 🟢 Complete |
 | 5 | Skills & Observability | #22, #24 | 🟢 Complete |
-| 6 | Build, Package & Verify | #25, #26, #27, #28 | 🔴 Not Started |
+| 6 | Build, Package & Verify | #25, #26, #27, #28 | 🟡 In Progress |
 
 ## Issue Status
 
@@ -41,7 +41,7 @@
 | 22 | Implement skill system | 5 | 🟢 Complete | 2026-02-11 |
 | 23 | Implement Program.cs composition root (integration) | 4 | 🟢 Complete | 2026-02-11 |
 | 24 | Implement structured audit logging | 5 | 🟢 Complete | 2026-02-11 |
-| 25 | Create GitHub Actions CI pipeline | 6 | 🔴 Not Started | — |
+| 25 | Create GitHub Actions CI pipeline | 6 | 🟢 Complete | 2026-02-11 |
 | 26 | Self-contained single-file publishing | 6 | 🔴 Not Started | — |
 | 27 | End-to-end integration testing | 6 | 🔴 Not Started | — |
 | 28 | Final documentation polish | 6 | 🔴 Not Started | — |

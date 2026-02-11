@@ -1,6 +1,9 @@
 # Krutaka — Local Development Setup
 
-> **Last updated:** 2026-02-11 (Issue #23 — Program.cs composition root and DI wiring)
+> **Last updated:** 2026-02-11 (Issue #25 — GitHub Actions CI pipeline)
+
+[![Build and Test](https://github.com/chethandvg/krutaka/actions/workflows/build.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/build.yml)
+[![Security Tests](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml)
 
 ## Prerequisites
 
@@ -285,6 +288,64 @@ dotnet format
 | SQLite native library not found | Run `dotnet restore` to ensure `Microsoft.Data.Sqlite` is restored |
 | Tests fail on non-Windows | Some tests require Windows APIs (Credential Manager, Job Objects) |
 | `.slnx` file not supported | Use Visual Studio 2026 or `dotnet` CLI (VS 2025 may not support .slnx) |
+
+## CI/CD Pipeline
+
+Krutaka uses GitHub Actions for continuous integration and deployment:
+
+### Build Workflow (`.github/workflows/build.yml`)
+
+Runs on every push to `main` and on all pull requests:
+- **Setup**: .NET 10 SDK on Windows runner
+- **Restore**: NuGet package dependencies
+- **Build**: Release configuration with warnings as errors
+- **Test**: All test projects (201 tests)
+- **Publish**: Self-contained win-x64 executable
+- **Artifacts**: Build artifact downloadable for 90 days
+
+**View workflow runs**: [Actions → Build and Test](https://github.com/chethandvg/krutaka/actions/workflows/build.yml)
+
+### Security Tests Workflow (`.github/workflows/security-tests.yml`)
+
+Runs on every pull request and push to `main`:
+- **Security Policy Tests**: 125 tests covering command validation, path traversal prevention, environment scrubbing
+- **Fails the build** if any security test fails
+- **Test Results**: Uploaded as artifacts for 30 days
+
+**View workflow runs**: [Actions → Security Tests](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml)
+
+### Downloading Build Artifacts
+
+1. Go to [Actions](https://github.com/chethandvg/krutaka/actions)
+2. Select a successful workflow run
+3. Scroll down to **Artifacts**
+4. Download `krutaka-win-x64` (contains `Krutaka.Console.exe`)
+
+### Running CI Locally
+
+To test the build process locally:
+
+```bash
+# Build in Release mode (matches CI)
+dotnet build --configuration Release /p:TreatWarningsAsErrors=true
+
+# Run all tests (matches CI)
+dotnet test --configuration Release --verbosity normal
+
+# Run security tests only
+dotnet test tests/Krutaka.Tools.Tests \
+  --filter "FullyQualifiedName~SecurityPolicyTests" \
+  --verbosity normal
+
+# Publish single-file executable (matches CI)
+dotnet publish src/Krutaka.Console \
+  --configuration Release \
+  --runtime win-x64 \
+  --self-contained \
+  -p:PublishSingleFile=true \
+  -p:IncludeNativeLibrariesForSelfExtract=true \
+  --output ./publish
+```
 
 ## Next Steps
 
