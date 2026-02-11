@@ -14,8 +14,7 @@ public sealed class ToolOptions
     /// <summary>
     /// Gets or sets the command timeout in seconds.
     /// Commands exceeding this timeout will be terminated.
-    /// NOTE: This configuration is currently not used by RunCommandTool, which hardcodes a 30-second timeout.
-    /// Reserved for future implementation when timeout becomes configurable.
+    /// Wired into RunCommandTool via ServiceExtensions.AddAgentTools().
     /// </summary>
     public int CommandTimeoutSeconds { get; set; } = 30;
 

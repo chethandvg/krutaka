@@ -24,7 +24,7 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
         ArgumentNullException.ThrowIfNull(logEvent);
         ArgumentNullException.ThrowIfNull(propertyFactory);
 
-        // Redact all properties
+        // Redact all structured properties
         foreach (var property in logEvent.Properties.ToList())
         {
             var redactedValue = RedactProperty(property.Value);
@@ -33,6 +33,17 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
                 logEvent.AddOrUpdateProperty(
                     propertyFactory.CreateProperty(property.Key, redactedValue));
             }
+        }
+
+        // Also check the message template text itself for sensitive data.
+        // This prevents leaking secrets that are accidentally embedded directly
+        // in the message template string (e.g., Log.Information("key is sk-ant-...")).
+        var templateText = logEvent.MessageTemplate.Text;
+        var redactedTemplate = RedactSensitiveData(templateText);
+        if (templateText != redactedTemplate)
+        {
+            logEvent.AddOrUpdateProperty(
+                propertyFactory.CreateProperty("RedactedMessage", redactedTemplate));
         }
     }
 

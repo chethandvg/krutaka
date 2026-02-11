@@ -10,6 +10,7 @@ namespace Krutaka.Core;
 public sealed class ContextCompactor
 {
     private readonly IClaudeClient _claudeClient;
+    private readonly IClaudeClient _compactionClient;
     private readonly IAuditLogger? _auditLogger;
     private readonly CorrelationContext? _correlationContext;
     private readonly int _maxTokens;
@@ -19,21 +20,24 @@ public sealed class ContextCompactor
     /// <summary>
     /// Initializes a new instance of the <see cref="ContextCompactor"/> class.
     /// </summary>
-    /// <param name="claudeClient">The Claude API client.</param>
+    /// <param name="claudeClient">The Claude API client used for token counting.</param>
     /// <param name="maxTokens">Maximum context window size (default: 200,000).</param>
     /// <param name="compactionThreshold">Threshold percentage for compaction (default: 0.80 = 80%).</param>
     /// <param name="messagesToKeep">Number of recent messages to keep after compaction (default: 6 = 3 pairs).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
+    /// <param name="compactionClient">Optional separate Claude client for generating summaries (e.g., using a cheaper model). Defaults to the main client.</param>
     public ContextCompactor(
         IClaudeClient claudeClient,
         int maxTokens = 200_000,
         double compactionThreshold = 0.80,
         int messagesToKeep = 6,
         IAuditLogger? auditLogger = null,
-        CorrelationContext? correlationContext = null)
+        CorrelationContext? correlationContext = null,
+        IClaudeClient? compactionClient = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
+        _compactionClient = compactionClient ?? claudeClient;
         _auditLogger = auditLogger;
         _correlationContext = correlationContext;
         _maxTokens = maxTokens;
@@ -180,10 +184,10 @@ Provide a concise but comprehensive summary that captures all essential informat
             }
         };
 
-        // Call SendMessageAsync and collect the response
+        // Call SendMessageAsync using the compaction client (may be a cheaper model)
         var textContent = new System.Text.StringBuilder();
 
-        await foreach (var evt in _claudeClient.SendMessageAsync(
+        await foreach (var evt in _compactionClient.SendMessageAsync(
             summarizationMessages,
             "You are a helpful assistant that creates concise, accurate summaries of technical conversations.",
             tools: null,
