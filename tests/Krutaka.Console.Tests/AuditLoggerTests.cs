@@ -51,8 +51,8 @@ public class AuditLoggerTests
 
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
-        logEvent.Properties.Should().ContainKey("EventData");
-        var eventData = logEvent.Properties["EventData"].ToString();
+        logEvent.Properties.Should().ContainKey("AuditEvent");
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
         eventData.Should().Contain("truncated");
     }
 
@@ -71,10 +71,10 @@ public class AuditLoggerTests
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
         logEvent.Properties["EventType"].ToString().Should().Contain("ClaudeApiRequestEvent");
-        var eventData = logEvent.Properties["EventData"].ToString();
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
         eventData.Should().Contain("claude-4-sonnet-20250514");
         eventData.Should().Contain("1500");
-        eventData.Should().Contain("toolCount");
+        eventData.Should().Contain("ToolCount");
         eventData.Should().Contain("8");
     }
 
@@ -95,11 +95,11 @@ public class AuditLoggerTests
         var logEvent = sink.Events.Should().ContainSingle().Subject;
         logEvent.Properties["EventType"].ToString().Should().Contain("ClaudeApiResponseEvent");
         logEvent.Properties["RequestId"].ToString().Should().Contain("req_abc123");
-        var eventData = logEvent.Properties["EventData"].ToString();
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
         eventData.Should().Contain("end_turn");
-        eventData.Should().Contain("inputTokens");
+        eventData.Should().Contain("InputTokens");
         eventData.Should().Contain("1200");
-        eventData.Should().Contain("outputTokens");
+        eventData.Should().Contain("OutputTokens");
         eventData.Should().Contain("300");
     }
 
@@ -118,13 +118,13 @@ public class AuditLoggerTests
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
         logEvent.Properties["EventType"].ToString().Should().Contain("ToolExecutionEvent");
-        var eventData = logEvent.Properties["EventData"].ToString();
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
         eventData.Should().Contain("read_file");
-        eventData.Should().Contain("approved");
-        eventData.Should().Contain("true");
-        eventData.Should().Contain("alwaysApprove");
-        eventData.Should().Contain("false");
-        eventData.Should().Contain("durationMs");
+        eventData.Should().Contain("Approved");
+        eventData.Should().Contain("True");
+        eventData.Should().Contain("AlwaysApprove");
+        eventData.Should().Contain("False");
+        eventData.Should().Contain("DurationMs");
         eventData.Should().Contain("150");
     }
 
@@ -149,9 +149,9 @@ public class AuditLoggerTests
 
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
-        var eventData = logEvent.Properties["EventData"].ToString();
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
         eventData.Should().Contain("Command execution timed out");
-        eventData.Should().Contain("error");
+        eventData.Should().Contain("Error");
     }
 
     [Fact]
@@ -169,12 +169,12 @@ public class AuditLoggerTests
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
         logEvent.Properties["EventType"].ToString().Should().Contain("CompactionEvent");
-        var eventData = logEvent.Properties["EventData"].ToString();
-        eventData.Should().Contain("beforeTokenCount");
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
+        eventData.Should().Contain("BeforeTokenCount");
         eventData.Should().Contain("10000");
-        eventData.Should().Contain("afterTokenCount");
+        eventData.Should().Contain("AfterTokenCount");
         eventData.Should().Contain("5000");
-        eventData.Should().Contain("messagesRemoved");
+        eventData.Should().Contain("MessagesRemoved");
         eventData.Should().Contain("12");
     }
 
@@ -197,9 +197,9 @@ public class AuditLoggerTests
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
         logEvent.Properties["EventType"].ToString().Should().Contain("SecurityViolationEvent");
-        var eventData = logEvent.Properties["EventData"].ToString();
+        var eventData = logEvent.Properties["AuditEvent"].ToString();
         eventData.Should().Contain("blocked_path");
-        eventData.Should().Contain("C:\\\\Windows\\\\System32");
+        eventData.Should().Contain("C:\\Windows\\System32");
         eventData.Should().Contain("Attempted to access blocked system directory");
     }
 
