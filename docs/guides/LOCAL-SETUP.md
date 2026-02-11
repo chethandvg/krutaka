@@ -192,17 +192,25 @@ Application settings are configured in `src/Krutaka.Console/appsettings.json`:
 {
   "Claude": {
     "ModelId": "claude-4-sonnet-20250514",
-    "MaxTokens": "8192",
-    "Temperature": "0.7"
+    "MaxTokens": 8192,
+    "Temperature": 0.7
   },
   "Agent": {
-    "WorkingDirectory": "",           // Defaults to current directory
-    "CommandTimeoutSeconds": "30",
-    "ToolTimeoutSeconds": "30",
-    "RequireApprovalForWrites": "true"
+    "WorkingDirectory": "",
+    "CommandTimeoutSeconds": 30,
+    "ToolTimeoutSeconds": 30,
+    "RequireApprovalForWrites": true
   }
 }
 ```
+
+**Configuration Notes:**
+- `WorkingDirectory`: Defaults to current directory if empty
+- `MaxTokens`: Maximum tokens for Claude response (default: 8192)
+- `Temperature`: Claude temperature setting (0.0 = deterministic, 1.0 = creative, default: 0.7)
+- `CommandTimeoutSeconds`: Timeout for shell command execution (default: 30)
+- `ToolTimeoutSeconds`: Timeout for tool execution (default: 30)
+- `RequireApprovalForWrites`: Whether to require human approval for write/execute operations (default: true)
 
 ### Application Directories
 

@@ -89,9 +89,7 @@ try
         workingDirectory = Environment.CurrentDirectory;
     }
 
-    var commandTimeoutSeconds = int.Parse(
-        builder.Configuration["Agent:CommandTimeoutSeconds"] ?? "30",
-        CultureInfo.InvariantCulture);
+    var commandTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:CommandTimeoutSeconds", 30);
 
     builder.Services.AddAgentTools(options =>
     {
@@ -168,9 +166,7 @@ try
     });
 
     // Register AgentOrchestrator
-    var toolTimeoutSeconds = int.Parse(
-        builder.Configuration["Agent:ToolTimeoutSeconds"] ?? "30",
-        CultureInfo.InvariantCulture);
+    var toolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
 
     builder.Services.AddSingleton(sp =>
     {
