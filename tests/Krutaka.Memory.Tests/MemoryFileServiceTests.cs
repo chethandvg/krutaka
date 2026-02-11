@@ -11,9 +11,8 @@ public sealed class MemoryFileServiceTests : IDisposable
 
     public MemoryFileServiceTests()
     {
-        // Use a unique directory for each test run
-        var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-memoryfile-test-{uniqueId}");
+        // Use CI-safe test directory (avoids LocalAppData and reduces file lock issues)
+        _testRoot = TestDirectoryHelper.GetTestDirectory("memoryfile-test");
         Directory.CreateDirectory(_testRoot);
         _memoryFilePath = Path.Combine(_testRoot, "MEMORY.md");
         _service = new MemoryFileService(_memoryFilePath);
@@ -22,13 +21,7 @@ public sealed class MemoryFileServiceTests : IDisposable
     public void Dispose()
     {
         _service.Dispose();
-
-        // Cleanup test directory
-        if (Directory.Exists(_testRoot))
-        {
-            Directory.Delete(_testRoot, true);
-        }
-
+        TestDirectoryHelper.TryDeleteDirectory(_testRoot);
         GC.SuppressFinalize(this);
     }
 

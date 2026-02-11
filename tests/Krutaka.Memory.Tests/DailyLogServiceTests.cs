@@ -13,9 +13,8 @@ public sealed class DailyLogServiceTests : IDisposable
 
     public DailyLogServiceTests()
     {
-        // Use a unique directory for each test run
-        var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-dailylog-test-{uniqueId}");
+        // Use CI-safe test directory (avoids LocalAppData and reduces SQLite lock issues)
+        _testRoot = TestDirectoryHelper.GetTestDirectory("dailylog-test");
         _logsDirectory = Path.Combine(_testRoot, "logs");
 
         // Create file-based SQLite database for testing (in-memory doesn't work well with FTS5)
@@ -37,35 +36,15 @@ public sealed class DailyLogServiceTests : IDisposable
         _service.Dispose();
         _memoryService.Dispose();
 
-        // Force garbage collection to release any remaining SQLite connections
+        // Force garbage collection to release SQLite connections
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        // Cleanup test directory with retry logic for file locks
-        if (Directory.Exists(_testRoot))
-        {
-            TryDeleteDirectory(_testRoot);
-        }
+        // Use helper with longer delays for SQLite file locks
+        TestDirectoryHelper.TryDeleteDirectory(_testRoot);
 
         GC.SuppressFinalize(this);
-    }
-
-    private static void TryDeleteDirectory(string path, int maxRetries = 3)
-    {
-        for (int i = 0; i < maxRetries; i++)
-        {
-            try
-            {
-                Directory.Delete(path, true);
-                return;
-            }
-            catch (IOException) when (i < maxRetries - 1)
-            {
-                // Wait a bit before retrying
-                Thread.Sleep(100);
-            }
-        }
     }
 
     [Fact]

@@ -12,21 +12,15 @@ public sealed class SessionStoreTests : IDisposable
 
     public SessionStoreTests()
     {
-        // Use a unique directory for each test run
-        var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-session-test-{uniqueId}");
+        // Use CI-safe test directory (avoids LocalAppData and reduces file lock issues)
+        _testRoot = TestDirectoryHelper.GetTestDirectory("session-test");
         _projectPath = Path.Combine(_testRoot, "test-project");
         Directory.CreateDirectory(_projectPath);
     }
 
     public void Dispose()
     {
-        // Cleanup test directory
-        if (Directory.Exists(_testRoot))
-        {
-            Directory.Delete(_testRoot, true);
-        }
-
+        TestDirectoryHelper.TryDeleteDirectory(_testRoot);
         GC.SuppressFinalize(this);
     }
 

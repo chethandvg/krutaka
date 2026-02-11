@@ -15,9 +15,8 @@ public sealed class MemoryStoreToolTests : IDisposable
 
     public MemoryStoreToolTests()
     {
-        // Use a unique directory for each test run
-        var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-memorystore-test-{uniqueId}");
+        // Use CI-safe test directory (avoids LocalAppData and reduces SQLite lock issues)
+        _testRoot = TestDirectoryHelper.GetTestDirectory("memorystore-test");
         Directory.CreateDirectory(_testRoot);
         _memoryFilePath = Path.Combine(_testRoot, "MEMORY.md");
 
@@ -42,35 +41,15 @@ public sealed class MemoryStoreToolTests : IDisposable
         _memoryFileService.Dispose();
         _memoryService.Dispose();
 
-        // Force garbage collection to release any remaining SQLite connections
+        // Force garbage collection to release SQLite connections
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        // Cleanup test directory with retry logic for file locks
-        if (Directory.Exists(_testRoot))
-        {
-            TryDeleteDirectory(_testRoot);
-        }
+        // Use helper with longer delays for SQLite file locks
+        TestDirectoryHelper.TryDeleteDirectory(_testRoot);
 
         GC.SuppressFinalize(this);
-    }
-
-    private static void TryDeleteDirectory(string path, int maxRetries = 3)
-    {
-        for (int i = 0; i < maxRetries; i++)
-        {
-            try
-            {
-                Directory.Delete(path, true);
-                return;
-            }
-            catch (IOException) when (i < maxRetries - 1)
-            {
-                // Wait a bit before retrying
-                Thread.Sleep(100);
-            }
-        }
     }
 
     [Fact]

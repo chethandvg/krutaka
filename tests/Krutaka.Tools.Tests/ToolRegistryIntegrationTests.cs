@@ -27,9 +27,8 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
 
     public ToolRegistryIntegrationTests()
     {
-        // Use a unique directory for each test run
-        var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-registry-test-{uniqueId}");
+        // Use CI-safe test directory (avoids LocalAppData which is blocked by security policy)
+        _testRoot = TestDirectoryHelper.GetTestDirectory("registry-test");
         Directory.CreateDirectory(_testRoot);
 
         _registry = new ToolRegistry();
@@ -37,12 +36,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        // Cleanup test directory
-        if (Directory.Exists(_testRoot))
-        {
-            Directory.Delete(_testRoot, true);
-        }
-
+        TestDirectoryHelper.TryDeleteDirectory(_testRoot);
         GC.SuppressFinalize(this);
     }
 

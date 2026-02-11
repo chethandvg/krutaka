@@ -10,18 +10,15 @@ public class SkillLoaderTests : IDisposable
 
     public SkillLoaderTests()
     {
-        _testDirectory = Path.Combine(Path.GetTempPath(), $"krutaka-skill-tests-{Guid.NewGuid():N}");
+        // Use CI-safe test directory (avoids LocalAppData restrictions)
+        _testDirectory = TestDirectoryHelper.GetTestDirectory("skill-tests");
         Directory.CreateDirectory(_testDirectory);
         _loader = new SkillLoader();
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(_testDirectory))
-        {
-            Directory.Delete(_testDirectory, recursive: true);
-        }
-
+        TestDirectoryHelper.TryDeleteDirectory(_testDirectory);
         GC.SuppressFinalize(this);
     }
 
