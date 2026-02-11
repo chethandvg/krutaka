@@ -14,7 +14,7 @@ internal static class SetupWizard
     public static bool Run()
     {
         AnsiConsole.Clear();
-        
+
         AnsiConsole.Write(
             new FigletText("Krutaka")
                 .Centered()
@@ -73,11 +73,11 @@ internal static class SetupWizard
         try
         {
             SecretsProvider.WriteCredential(apiKey!);
-            
+
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[green]✓ API key saved successfully![/]");
             AnsiConsole.MarkupLine("[dim]Your API key has been securely stored in Windows Credential Manager.[/]");
-            
+
             return true;
         }
         catch (InvalidOperationException ex)

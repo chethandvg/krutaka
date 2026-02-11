@@ -4,7 +4,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-public sealed class SqliteMemoryStoreTests : IDisposable
+internal sealed class SqliteMemoryStoreTests : IDisposable
 {
     private readonly string _testDbPath;
     private readonly SqliteMemoryStore _store;
@@ -89,7 +89,7 @@ public sealed class SqliteMemoryStoreTests : IDisposable
         // Assert
         results.Should().HaveCountGreaterThan(0);
         results[0].Content.Should().Contain("C#");
-        
+
         // Verify scores are in descending order (higher score = better match)
         for (int i = 0; i < results.Count - 1; i++)
         {

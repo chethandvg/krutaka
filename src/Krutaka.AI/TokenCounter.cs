@@ -105,7 +105,7 @@ public sealed partial class TokenCounter
 
         // Serialize to JSON for content-based hashing
         var json = System.Text.Json.JsonSerializer.Serialize(cacheData);
-        
+
         // Use SHA256 for stable, collision-resistant hashing
         var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json));
         return Convert.ToBase64String(hashBytes);
@@ -121,8 +121,8 @@ public sealed partial class TokenCounter
             return string.Empty;
         }
 
-        return content is string str 
-            ? str 
+        return content is string str
+            ? str
             : System.Text.Json.JsonSerializer.Serialize(content);
     }
 

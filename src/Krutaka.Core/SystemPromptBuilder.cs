@@ -105,7 +105,7 @@ public sealed class SystemPromptBuilder
         // Validate file size to prevent reading excessively large files
         var fileInfo = new FileInfo(_agentsPromptPath);
         const long maxFileSizeBytes = 1_048_576; // 1 MB limit (same as ReadFileTool)
-        
+
         if (fileInfo.Length > maxFileSizeBytes)
         {
             throw new InvalidOperationException(
@@ -162,12 +162,12 @@ public sealed class SystemPromptBuilder
             {
                 var nameProperty = tool.GetType().GetProperty("name");
                 var descriptionProperty = tool.GetType().GetProperty("description");
-                
+
                 if (nameProperty != null && descriptionProperty != null)
                 {
                     var name = nameProperty.GetValue(tool)?.ToString();
                     var description = descriptionProperty.GetValue(tool)?.ToString();
-                    
+
                     if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(description))
                     {
                         sb.AppendLine(CultureInfo.InvariantCulture, $"- **{name}**: {description}");

@@ -3,7 +3,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-public sealed class MemoryFileServiceTests : IDisposable
+internal sealed class MemoryFileServiceTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly string _memoryFilePath;

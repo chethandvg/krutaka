@@ -5,7 +5,7 @@ using Krutaka.Tools;
 
 namespace Krutaka.Tools.Tests;
 
-public sealed class RunCommandToolTests : IDisposable
+internal sealed class RunCommandToolTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly ISecurityPolicy _securityPolicy;

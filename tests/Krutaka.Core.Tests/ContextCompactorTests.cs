@@ -7,7 +7,7 @@ namespace Krutaka.Core.Tests;
 /// <summary>
 /// Unit tests for ContextCompactor class.
 /// </summary>
-public sealed class ContextCompactorTests
+internal sealed class ContextCompactorTests
 {
     private readonly IClaudeClient _mockClaudeClient;
     private readonly ContextCompactor _compactor;
@@ -91,7 +91,7 @@ public sealed class ContextCompactorTests
 
         // Assert
         result.CompactedMessages.Should().HaveCountGreaterThanOrEqualTo(2);
-        
+
         // First message should be summary from user
         var firstMsg = result.CompactedMessages[0];
         GetMessageRole(firstMsg).Should().Be("user");
@@ -179,7 +179,7 @@ public sealed class ContextCompactorTests
     [InlineData(8, 8, 2)]   // 8 messages → summarize 2, keep last 6 → 1 summary + 1 ack + 6 kept = 8 total, 2 removed
     [InlineData(20, 8, 14)] // 20 messages → summarize 14, keep last 6 → 1 summary + 1 ack + 6 kept = 8 total, 14 removed
     public async Task CompactAsync_Should_HandleDifferentMessageCounts(
-        int inputMessageCount, 
+        int inputMessageCount,
         int expectedCompactedCount,
         int expectedRemoved)
     {
@@ -244,7 +244,7 @@ public sealed class ContextCompactorTests
 /// <summary>
 /// Integration tests for ContextCompactor to verify compacted conversations are well-formed.
 /// </summary>
-public sealed class ContextCompactorIntegrationTests
+internal sealed class ContextCompactorIntegrationTests
 {
     [Fact]
     public async Task CompactedConversation_Should_BeWellFormedForClaudeAPI()

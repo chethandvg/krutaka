@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace Krutaka.Core.Tests;
 
-public class SessionEventTests
+internal class SessionEventTests
 {
     [Fact]
     public void SessionEvent_Should_SerializeAndDeserialize()

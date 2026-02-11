@@ -104,7 +104,7 @@ internal sealed class ApprovalHandler
     private void DisplayApprovalPrompt(string toolName, JsonElement input)
     {
         AnsiConsole.WriteLine();
-        
+
         var escapedToolName = Markup.Escape(toolName);
         var panel = new Panel(BuildPromptContent(toolName, input))
             .Border(BoxBorder.Rounded)
@@ -128,7 +128,7 @@ internal sealed class ApprovalHandler
 
         // Add parameters
         content.AppendLine("[bold]Parameters:[/]");
-        
+
         switch (toolName)
         {
             case "write_file":
@@ -158,10 +158,10 @@ internal sealed class ApprovalHandler
 
         content.AppendLine(CultureInfo.InvariantCulture, $"  [cyan]path:[/] {Markup.Escape(path ?? "(not specified)")}");
         content.AppendLine();
-        
+
         // Show content preview
         content.AppendLine("[bold]Content preview:[/]");
-        
+
         if (string.IsNullOrEmpty(fileContent))
         {
             content.AppendLine("  [dim](empty file)[/]");
@@ -204,18 +204,18 @@ internal sealed class ApprovalHandler
 
         // Show diff preview
         content.AppendLine("[bold]Changes to be made:[/]");
-        
+
         if (!string.IsNullOrEmpty(path))
         {
             try
             {
                 // Validate the path using SafeFileOperations before accessing the file
                 var validatedPath = SafeFileOperations.ValidatePath(path, _projectRoot);
-                
+
                 if (File.Exists(validatedPath))
                 {
                     var fileLines = File.ReadAllLines(validatedPath);
-                    
+
                     // Show lines being replaced
                     if (startLine > 0 && endLine > 0 && startLine <= fileLines.Length)
                     {
@@ -225,7 +225,7 @@ internal sealed class ApprovalHandler
                         {
                             content.AppendLine(CultureInfo.InvariantCulture, $"  [red]- {Markup.Escape(fileLines[i])}[/]");
                         }
-                        
+
                         content.AppendLine();
                         content.AppendLine("  [green]+ New content:[/]");
                         var newLines = newContent?.Split('\n') ?? [];
@@ -272,7 +272,7 @@ internal sealed class ApprovalHandler
         var workingDir = input.TryGetProperty("working_directory", out var wdProp) ? wdProp.GetString() : "(project root)";
 
         content.AppendLine(CultureInfo.InvariantCulture, $"  [cyan]executable:[/] {Markup.Escape(executable ?? "(not specified)")}");
-        
+
         if (input.TryGetProperty("arguments", out var argsProp) && argsProp.ValueKind == JsonValueKind.Array)
         {
             var args = argsProp.EnumerateArray().Select(a => a.GetString() ?? "").ToArray();
@@ -294,10 +294,10 @@ internal sealed class ApprovalHandler
     {
         foreach (var prop in input.EnumerateObject())
         {
-            var valueStr = prop.Value.ValueKind == JsonValueKind.String 
-                ? prop.Value.GetString() 
+            var valueStr = prop.Value.ValueKind == JsonValueKind.String
+                ? prop.Value.GetString()
                 : prop.Value.ToString();
-            
+
             content.AppendLine(CultureInfo.InvariantCulture, $"  [cyan]{Markup.Escape(prop.Name)}:[/] {Markup.Escape(valueStr ?? "(null)")}");
         }
     }

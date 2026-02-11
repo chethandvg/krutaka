@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace Krutaka.Core.Tests;
 
-public class ToolBaseTests
+internal class ToolBaseTests
 {
     private class TestTool : ToolBase
     {

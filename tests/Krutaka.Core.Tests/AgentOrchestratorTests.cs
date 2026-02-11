@@ -9,7 +9,7 @@ namespace Krutaka.Core.Tests;
 /// <summary>
 /// Unit tests for AgentOrchestrator agentic loop implementation.
 /// </summary>
-public sealed class AgentOrchestratorTests
+internal sealed class AgentOrchestratorTests
 {
     [Fact]
     public void Constructor_Should_ThrowArgumentNullException_WhenClaudeClientIsNull()
@@ -158,7 +158,7 @@ public sealed class AgentOrchestratorTests
         events.OfType<ToolCallStarted>().Should().ContainSingle();
         events.OfType<ToolCallCompleted>().Should().ContainSingle();
         events.OfType<FinalResponse>().Should().HaveCount(2);
-        
+
         // Verify tool was executed
         toolRegistry.ExecutedTools.Should().ContainSingle();
         toolRegistry.ExecutedTools[0].Should().Be("read_file");
@@ -171,7 +171,7 @@ public sealed class AgentOrchestratorTests
         var claudeClient = new MockClaudeClient();
         var toolRegistry = new MockToolRegistry();
         var securityPolicy = new MockSecurityPolicy();
-        
+
         securityPolicy.SetApprovalRequired("write_file", true);
         toolRegistry.AddTool("write_file", "{\"path\":\"test.txt\",\"content\":\"data\"}", "Success");
 
@@ -204,7 +204,7 @@ public sealed class AgentOrchestratorTests
         // Arrange
         var claudeClient = new MockClaudeClient();
         var toolRegistry = new MockToolRegistry();
-        
+
         toolRegistry.SetToolFailure("read_file", "File not found");
 
         // First response: tool use
@@ -256,7 +256,7 @@ public sealed class AgentOrchestratorTests
         // Arrange
         var claudeClient = new MockClaudeClient();
         var toolRegistry = new MockToolRegistry();
-        
+
         toolRegistry.AddTool("read_file", "{\"path\":\"file1.txt\"}", "Content 1");
         toolRegistry.AddTool("read_file", "{\"path\":\"file2.txt\"}", "Content 2");
 

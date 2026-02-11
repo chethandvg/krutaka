@@ -42,17 +42,17 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
         {
             ScalarValue scalar when scalar.Value is string stringValue =>
                 new ScalarValue(RedactSensitiveData(stringValue)),
-            
+
             StructureValue structure =>
                 new StructureValue(
                     structure.Properties.Select(p =>
                         new LogEventProperty(p.Name, RedactProperty(p.Value))),
                     structure.TypeTag),
-            
+
             SequenceValue sequence =>
                 new SequenceValue(
                     sequence.Elements.Select(RedactProperty)),
-            
+
             DictionaryValue dictionary =>
                 new DictionaryValue(
                     dictionary.Elements.Select(kvp =>
@@ -65,7 +65,7 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
 
                         return new KeyValuePair<ScalarValue, LogEventPropertyValue>(redactedKey, redactedValue);
                     })),
-            
+
             _ => value
         };
     }

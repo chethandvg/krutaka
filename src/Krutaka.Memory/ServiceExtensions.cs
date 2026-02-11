@@ -28,11 +28,11 @@ public static class ServiceExtensions
         {
             var memoryOptions = sp.GetRequiredService<MemoryOptions>();
             var store = new SqliteMemoryStore(memoryOptions);
-            
+
             // Initialize database schema synchronously during DI registration
             // This ensures the database is ready before the service is used
             store.InitializeAsync().GetAwaiter().GetResult();
-            
+
             return store;
         });
 
@@ -64,10 +64,10 @@ public static class ServiceExtensions
             var memoryFileService = sp.GetRequiredService<MemoryFileService>();
             var memoryService = sp.GetRequiredService<IMemoryService>();
             var registry = sp.GetRequiredService<IToolRegistry>();
-            
+
             var tool = new MemoryStoreTool(memoryFileService, memoryService);
             registry.Register(tool);
-            
+
             return tool;
         });
 
@@ -75,17 +75,17 @@ public static class ServiceExtensions
         {
             var memoryService = sp.GetRequiredService<IMemoryService>();
             var registry = sp.GetRequiredService<IToolRegistry>();
-            
+
             var tool = new MemorySearchTool(memoryService);
             registry.Register(tool);
-            
+
             return tool;
         });
 
         // Note: SessionStore requires runtime parameters (projectPath, sessionId)
         // It should be created via factory pattern or injected directly when needed
         // Registration deferred to composition root (Program.cs) where these values are available
-        
+
         return services;
     }
 }

@@ -5,7 +5,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-public sealed class SessionStoreTests : IDisposable
+internal sealed class SessionStoreTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly string _projectPath;
@@ -159,7 +159,7 @@ public sealed class SessionStoreTests : IDisposable
 
         // Assert
         messages.Should().HaveCount(2);
-        
+
         // Check first message (user)
         var userMsg = JsonSerializer.Serialize(messages[0]);
         userMsg.Should().Contain("\"role\":\"user\"");

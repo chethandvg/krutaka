@@ -140,7 +140,7 @@ public class EditFileTool : ToolBase
             try
             {
                 var fileContent = await File.ReadAllTextAsync(validatedPath, cancellationToken).ConfigureAwait(false);
-                
+
                 // Detect line ending from file content
                 if (fileContent.Contains("\r\n", StringComparison.Ordinal))
                 {
@@ -208,7 +208,7 @@ public class EditFileTool : ToolBase
 
             // Build new file content with replaced line range
             var newLines = new List<string>();
-            
+
             // Add lines before the edit range (0-indexed, so start_line - 1)
             for (var i = 0; i < startLine - 1 && i < lines.Length; i++)
             {
@@ -293,14 +293,14 @@ public class EditFileTool : ToolBase
     private static string GenerateDiff(string[] oldLines, string[] newLines, int startLine, int endLine)
     {
         var diff = new StringBuilder();
-        
+
         // Number of lines removed from the original file in the edited range
         var removedCount = endLine - startLine + 1;
-        
+
         // Calculate number of lines added: newLength = oldLength - removedCount + addedCount
         // => addedCount = newLength - oldLength + removedCount
         var addedCount = newLines.Length - oldLines.Length + removedCount;
-        
+
         // This should never be negative with correct line range validation,
         // but we clamp to 0 for defensive programming in case of edge cases
         if (addedCount < 0)

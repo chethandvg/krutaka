@@ -226,7 +226,7 @@ public sealed class AgentOrchestrator : IDisposable
     private static object CreateAssistantMessage(string? content, List<ToolCall> toolCalls, string stopReason)
     {
         var contentBlocks = new List<object>();
-        
+
         // Add text content if present
         if (!string.IsNullOrEmpty(content))
         {
@@ -236,7 +236,7 @@ public sealed class AgentOrchestrator : IDisposable
                 text = content
             });
         }
-        
+
         // Add tool use blocks
         foreach (var toolCall in toolCalls)
         {
@@ -248,7 +248,7 @@ public sealed class AgentOrchestrator : IDisposable
                 input = toolCall.Input
             });
         }
-        
+
         // Return a simple object structure that will be converted to MessageParam by the AI layer
         return new
         {

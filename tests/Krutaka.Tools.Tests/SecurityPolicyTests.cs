@@ -1,10 +1,10 @@
+using System.Security;
 using FluentAssertions;
 using Krutaka.Tools;
-using System.Security;
 
 namespace Krutaka.Tools.Tests;
 
-public class SecurityPolicyTests
+internal class SecurityPolicyTests
 {
     private readonly CommandPolicy _policy;
     private readonly string _projectRoot;
@@ -278,13 +278,13 @@ public class SecurityPolicyTests
     {
         // Arrange
         var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        
+
         // Skip test if AppData path is empty or if it's not a Windows path
         if (string.IsNullOrEmpty(appDataPath) || !appDataPath.Contains("AppData", StringComparison.OrdinalIgnoreCase))
         {
             return; // Test only applies to Windows
         }
-        
+
         var blockedPath = Path.Combine(appDataPath, "test.txt");
 
         // Act
@@ -299,13 +299,13 @@ public class SecurityPolicyTests
     {
         // Arrange
         var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        
+
         // Skip test if LocalAppData path is empty or if it's not a Windows path
         if (string.IsNullOrEmpty(localAppDataPath) || !localAppDataPath.Contains("AppData", StringComparison.OrdinalIgnoreCase))
         {
             return; // Test only applies to Windows
         }
-        
+
         var blockedPath = Path.Combine(localAppDataPath, "test.txt");
 
         // Act
@@ -695,7 +695,7 @@ public class SecurityPolicyTests
         // Arrange
         var testFile = Path.Combine(_projectRoot, "test.txt");
         Directory.CreateDirectory(_projectRoot);
-        
+
         // Create a file larger than 1MB
         var largeContent = new string('x', (int)SafeFileOperations.MaxFileSizeBytes + 1);
         File.WriteAllText(testFile, largeContent);

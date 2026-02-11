@@ -4,7 +4,7 @@ using Krutaka.Tools;
 
 namespace Krutaka.Tools.Tests;
 
-public sealed class EditFileToolTests : IDisposable
+internal sealed class EditFileToolTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly EditFileTool _tool;

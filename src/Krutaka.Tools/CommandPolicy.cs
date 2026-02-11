@@ -55,7 +55,7 @@ public class CommandPolicy : ISecurityPolicy
 
         // Security: Reject any path with directory separators - only allow simple executable names
         // This prevents executing arbitrary binaries by providing a path to a maliciously named file
-        if (executable.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal) || 
+        if (executable.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
             executable.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
             Path.IsPathRooted(executable))
         {
@@ -73,7 +73,7 @@ public class CommandPolicy : ISecurityPolicy
         // Extract just the executable name and preserve original casing for error messages
         var executableName = Path.GetFileName(executable);
         var executableNameForComparison = executableName;
-        
+
         // Remove .exe extension if present for comparison
         if (executableName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
         {
