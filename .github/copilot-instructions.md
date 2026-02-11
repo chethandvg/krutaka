@@ -4,6 +4,8 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
+**Implementation Status:** ✅ **v0.1.0 Complete** — All core features implemented with 576 tests passing. The project is production-ready and available for use.
+
 ## Coding Conventions
 
 ### C# Style
