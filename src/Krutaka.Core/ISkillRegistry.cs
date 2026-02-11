@@ -21,4 +21,8 @@ public interface ISkillRegistry
 /// </summary>
 public record SkillMetadata(
     string Name,
-    string Description);
+    string Description,
+    string FilePath,
+    IReadOnlyList<string>? AllowedTools = null,
+    string? Model = null,
+    string? Version = null);
