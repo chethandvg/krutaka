@@ -36,6 +36,52 @@ public static class ServiceExtensions
             return store;
         });
 
+        // Register MemoryFileService as singleton
+        services.AddSingleton(sp =>
+        {
+            var krutakaDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".krutaka");
+            var memoryFilePath = Path.Combine(krutakaDir, "MEMORY.md");
+            return new MemoryFileService(memoryFilePath);
+        });
+
+        // Register DailyLogService as singleton
+        services.AddSingleton(sp =>
+        {
+            var krutakaDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".krutaka");
+            var logsDirectory = Path.Combine(krutakaDir, "logs");
+            var memoryService = sp.GetRequiredService<IMemoryService>();
+            return new DailyLogService(logsDirectory, memoryService);
+        });
+
+        // Register memory tools eagerly (like AddAgentTools pattern)
+        // Build the tools immediately and register them with the registry
+        services.AddSingleton<ITool>(sp =>
+        {
+            var memoryFileService = sp.GetRequiredService<MemoryFileService>();
+            var memoryService = sp.GetRequiredService<IMemoryService>();
+            var registry = sp.GetRequiredService<IToolRegistry>();
+            
+            var tool = new MemoryStoreTool(memoryFileService, memoryService);
+            registry.Register(tool);
+            
+            return tool;
+        });
+
+        services.AddSingleton<ITool>(sp =>
+        {
+            var memoryService = sp.GetRequiredService<IMemoryService>();
+            var registry = sp.GetRequiredService<IToolRegistry>();
+            
+            var tool = new MemorySearchTool(memoryService);
+            registry.Register(tool);
+            
+            return tool;
+        });
+
         // Note: SessionStore requires runtime parameters (projectPath, sessionId)
         // It should be created via factory pattern or injected directly when needed
         // Registration deferred to composition root (Program.cs) where these values are available
