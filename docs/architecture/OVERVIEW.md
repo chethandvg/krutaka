@@ -202,7 +202,7 @@ Claude API integration layer with token counting and context management.
 
 **Implementation Details:**
 - Uses official Anthropic C# package v12.4.0 (NuGet: `Anthropic`) for all API calls
-- Streaming support via `IAsyncEnumerable<AgentEvent>` (basic implementation, to be enhanced in agentic loop)
+- Streaming support via `IAsyncEnumerable<AgentEvent>` with full event parsing (text deltas, tool calls, stop reasons)
 - Token counting via `Messages.CountTokens()` endpoint ✅ Implemented
 - **TokenCounter**: Bounded in-memory cache (100 entries, 60 min expiry) with content-based SHA256 hashing to minimize redundant token counting API calls ✅ Implemented
   - Cache eviction removes oldest entries by insertion time (at least 1 entry or 20% of cache, whichever is greater)
@@ -253,7 +253,7 @@ Tool implementations with security policy enforcement.
   - **Command validation**: Allowlist/blocklist enforcement, shell metacharacter detection
   - **Environment scrubbing**: Removes sensitive variables (*_KEY, *_SECRET, *_TOKEN, ANTHROPIC_*, etc.)
   - **Job Object sandboxing** (Windows only): 256 MB memory limit, 30-second CPU time limit, kill-on-job-close
-  - **Timeout enforcement**: 30-second hard limit via `CancellationTokenSource` (all platforms)
+  - **Timeout enforcement**: Configurable via `ToolOptions.CommandTimeoutSeconds` (default: 30 seconds) via `CancellationTokenSource` (all platforms)
   - **Implementation**: Uses CliWrap's `ExecuteAsync` (streaming API) with `PipeTarget.ToStringBuilder` to capture output while accessing ProcessId for Job Object assignment
   - **Platform-aware**: Job Objects active on Windows, graceful fallback on other platforms
   - **Requires human approval** for every invocation (no "Always allow" option)
@@ -498,11 +498,11 @@ The `MarkdownRenderer` class converts Markdown to Spectre.Console output using M
 - All 48 tests passing
 - Tests validate argument validation, proper disposal, and output formatting
 
-**Deferred to Issue #23 (Program.cs composition root):**
-- Integration of `ConsoleUI` with `AgentOrchestrator` in main loop
-- Command parsing and routing (`/exit`, `/quit`, `/compact`, `/memory`, `/session`, `/help`)
-- Actual human-in-the-loop approval handling (currently UI displays approval request but orchestrator doesn't wait)
-- DI registration of `ConsoleUI` and dependencies
+**Resolved (Issue #29):**
+- ✅ Integration of `ConsoleUI` with `AgentOrchestrator` in main loop (Issue #23)
+- ✅ Command parsing: `/exit`, `/quit`, `/help`, `/resume`
+- ✅ Human-in-the-loop approval: orchestrator blocks on `TaskCompletionSource<bool>` until `ApproveTool()` or `DenyTool()` is called
+- ✅ DI registration of `ConsoleUI` and dependencies
 
 ### Observability and Audit Logging
 

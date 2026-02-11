@@ -17,7 +17,7 @@
 | Supply chain (malicious skills) | OpenClaw ClawHub compromise | High | No remote skill marketplace. Local files only. | Not Started (by design) |
 | Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | Console app. No HTTP listener. No WebSocket. No network surface. Outbound HTTPS to api.anthropic.com only. | Mitigated (by design) |
 | Environment variable leakage | API keys inherited by child processes | High | EnvironmentScrubber removes *_KEY, *_SECRET, *_TOKEN, ANTHROPIC_* before child process start. | ✅ Complete (Issue #9) |
-| Log leakage | API keys or secrets appearing in log output | High | Log redaction filter scrubs sk-ant-* patterns and other secret patterns. | ⚠️ Partially Complete (Issue #7) |
+| Log leakage | API keys or secrets appearing in log output | High | Log redaction filter scrubs sk-ant-* patterns and other secret patterns (properties + message templates). | ✅ Complete (Issue #29) |
 
 ## Secrets Management Rules
 
@@ -26,9 +26,9 @@
 - ✅ `SecretsProvider` class implemented in `src/Krutaka.Console/SecretsProvider.cs`
 - ✅ `SetupWizard` class implemented in `src/Krutaka.Console/SetupWizard.cs`
 - ✅ `LogRedactionEnricher` implemented in `src/Krutaka.Console/Logging/LogRedactionEnricher.cs`
-- ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/LogRedactionEnricherTests.cs` (10 tests, all passing)
-- ⚠️ **Not yet integrated**: Components not wired into console application entry point (`Program.cs`)
-- ⚠️ **Limitation**: Redaction only works on structured log properties, not message templates
+- ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/LogRedactionEnricherTests.cs` (11 tests, all passing)
+- ✅ **Integrated**: Components wired into console application entry point (`Program.cs`)
+- ✅ **Message template redaction**: Adds `RedactedMessage` property when template text contains sensitive data
 
 ### Storage
 - API keys are stored in **Windows Credential Manager** under `Krutaka_ApiKey` with `CredentialPersistence.LocalMachine`
@@ -49,14 +49,14 @@ The following patterns are scrubbed from all log output by `LogRedactionEnricher
 
 **Implementation details:**
 - Redaction uses compiled regex for performance
-- Works on structured log properties (not message templates)
+- Works on structured log properties and message templates
 - Recursively redacts nested objects, arrays, and dictionaries (including dictionary keys)
+- When message template text contains sensitive data, adds a `RedactedMessage` property with redacted version
 - Redacted values are replaced with `***REDACTED***`
-- Tested with 10 comprehensive unit tests covering edge cases
+- Tested with 11 comprehensive unit tests covering edge cases
 
 **Not yet implemented:**
 - Connection string redaction
-- Message template redaction (only structured properties are redacted)
 
 ## Command Execution Policy
 
@@ -155,8 +155,8 @@ known_hosts, authorized_keys
 - ✅ Session-level "always approve" cache per tool name (except `run_command`)
 - ✅ Denial creates descriptive message (not error) for Claude: "The user denied execution of {tool_name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification."
 - ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/ApprovalHandlerTests.cs` (8 tests, all passing)
-- ⚠️ **Not yet integrated**: ApprovalHandler not wired into AgentOrchestrator (deferred to Issue #23 — Program.cs composition root)
-- ⚠️ **Not yet implemented**: Audit logging (no audit infrastructure exists yet — deferred to Issue #24)
+- ✅ **Integrated** (Issue #29): AgentOrchestrator blocks execution via `TaskCompletionSource<bool>` until `ApproveTool()` or `DenyTool()` is called
+- ✅ **Implemented**: Audit logging via `AuditLogger` with EventData serialization and correlation IDs
 
 | Tool | Risk Level | Approval Required | "Always" Option Available |
 |---|---|---|---|
