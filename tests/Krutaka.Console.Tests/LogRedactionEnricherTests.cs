@@ -5,7 +5,7 @@ using Serilog.Events;
 
 namespace Krutaka.Console.Tests;
 
-internal class LogRedactionEnricherTests
+public class LogRedactionEnricherTests
 {
     [Fact]
     public void Should_RedactAnthropicApiKeyInMessage()
