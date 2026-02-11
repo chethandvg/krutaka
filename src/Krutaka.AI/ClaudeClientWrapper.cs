@@ -285,18 +285,17 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             }
 
             // Convert JsonElement InputSchema to Anthropic InputSchema
-            InputSchema apiSchema;
-            if (inputSchema is System.Text.Json.JsonElement jsonElement)
+            var schemaDict = inputSchema is System.Text.Json.JsonElement jsonElement
+                ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(jsonElement.GetRawText())
+                : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(
+                    System.Text.Json.JsonSerializer.Serialize(inputSchema));
+
+            if (schemaDict == null)
             {
-                var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(jsonElement.GetRawText());
-                apiSchema = InputSchema.FromRawUnchecked(dict!);
+                continue;
             }
-            else
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(inputSchema);
-                var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(json);
-                apiSchema = InputSchema.FromRawUnchecked(dict!);
-            }
+
+            var apiSchema = InputSchema.FromRawUnchecked(schemaDict);
 
             result.Add(new Tool
             {
@@ -348,19 +347,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                     var name = itemType.GetProperty("name")?.GetValue(item)?.ToString() ?? string.Empty;
                     var input = itemType.GetProperty("input")?.GetValue(item);
 
-                    // Convert input to Dictionary<string, JsonElement>
-                    Dictionary<string, System.Text.Json.JsonElement> inputDict;
-                    if (input is string inputStr)
-                    {
-                        inputDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(inputStr)
-                            ?? new Dictionary<string, System.Text.Json.JsonElement>();
-                    }
-                    else
-                    {
-                        var json = System.Text.Json.JsonSerializer.Serialize(input);
-                        inputDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(json)
-                            ?? new Dictionary<string, System.Text.Json.JsonElement>();
-                    }
+                    var inputDict = DeserializeToJsonElementDict(input);
 
                     blocks.Add((ContentBlockParam)new ToolUseBlockParam
                     {
@@ -395,6 +382,21 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         }
 
         return blocks;
+    }
+
+    /// <summary>
+    /// Deserializes an object (string JSON or anonymous object) to a Dictionary of JsonElements.
+    /// </summary>
+    private static Dictionary<string, System.Text.Json.JsonElement> DeserializeToJsonElementDict(object? input)
+    {
+        if (input == null)
+        {
+            return new Dictionary<string, System.Text.Json.JsonElement>();
+        }
+
+        var json = input is string inputStr ? inputStr : System.Text.Json.JsonSerializer.Serialize(input);
+        return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(json)
+            ?? new Dictionary<string, System.Text.Json.JsonElement>();
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Received streaming chunk from Claude API")]

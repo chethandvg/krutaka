@@ -428,7 +428,10 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
                 break;
 
             case FinalResponse final:
-                // Persist assistant text response
+                // Persist assistant text response.
+                // textAccumulator contains text from TextDelta events; final.Content is the same
+                // accumulated text from the streaming response. Prefer the accumulator since it
+                // captures all deltas; fall back to final.Content if no deltas were received.
                 if (textAccumulator.Length > 0 || !string.IsNullOrEmpty(final.Content))
                 {
                     var content = textAccumulator.Length > 0 ? textAccumulator.ToString() : final.Content;
