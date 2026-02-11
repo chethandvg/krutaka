@@ -315,7 +315,6 @@ public sealed class AgentOrchestrator : IDisposable
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Tool execution errors should not crash the agentic loop - errors are returned to Claude as tool results")]
     private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, CancellationToken cancellationToken)
     {
-        var startTime = DateTimeOffset.UtcNow;
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
         try
@@ -333,15 +332,18 @@ public sealed class AgentOrchestrator : IDisposable
                 var errorMessage = $"Invalid JSON input for tool {toolCall.Name}: {ex.Message}";
                 stopwatch.Stop();
                 
-                // Log tool execution failure
-                _auditLogger?.LogToolExecution(
-                    _correlationContext!,
-                    toolCall.Name,
-                    false, // not approved (JSON parsing failed)
-                    false,
-                    stopwatch.ElapsedMilliseconds,
-                    errorMessage.Length,
-                    errorMessage);
+                // Log tool execution failure (only if audit logger and correlation context are provided)
+                if (_auditLogger != null && _correlationContext != null)
+                {
+                    _auditLogger.LogToolExecution(
+                        _correlationContext,
+                        toolCall.Name,
+                        false, // not approved (JSON parsing failed)
+                        false,
+                        stopwatch.ElapsedMilliseconds,
+                        errorMessage.Length,
+                        errorMessage);
+                }
                 
                 return new ToolResult(errorMessage, IsError: true);
             }
@@ -349,15 +351,18 @@ public sealed class AgentOrchestrator : IDisposable
             var result = await _toolRegistry.ExecuteAsync(toolCall.Name, inputElement, timeoutCts.Token).ConfigureAwait(false);
             stopwatch.Stop();
             
-            // Log successful tool execution
-            _auditLogger?.LogToolExecution(
-                _correlationContext!,
-                toolCall.Name,
-                true, // approved (execution succeeded)
-                _approvalCache.ContainsKey(toolCall.Name),
-                stopwatch.ElapsedMilliseconds,
-                result.Length,
-                null);
+            // Log successful tool execution (only if audit logger and correlation context are provided)
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                _auditLogger.LogToolExecution(
+                    _correlationContext,
+                    toolCall.Name,
+                    true, // approved (execution succeeded)
+                    _approvalCache.ContainsKey(toolCall.Name),
+                    stopwatch.ElapsedMilliseconds,
+                    result.Length,
+                    null);
+            }
 
             return new ToolResult(result, IsError: false);
         }
@@ -367,15 +372,18 @@ public sealed class AgentOrchestrator : IDisposable
             stopwatch.Stop();
             var errorMessage = $"Tool execution timed out after {_toolTimeout.TotalSeconds} seconds";
             
-            // Log timeout
-            _auditLogger?.LogToolExecution(
-                _correlationContext!,
-                toolCall.Name,
-                true, // approved but timed out
-                _approvalCache.ContainsKey(toolCall.Name),
-                stopwatch.ElapsedMilliseconds,
-                0,
-                errorMessage);
+            // Log timeout (only if audit logger and correlation context are provided)
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                _auditLogger.LogToolExecution(
+                    _correlationContext,
+                    toolCall.Name,
+                    true, // approved but timed out
+                    _approvalCache.ContainsKey(toolCall.Name),
+                    stopwatch.ElapsedMilliseconds,
+                    0,
+                    errorMessage);
+            }
             
             return new ToolResult(errorMessage, IsError: true);
         }
@@ -385,15 +393,18 @@ public sealed class AgentOrchestrator : IDisposable
             stopwatch.Stop();
             var errorMessage = $"Tool execution failed: {ex.Message}";
             
-            // Log execution failure
-            _auditLogger?.LogToolExecution(
-                _correlationContext!,
-                toolCall.Name,
-                true, // approved but failed
-                _approvalCache.ContainsKey(toolCall.Name),
-                stopwatch.ElapsedMilliseconds,
-                0,
-                errorMessage);
+            // Log execution failure (only if audit logger and correlation context are provided)
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                _auditLogger.LogToolExecution(
+                    _correlationContext,
+                    toolCall.Name,
+                    true, // approved but failed
+                    _approvalCache.ContainsKey(toolCall.Name),
+                    stopwatch.ElapsedMilliseconds,
+                    0,
+                    errorMessage);
+            }
             
             return new ToolResult(errorMessage, IsError: true);
         }
