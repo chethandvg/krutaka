@@ -223,40 +223,46 @@ Token counting and context compaction have been fully implemented:
 
 - ✅ **TokenCounter** class in `Krutaka.AI`:
   - `CountTokensAsync(IReadOnlyList<object>, string)` calls `IClaudeClient.CountTokensAsync` which uses `/v1/messages/count_tokens` endpoint
-  - LRU cache with 100 entry limit and 60 minute expiry to avoid redundant API calls
-  - Cache eviction removes oldest 20% of entries when cache is full
-  - Hash-based cache key generation using message count, system prompt, and first/last message content
+  - Bounded in-memory cache with 100 entry limit and 60 minute expiry to avoid redundant API calls
+  - Cache eviction removes oldest entries by insertion time (at least 1 entry or 20% of cache, whichever is greater) when cache is full
+  - Content-based cache key generation using JSON serialization + SHA256 for collision resistance
+  - Null validation for constructor parameters (`claudeClient`, `logger`)
   - 7 unit tests (all passing): API calls, cache hits/misses, expiry, null validation, eviction
   
 - ✅ **ContextCompactor** class in `Krutaka.Core`:
   - `ShouldCompact(int currentTokenCount)` checks if compaction needed when > 160,000 tokens (80% of 200K)
   - `CompactAsync(...)` triggered when threshold exceeded
-  - Uses Claude Haiku 4.5 (`claude-haiku-4-5-20250929`) via `IClaudeClient.SendMessageAsync` for summarization
+  - Uses configured Claude model via `IClaudeClient.SendMessageAsync` for summarization
+    - Note: For production, configure a cheaper model (e.g., Haiku) via dedicated `IClaudeClient` instance
   - Summarization prompt preserves:
     - File paths mentioned or modified
     - Action items completed or pending  
     - Technical decisions made
     - Error context and debugging insights
     - Key outcomes from tool executions
+  - Security: Wraps untrusted conversation content in `<untrusted_content>` tags
   - Replaces old messages with:
     - User message: `[Previous conversation summary]\n{summary}`
-    - Assistant message: `Understood. I have the context from our previous discussion.`
+    - Assistant acknowledgment: Only added if first kept message is from user (maintains role alternation)
     - Last 6 messages (3 user/assistant pairs) from original conversation
+  - Short-circuit optimization: When `messages.Count <= messagesToKeep`, returns original messages without summarization
   - Returns `CompactionResult` with original/compacted counts, token reduction, summary, and compacted message list
-  - Logs compaction via return value (no logging in Core project - zero dependencies)
-  - 11 unit tests (all passing): threshold logic, message preservation, summary structure, null validation, different message counts
+  - 11 unit tests (all passing): threshold logic, message preservation, summary structure, null validation, different message counts, role alternation
   - 1 integration test (passing): verifies compacted conversation is well-formed for Claude API (alternating roles, starts with user, summary format)
 
-- ✅ **Build status**: All 320 tests passing (7 TokenCounter + 12 ContextCompactor + 301 existing), zero warnings, zero errors
-- ✅ **Documentation**: Updated `docs/architecture/OVERVIEW.md` with TokenCounter and ContextCompactor details
+- ✅ **Build status**: All tests passing, zero warnings, zero errors
+- ✅ **Documentation**: Updated `docs/architecture/OVERVIEW.md` with accurate TokenCounter and ContextCompactor details
 
 **Deferred to future issues:**
 - `/compact` command for manual trigger in console UI (will be added when UI is implemented)
 - Integration with AgentOrchestrator to automatically trigger compaction (will be added when system prompt builder is implemented)
+- Per-request model selection for using Haiku model specifically for summarization (requires `IClaudeClient` enhancement)
 
 **Implementation Notes:**
 - ContextCompactor is in `Krutaka.Core` (no logging) as specified in issue requirements
 - TokenCounter is in `Krutaka.AI` (has logging) per issue requirements
 - Both classes follow existing coding conventions (nullable types, ConfigureAwait, argument validation, CultureInfo.InvariantCulture)
+- Cache uses content-based SHA256 hashing instead of object identity for correctness
+- Role alternation maintained to comply with Claude API requirements
 - Messages reported as "removed" = messages summarized (not net reduction) for clarity in logging/reporting
 

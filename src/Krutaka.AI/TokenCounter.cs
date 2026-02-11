@@ -30,8 +30,8 @@ public sealed partial class TokenCounter
         int cacheMaxSize = 100,
         int cacheExpiryMinutes = 60)
     {
-        _claudeClient = claudeClient;
-        _logger = logger;
+        _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _cache = new ConcurrentDictionary<string, CachedTokenCount>();
         _cacheMaxSize = cacheMaxSize;
         _cacheExpiry = TimeSpan.FromMinutes(cacheExpiryMinutes);
@@ -88,33 +88,51 @@ public sealed partial class TokenCounter
 
     /// <summary>
     /// Generates a cache key from messages and system prompt.
-    /// Uses a simple hash-based approach for efficiency.
+    /// Uses JSON serialization + SHA256 for content-based hashing to avoid false cache hits.
     /// </summary>
     private static string GenerateCacheKey(IReadOnlyList<object> messages, string systemPrompt)
     {
-        // Simple hash-based key combining message count, system prompt, and content hash
-        var hash = HashCode.Combine(messages.Count, systemPrompt);
-        
-        // Include first and last message content for uniqueness
-        if (messages.Count > 0)
+        // Create a canonical representation of the messages and system prompt
+        var cacheData = new
         {
-            hash = HashCode.Combine(hash, messages[0].GetHashCode());
-            if (messages.Count > 1)
+            SystemPrompt = systemPrompt,
+            Messages = messages.Select(m => new
             {
-                hash = HashCode.Combine(hash, messages[^1].GetHashCode());
-            }
+                Role = m.GetType().GetProperty("role")?.GetValue(m)?.ToString() ?? "",
+                Content = SerializeContent(m.GetType().GetProperty("content")?.GetValue(m))
+            }).ToList()
+        };
+
+        // Serialize to JSON for content-based hashing
+        var json = System.Text.Json.JsonSerializer.Serialize(cacheData);
+        
+        // Use SHA256 for stable, collision-resistant hashing
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(json));
+        return Convert.ToBase64String(hashBytes);
+    }
+
+    /// <summary>
+    /// Serializes content to a canonical string representation.
+    /// </summary>
+    private static string SerializeContent(object? content)
+    {
+        if (content == null)
+        {
+            return string.Empty;
         }
 
-        return hash.ToString(CultureInfo.InvariantCulture);
+        return content is string str 
+            ? str 
+            : System.Text.Json.JsonSerializer.Serialize(content);
     }
 
     /// <summary>
     /// Evicts the oldest cache entries when cache size exceeds the maximum.
-    /// Removes 20% of entries sorted by timestamp.
+    /// Removes at least 1 entry, or 20% of entries (whichever is greater), sorted by insertion timestamp.
     /// </summary>
     private void EvictOldestCacheEntries()
     {
-        var entriesToRemove = (int)(_cacheMaxSize * 0.2);
+        var entriesToRemove = Math.Max(1, (int)(_cacheMaxSize * 0.2));
         var oldestEntries = _cache
             .OrderBy(kvp => kvp.Value.Timestamp)
             .Take(entriesToRemove)

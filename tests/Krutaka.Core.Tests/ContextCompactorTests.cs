@@ -175,9 +175,9 @@ public sealed class ContextCompactorTests
     }
 
     [Theory]
-    [InlineData(6, 8, 0)]   // 6 messages → summarize 0, keep last 6 → 2 summary + 6 kept = 8 total, 0 removed
-    [InlineData(8, 8, 2)]   // 8 messages → summarize 2, keep last 6 → 2 summary + 6 kept = 8 total, 2 removed  
-    [InlineData(20, 8, 14)] // 20 messages → summarize 14, keep last 6 → 2 summary + 6 kept = 8 total, 14 removed
+    [InlineData(6, 6, 0)]   // 6 messages → no summarization (short-circuit), return original 6 messages, 0 removed
+    [InlineData(8, 8, 2)]   // 8 messages → summarize 2, keep last 6 → 1 summary + 1 ack + 6 kept = 8 total, 2 removed
+    [InlineData(20, 8, 14)] // 20 messages → summarize 14, keep last 6 → 1 summary + 1 ack + 6 kept = 8 total, 14 removed
     public async Task CompactAsync_Should_HandleDifferentMessageCounts(
         int inputMessageCount, 
         int expectedCompactedCount,

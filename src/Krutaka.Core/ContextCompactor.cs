@@ -4,7 +4,7 @@ namespace Krutaka.Core;
 
 /// <summary>
 /// Provides context window compaction when token count exceeds threshold.
-/// Uses Claude Haiku 4.5 to generate conversation summaries and replaces old messages
+/// Uses the configured Claude client to generate conversation summaries and replaces old messages
 /// with summary + acknowledgment + last N message pairs.
 /// </summary>
 public sealed class ContextCompactor
@@ -13,7 +13,6 @@ public sealed class ContextCompactor
     private readonly int _maxTokens;
     private readonly double _compactionThreshold;
     private readonly int _messagesToKeep;
-    private readonly string _summaryModelId;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ContextCompactor"/> class.
@@ -22,19 +21,16 @@ public sealed class ContextCompactor
     /// <param name="maxTokens">Maximum context window size (default: 200,000).</param>
     /// <param name="compactionThreshold">Threshold percentage for compaction (default: 0.80 = 80%).</param>
     /// <param name="messagesToKeep">Number of recent messages to keep after compaction (default: 6 = 3 pairs).</param>
-    /// <param name="summaryModelId">Model ID for summarization (default: claude-haiku-4-5-20250929).</param>
     public ContextCompactor(
         IClaudeClient claudeClient,
         int maxTokens = 200_000,
         double compactionThreshold = 0.80,
-        int messagesToKeep = 6,
-        string summaryModelId = "claude-haiku-4-5-20250929")
+        int messagesToKeep = 6)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _maxTokens = maxTokens;
         _compactionThreshold = compactionThreshold;
         _messagesToKeep = messagesToKeep;
-        _summaryModelId = summaryModelId;
     }
 
     /// <summary>
@@ -65,11 +61,24 @@ public sealed class ContextCompactor
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(systemPrompt);
 
+        // Short-circuit if there are no messages to summarize
+        if (messages.Count <= _messagesToKeep)
+        {
+            return new CompactionResult(
+                OriginalMessageCount: messages.Count,
+                CompactedMessageCount: messages.Count,
+                MessagesRemoved: 0,
+                OriginalTokenCount: currentTokenCount,
+                CompactedTokenCount: currentTokenCount,
+                Summary: string.Empty,
+                CompactedMessages: messages);
+        }
+
         // Keep last N messages
-        var messagesToSummarize = messages.Take(Math.Max(0, messages.Count - _messagesToKeep)).ToList();
+        var messagesToSummarize = messages.Take(messages.Count - _messagesToKeep).ToList();
         var messagesToKeep = messages.Skip(messagesToSummarize.Count).ToList();
 
-        // Generate summary using cheaper model
+        // Generate summary using configured model
         var summary = await GenerateSummaryAsync(messagesToSummarize, cancellationToken).ConfigureAwait(false);
 
         // Build compacted message list
@@ -82,12 +91,19 @@ public sealed class ContextCompactor
             content = $"[Previous conversation summary]\n{summary}"
         });
 
-        // Add assistant acknowledgment
-        compactedMessages.Add(new
+        // Check the role of the first kept message to maintain alternation
+        var firstKeptRole = GetMessageRole(messagesToKeep[0]);
+        
+        // Only add assistant acknowledgment if the first kept message is from user
+        // This prevents consecutive assistant messages
+        if (firstKeptRole == "user")
         {
-            role = "assistant",
-            content = "Understood. I have the context from our previous discussion."
-        });
+            compactedMessages.Add(new
+            {
+                role = "assistant",
+                content = "Understood. I have the context from our previous discussion."
+            });
+        }
 
         // Add recent messages
         compactedMessages.AddRange(messagesToKeep);
@@ -109,7 +125,16 @@ public sealed class ContextCompactor
     }
 
     /// <summary>
-    /// Generates a conversation summary using Claude Haiku.
+    /// Gets the role from a message object.
+    /// </summary>
+    private static string GetMessageRole(object message)
+    {
+        var roleProperty = message.GetType().GetProperty("role");
+        return roleProperty?.GetValue(message)?.ToString() ?? "user";
+    }
+
+    /// <summary>
+    /// Generates a conversation summary using the configured Claude client.
     /// Focuses on preserving file paths, action items, technical decisions, and error context.
     /// </summary>
     private async Task<string> GenerateSummaryAsync(
@@ -133,12 +158,11 @@ Provide a concise but comprehensive summary that captures all essential informat
             new
             {
                 role = "user",
-                content = $"{summaryPrompt}\n\n<conversation_to_summarize>\n{FormatMessagesForSummary(messages)}\n</conversation_to_summarize>"
+                content = $"{summaryPrompt}\n\n<untrusted_content>\n<conversation_to_summarize>\n{FormatMessagesForSummary(messages)}\n</conversation_to_summarize>\n</untrusted_content>"
             }
         };
 
-        // Use a temporary client wrapper with Haiku model for summarization
-        // Note: We need to call SendMessageAsync and collect the response
+        // Call SendMessageAsync and collect the response
         var textContent = new System.Text.StringBuilder();
         
         await foreach (var evt in _claudeClient.SendMessageAsync(
@@ -151,13 +175,10 @@ Provide a concise but comprehensive summary that captures all essential informat
             {
                 textContent.Append(delta.Text);
             }
-            else if (evt is FinalResponse final)
+            else if (evt is FinalResponse final && !string.IsNullOrEmpty(final.Content))
             {
                 // Use final response if available
-                if (!string.IsNullOrEmpty(final.Content))
-                {
-                    return final.Content;
-                }
+                return final.Content;
             }
         }
 
