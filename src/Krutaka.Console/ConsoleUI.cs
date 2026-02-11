@@ -80,9 +80,12 @@ internal sealed class ConsoleUI : IDisposable
     /// Displays a streaming agent response with real-time token display.
     /// </summary>
     /// <param name="events">The stream of agent events.</param>
+    /// <param name="onApprovalDecision">Optional callback invoked when a human approval decision is made. 
+    /// Parameters: toolUseId, approved, alwaysApprove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DisplayStreamingResponseAsync(
         IAsyncEnumerable<AgentEvent> events,
+        Action<string, bool, bool>? onApprovalDecision = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -142,10 +145,16 @@ internal sealed class ConsoleUI : IDisposable
                                 AnsiConsole.WriteLine();
                             }
 
-                            // Display approval request (orchestrator will handle the actual decision)
-                            _ = _approvalHandler.RequestApproval(
+                            // Display approval request and get the user's decision
+                            var decision = _approvalHandler.RequestApproval(
                                 approval.ToolName,
                                 approval.Input);
+
+                            // Notify the orchestrator of the approval decision
+                            onApprovalDecision?.Invoke(
+                                approval.ToolUseId,
+                                decision.Approved,
+                                decision.AlwaysApprove);
 
                             firstToken = false;
                             break;

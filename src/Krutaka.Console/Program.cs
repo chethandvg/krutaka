@@ -114,8 +114,7 @@ try
         workingDirectory = Environment.CurrentDirectory;
     }
 
-    // Note: CommandTimeoutSeconds is not currently used by RunCommandTool (hardcoded 30s timeout)
-    // This configuration is reserved for future implementation
+    // Register Tools with options
     builder.Services.AddAgentTools(options =>
     {
         options.WorkingDirectory = workingDirectory;
@@ -266,9 +265,38 @@ try
             else if (command == "/HELP")
             {
                 AnsiConsole.MarkupLine("[bold cyan]Available Commands:[/]");
-                AnsiConsole.MarkupLine("  [cyan]/help[/]  - Show this help message");
-                AnsiConsole.MarkupLine("  [cyan]/exit[/]  - Exit the application");
-                AnsiConsole.MarkupLine("  [cyan]/quit[/]  - Exit the application");
+                AnsiConsole.MarkupLine("  [cyan]/help[/]    - Show this help message");
+                AnsiConsole.MarkupLine("  [cyan]/resume[/]  - Resume previous conversation from session store");
+                AnsiConsole.MarkupLine("  [cyan]/exit[/]    - Exit the application");
+                AnsiConsole.MarkupLine("  [cyan]/quit[/]    - Exit the application");
+                AnsiConsole.WriteLine();
+                continue;
+            }
+            else if (command == "/RESUME")
+            {
+                try
+                {
+                    var messages = await sessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
+                    if (messages.Count == 0)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]No previous session found to resume.[/]");
+                    }
+                    else
+                    {
+                        // Restore conversation history into orchestrator
+                        orchestrator.RestoreConversationHistory(messages);
+                        AnsiConsole.MarkupLine($"[green]✓ Resumed session with {messages.Count} messages from previous conversation.[/]");
+                        Log.Information("Session resumed with {MessageCount} messages", messages.Count);
+                    }
+                }
+#pragma warning disable CA1031 // Do not catch general exception types
+                catch (Exception ex)
+#pragma warning restore CA1031
+                {
+                    AnsiConsole.MarkupLine($"[red]Error resuming session: {Markup.Escape(ex.Message)}[/]");
+                    Log.Error(ex, "Failed to resume session");
+                }
+
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -299,7 +327,19 @@ try
 
             // Run agent orchestrator and display streaming response
             var events = orchestrator.RunAsync(input, systemPrompt, ui.ShutdownToken);
-            await ui.DisplayStreamingResponseAsync(events, ui.ShutdownToken).ConfigureAwait(false);
+            await ui.DisplayStreamingResponseAsync(events,
+                onApprovalDecision: (toolUseId, approved, alwaysApprove) =>
+                {
+                    if (approved)
+                    {
+                        orchestrator.ApproveTool(toolUseId, alwaysApprove);
+                    }
+                    else
+                    {
+                        orchestrator.DenyTool(toolUseId);
+                    }
+                },
+                cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
 
             AnsiConsole.WriteLine();
             AnsiConsole.WriteLine();

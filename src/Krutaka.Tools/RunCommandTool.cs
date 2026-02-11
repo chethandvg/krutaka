@@ -17,18 +17,21 @@ public class RunCommandTool : ToolBase
 {
     private readonly string _projectRoot;
     private readonly ISecurityPolicy _securityPolicy;
+    private readonly int _commandTimeoutSeconds;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RunCommandTool"/> class.
     /// </summary>
     /// <param name="projectRoot">The allowed root directory for command execution.</param>
     /// <param name="securityPolicy">The security policy for command validation.</param>
-    public RunCommandTool(string projectRoot, ISecurityPolicy securityPolicy)
+    /// <param name="commandTimeoutSeconds">Timeout in seconds for command execution (default: 30).</param>
+    public RunCommandTool(string projectRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30)
     {
         ArgumentNullException.ThrowIfNull(projectRoot);
         ArgumentNullException.ThrowIfNull(securityPolicy);
         _projectRoot = projectRoot;
         _securityPolicy = securityPolicy;
+        _commandTimeoutSeconds = commandTimeoutSeconds > 0 ? commandTimeoutSeconds : 30;
     }
 
     /// <inheritdoc/>
@@ -114,7 +117,7 @@ public class RunCommandTool : ToolBase
             var scrubbedEnvironment = _securityPolicy.ScrubEnvironment(environment);
 
             // Execute command with CliWrap streaming API and Job Object sandboxing
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(_commandTimeoutSeconds));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
             var sandboxingWarnings = new List<string>();
@@ -192,7 +195,7 @@ public class RunCommandTool : ToolBase
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
             {
-                return "Error: Command execution timed out after 30 seconds";
+                return $"Error: Command execution timed out after {_commandTimeoutSeconds} seconds";
             }
             catch (OperationCanceledException)
             {

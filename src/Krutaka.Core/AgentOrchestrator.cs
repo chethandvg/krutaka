@@ -20,6 +20,9 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
     private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
+    private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision
+    private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
+    private string? _pendingToolName; // Tracks the tool name of the pending approval request
     private bool _disposed;
 
     /// <summary>
@@ -54,6 +57,29 @@ public sealed class AgentOrchestrator : IDisposable
     /// Gets the current conversation history.
     /// </summary>
     public IReadOnlyList<object> ConversationHistory => _conversationHistory.AsReadOnly();
+
+    /// <summary>
+    /// Restores conversation history from a previous session.
+    /// Used by the /resume command to continue previous conversations.
+    /// Acquires the turn lock to prevent races with concurrent RunAsync calls.
+    /// </summary>
+    /// <param name="messages">The messages to restore from a previous session.</param>
+    public void RestoreConversationHistory(IReadOnlyList<object> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _turnLock.Wait();
+        try
+        {
+            _conversationHistory.Clear();
+            _conversationHistory.AddRange(messages);
+        }
+        finally
+        {
+            _turnLock.Release();
+        }
+    }
 
     /// <summary>
     /// Runs the agentic loop for a single user turn.
@@ -103,20 +129,54 @@ public sealed class AgentOrchestrator : IDisposable
 
     /// <summary>
     /// Approves a pending tool call. This should be called in response to HumanApprovalRequired events.
+    /// Unblocks the orchestrator to proceed with tool execution.
     /// </summary>
-    /// <param name="toolName">The name of the tool to approve.</param>
+    /// <param name="toolUseId">The tool use ID to approve (must match the pending request).</param>
     /// <param name="alwaysApprove">Whether to always approve this tool for the session.</param>
-    public void ApproveTool(string toolName, bool alwaysApprove = false)
+    public void ApproveTool(string toolUseId, bool alwaysApprove = false)
     {
-        if (string.IsNullOrWhiteSpace(toolName))
+        if (string.IsNullOrWhiteSpace(toolUseId))
         {
-            throw new ArgumentException("Tool name cannot be null or whitespace.", nameof(toolName));
+            throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
         }
 
-        if (alwaysApprove)
+        // Validate that the approval matches the currently pending tool request
+        if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
         {
-            _approvalCache[toolName] = true;
+            throw new InvalidOperationException(
+                $"Approval for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
         }
+
+        if (alwaysApprove && _pendingToolName != null)
+        {
+            _approvalCache[_pendingToolName] = true;
+        }
+
+        // Signal the pending approval to proceed
+        _pendingApproval?.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// Denies a pending tool call. This should be called in response to HumanApprovalRequired events.
+    /// The tool will not be executed and a denial message is returned to Claude.
+    /// </summary>
+    /// <param name="toolUseId">The tool use ID to deny (must match the pending request).</param>
+    public void DenyTool(string toolUseId)
+    {
+        if (string.IsNullOrWhiteSpace(toolUseId))
+        {
+            throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
+        }
+
+        // Validate that the denial matches the currently pending tool request
+        if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+        {
+            throw new InvalidOperationException(
+                $"Denial for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
+        }
+
+        // Signal the pending approval as denied
+        _pendingApproval?.TrySetResult(false);
     }
 
     /// <summary>
@@ -194,9 +254,38 @@ public sealed class AgentOrchestrator : IDisposable
                 
                 if (approvalRequired && !alwaysApprove)
                 {
+                    // Create a TaskCompletionSource to block until the caller approves or denies
+                    _pendingApproval = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _pendingToolUseId = toolCall.Id;
+                    _pendingToolName = toolCall.Name;
+                    
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
-                    // Note: The caller must call ApproveTool before continuing
-                    // For now, we'll assume approval is granted (will be enhanced in Issue #15)
+                    
+                    // Block until ApproveTool or DenyTool is called.
+                    // Use try-finally to ensure _pendingApproval is cleaned up even on cancellation.
+                    bool approved;
+                    try
+                    {
+                        approved = await _pendingApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _pendingApproval = null;
+                        _pendingToolUseId = null;
+                        _pendingToolName = null;
+                    }
+                    
+                    if (!approved)
+                    {
+                        // Tool was denied - send denial message as tool result (is_error=true to align with ToolCallFailed)
+                        var denialMessage = $"The user denied execution of {toolCall.Name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
+                        yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMessage);
+                        toolResults.Add(CreateToolResult(toolCall.Id, denialMessage, true));
+                        continue;
+                    }
+                    
+                    // Update alwaysApprove state (may have been set by caller)
+                    alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
                 }
 
                 // Execute the tool with timeout

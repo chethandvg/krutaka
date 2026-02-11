@@ -168,6 +168,19 @@ public class LogRedactionEnricherTests
         output.Should().Contain("AUTH_TOKEN=***REDACTED***");
     }
 
+    [Fact]
+    public void Should_RedactApiKeyInMessageTemplate()
+    {
+        // Arrange - generate synthetic key to avoid secret scanning
+        // Simulate accidentally embedding an API key directly in the message template
+        var testApiKey = "sk-ant-" + new string('t', 95);
+        var output = CaptureLogWithRedaction($"Using key {testApiKey} for init");
+
+        // Assert - the rendered message should not contain the raw key
+        output.Should().NotContain(testApiKey);
+        output.Should().Contain("Using key ***REDACTED*** for init");
+    }
+
     private static string CaptureLogWithRedaction(
         string messageTemplate,
         object? propertyValueOrObject = null)

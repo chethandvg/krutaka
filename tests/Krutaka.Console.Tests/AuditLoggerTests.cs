@@ -37,7 +37,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_TruncateLongUserInput()
     {
         // Arrange
@@ -58,7 +57,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_LogClaudeApiRequestEvent()
     {
         // Arrange
@@ -81,7 +79,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_LogClaudeApiResponseEvent()
     {
         // Arrange
@@ -107,7 +104,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_LogToolExecutionEvent_WithApproval()
     {
         // Arrange
@@ -133,7 +129,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_LogToolExecutionEvent_WithError()
     {
         // Arrange
@@ -160,7 +155,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_LogCompactionEvent()
     {
         // Arrange
@@ -185,7 +179,6 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    [Trait("Category", "Quarantined")]
     public void Should_LogSecurityViolationEvent()
     {
         // Arrange

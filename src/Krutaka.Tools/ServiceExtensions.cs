@@ -85,7 +85,7 @@ public static class ServiceExtensions
         services.AddSingleton<ITool>(sp =>
         {
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
-            return new RunCommandTool(workingDir, securityPolicy);
+            return new RunCommandTool(workingDir, securityPolicy, options.CommandTimeoutSeconds);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools
