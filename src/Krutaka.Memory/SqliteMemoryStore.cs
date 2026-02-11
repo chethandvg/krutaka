@@ -1,4 +1,3 @@
-using System.Data;
 using Krutaka.Core;
 using Microsoft.Data.Sqlite;
 
@@ -24,6 +23,7 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
     public SqliteMemoryStore(MemoryOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(options.DatabasePath, nameof(options.DatabasePath));
 
         _databasePath = options.DatabasePath;
         _chunker = new TextChunker(options.ChunkSizeTokens, options.ChunkOverlapTokens);
@@ -35,6 +35,8 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         await _dbLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -111,6 +113,8 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
         int topK = 10,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         // For v1, hybrid search is just FTS5 keyword search
         // Vector search will be added in v2
         return await KeywordSearchAsync(query, topK, cancellationToken).ConfigureAwait(false);
@@ -128,6 +132,8 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
         int limit = 10,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         ArgumentException.ThrowIfNullOrWhiteSpace(query);
 
         if (limit <= 0)
@@ -195,6 +201,8 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
         string source,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
 
@@ -226,6 +234,8 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
         string source,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
 

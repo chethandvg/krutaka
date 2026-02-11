@@ -348,4 +348,121 @@ public sealed class SqliteMemoryStoreTests : IDisposable
         results.Should().HaveCount(1);
         results[0].Source.Should().Be(source);
     }
+
+    [Fact]
+    public void Should_ThrowWhenConstructorOptionsHasNullDatabasePath()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = null! };
+
+        // Act
+        var act = () => new SqliteMemoryStore(options);
+
+        // Assert
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("DatabasePath");
+    }
+
+    [Fact]
+    public void Should_ThrowWhenConstructorOptionsHasEmptyDatabasePath()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = string.Empty };
+
+        // Act
+        var act = () => new SqliteMemoryStore(options);
+
+        // Assert
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("DatabasePath");
+    }
+
+    [Fact]
+    public void Should_ThrowWhenConstructorOptionsHasWhitespaceDatabasePath()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = "   " };
+
+        // Act
+        var act = () => new SqliteMemoryStore(options);
+
+        // Assert
+        act.Should().Throw<ArgumentException>()
+            .WithParameterName("DatabasePath");
+    }
+
+    [Fact]
+    public async Task Should_ThrowObjectDisposedExceptionWhenInitializeCalledAfterDispose()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = ":memory:" };
+        var store = new SqliteMemoryStore(options);
+        store.Dispose();
+
+        // Act
+        var act = async () => await store.InitializeAsync();
+
+        // Assert
+        await act.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task Should_ThrowObjectDisposedExceptionWhenStoreAsyncCalledAfterDispose()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = ":memory:" };
+        var store = new SqliteMemoryStore(options);
+        store.Dispose();
+
+        // Act
+        var act = async () => await store.StoreAsync("content", "source");
+
+        // Assert
+        await act.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task Should_ThrowObjectDisposedExceptionWhenChunkAndIndexAsyncCalledAfterDispose()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = ":memory:" };
+        var store = new SqliteMemoryStore(options);
+        store.Dispose();
+
+        // Act
+        var act = async () => await store.ChunkAndIndexAsync("content", "source");
+
+        // Assert
+        await act.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task Should_ThrowObjectDisposedExceptionWhenKeywordSearchAsyncCalledAfterDispose()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = ":memory:" };
+        var store = new SqliteMemoryStore(options);
+        store.Dispose();
+
+        // Act
+        var act = async () => await store.KeywordSearchAsync("query");
+
+        // Assert
+        await act.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task Should_ThrowObjectDisposedExceptionWhenHybridSearchAsyncCalledAfterDispose()
+    {
+        // Arrange
+        var options = new MemoryOptions { DatabasePath = ":memory:" };
+        var store = new SqliteMemoryStore(options);
+        store.Dispose();
+
+        // Act
+        var act = async () => await store.HybridSearchAsync("query");
+
+        // Assert
+        await act.Should().ThrowAsync<ObjectDisposedException>();
+    }
 }
