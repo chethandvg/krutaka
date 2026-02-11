@@ -19,23 +19,67 @@ internal static class TestDirectoryHelper
         
         if (OperatingSystem.IsWindows())
         {
-            // Use C:\temp instead of user's temp folder (which is in AppData/Local)
+            // Try RUNNER_TEMP first (GitHub Actions), then fall back to C:\temp
             // This avoids triggering the LocalAppData security check and reduces
             // file lock issues with SQLite on Windows
-            var basePath = @"C:\temp";
-            
-            // Ensure the base directory exists
-            if (!Directory.Exists(basePath))
-            {
-                Directory.CreateDirectory(basePath);
-            }
-            
+            var basePath = GetWritableWindowsBasePath();
             return Path.Combine(basePath, $"krutaka-{testName}-{uniqueId}");
         }
         else
         {
             // On Linux/Mac, /tmp is standard and not restricted
             return Path.Combine("/tmp", $"krutaka-{testName}-{uniqueId}");
+        }
+    }
+
+    /// <summary>
+    /// Gets a writable base path for Windows that avoids LocalAppData.
+    /// Tries RUNNER_TEMP (CI), then C:\temp, with fallback to user profile.
+    /// </summary>
+    private static string GetWritableWindowsBasePath()
+    {
+        // 1. Try RUNNER_TEMP environment variable (GitHub Actions)
+        var runnerTemp = Environment.GetEnvironmentVariable("RUNNER_TEMP");
+        if (!string.IsNullOrEmpty(runnerTemp) && TryEnsureDirectory(runnerTemp))
+        {
+            return runnerTemp;
+        }
+
+        // 2. Try C:\temp (common CI-safe location)
+        const string cTemp = @"C:\temp";
+        if (TryEnsureDirectory(cTemp))
+        {
+            return cTemp;
+        }
+
+        // 3. Fall back to user profile subdirectory (always writable)
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var fallbackPath = Path.Combine(userProfile, ".krutaka-test-temp");
+        TryEnsureDirectory(fallbackPath);
+        return fallbackPath;
+    }
+
+    /// <summary>
+    /// Attempts to ensure a directory exists.
+    /// </summary>
+    private static bool TryEnsureDirectory(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
         }
     }
 
@@ -65,10 +109,22 @@ internal static class TestDirectoryHelper
                 // Wait a bit before retrying to allow SQLite connections to be released
                 Thread.Sleep(delayMs);
             }
-            catch (IOException)
+            catch (UnauthorizedAccessException) when (i < maxRetries - 1)
             {
-                // Final attempt failed - ignore cleanup failures
-                // Test directories will be cleaned up eventually
+                // Transient access issues (e.g., file locks, read-only flags) can occur on Windows
+                Thread.Sleep(delayMs);
+            }
+            catch (IOException ex)
+            {
+                // Final attempt failed - log so persistent leaks are visible
+                Console.Error.WriteLine(
+                    $"[TestDirectoryHelper] Failed to delete '{path}' after {maxRetries} attempts: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Final attempt failed - log so persistent leaks are visible
+                Console.Error.WriteLine(
+                    $"[TestDirectoryHelper] Failed to delete '{path}' after {maxRetries} attempts: {ex.Message}");
             }
         }
     }

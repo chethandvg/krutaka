@@ -284,8 +284,11 @@ public sealed class SecurityPolicyTests : IDisposable
 
         // Assert - The path should be blocked by security policy
         // This may be blocked by path traversal (outside allowed root) or by blocked directory check
-        // Either way, it should throw a SecurityException
-        action.Should().Throw<SecurityException>();
+        // Either way, it should throw a SecurityException with an expected message
+        action.Should().Throw<SecurityException>()
+            .Where(ex =>
+                ex.Message.Contains("Path traversal", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("Access to", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
