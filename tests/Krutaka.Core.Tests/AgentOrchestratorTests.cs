@@ -130,6 +130,30 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task RunAsync_Should_SetCorrelationRequestId_WhenRequestIdCaptured()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddRequestIdCaptured("req_test_12345");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var correlationContext = new CorrelationContext();
+        using var orchestrator = CreateOrchestrator(claudeClient, correlationContext: correlationContext);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Test prompt", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<RequestIdCaptured>().Should().ContainSingle();
+        events.OfType<RequestIdCaptured>().First().RequestId.Should().Be("req_test_12345");
+        correlationContext.RequestId.Should().Be("req_test_12345");
+    }
+
+    [Fact]
     [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_ProcessToolCalls_WhenClaudeRequestsTools()
     {
@@ -346,13 +370,15 @@ public sealed class AgentOrchestratorTests
         MockClaudeClient? claudeClient = null,
         MockToolRegistry? toolRegistry = null,
         MockSecurityPolicy? securityPolicy = null,
-        int toolTimeoutSeconds = 30)
+        int toolTimeoutSeconds = 30,
+        CorrelationContext? correlationContext = null)
     {
         return new AgentOrchestrator(
             claudeClient ?? new MockClaudeClient(),
             toolRegistry ?? new MockToolRegistry(),
             securityPolicy ?? new MockSecurityPolicy(),
-            toolTimeoutSeconds);
+            toolTimeoutSeconds,
+            correlationContext: correlationContext);
     }
 
     // Mock implementations for testing
@@ -365,6 +391,12 @@ public sealed class AgentOrchestratorTests
         {
             EnsureCurrentBatch();
             _eventBatches.Peek().Add(new TextDelta(text));
+        }
+
+        public void AddRequestIdCaptured(string requestId)
+        {
+            EnsureCurrentBatch();
+            _eventBatches.Peek().Add(new RequestIdCaptured(requestId));
         }
 
         public void AddToolCallStarted(string name, string id, string input)

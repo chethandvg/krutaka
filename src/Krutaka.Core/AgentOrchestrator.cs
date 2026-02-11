@@ -148,6 +148,10 @@ public sealed class AgentOrchestrator : IDisposable
                 // Track tool calls and final response
                 switch (evt)
                 {
+                    case RequestIdCaptured requestIdCaptured:
+                        _correlationContext?.SetRequestId(requestIdCaptured.RequestId);
+                        break;
+
                     case ToolCallStarted toolCallStarted:
                         toolCalls.Add(new ToolCall(
                             toolCallStarted.ToolName,

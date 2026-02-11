@@ -66,11 +66,19 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         var textContent = new System.Text.StringBuilder();
         string stopReason = "end_turn";
 
-        // Stream the response
+        // Stream the response using WithRawResponse to capture HTTP headers including request-id.
         // Note: Using official Anthropic package (v12.4.0), NOT community Anthropic.SDK
-        // The official package is in GA but streaming event structure may still evolve
-        // Full event parsing will be implemented in the agentic loop (Issue #14)
-        await foreach (var chunk in _client.Messages.CreateStreaming(parameters, cancellationToken: cancellationToken).ConfigureAwait(false))
+        var rawResponse = await _client.WithRawResponse.Messages.CreateStreaming(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        // Extract and emit the request-id from the HTTP response header
+        var requestId = rawResponse.RequestID;
+        if (!string.IsNullOrEmpty(requestId))
+        {
+            LogRequestId(requestId);
+            yield return new RequestIdCaptured(requestId);
+        }
+
+        await foreach (var chunk in rawResponse.Enumerate(cancellationToken).ConfigureAwait(false))
         {
             if (chunk == null)
             {
@@ -84,7 +92,6 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             // - Actual text deltas
             // - Tool call events  
             // - Stop reasons
-            // - Request IDs
             var delta = ""; // Placeholder - SDK beta doesn't expose structured deltas yet
             if (!string.IsNullOrEmpty(delta))
             {
@@ -114,8 +121,16 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             System = systemPrompt
         };
 
-        // Call the CountTokens method
-        var response = await _client.Messages.CountTokens(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Use WithRawResponse to capture the request-id header for correlation
+        var rawResponse = await _client.WithRawResponse.Messages.CountTokens(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        var requestId = rawResponse.RequestID;
+        if (!string.IsNullOrEmpty(requestId))
+        {
+            LogRequestId(requestId);
+        }
+
+        var response = await rawResponse.Deserialize(cancellationToken).ConfigureAwait(false);
 
         var tokenCount = (int)response.InputTokens;
         LogTokenCount(tokenCount);
@@ -187,4 +202,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Claude API token count: {TokenCount}")]
     partial void LogTokenCount(int tokenCount);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Claude API request-id: {RequestId}")]
+    partial void LogRequestId(string requestId);
 }

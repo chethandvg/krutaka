@@ -86,4 +86,15 @@ public class AgentEventTests
         evt1.Should().BeOfType<TextDelta>();
         evt2.Should().BeOfType<FinalResponse>();
     }
+
+    [Fact]
+    public void RequestIdCaptured_Should_HaveCorrectProperties()
+    {
+        // Arrange & Act
+        var evt = new RequestIdCaptured("req_abc123");
+
+        // Assert
+        evt.RequestId.Should().Be("req_abc123");
+        evt.Timestamp.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
+    }
 }
