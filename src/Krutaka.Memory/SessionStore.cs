@@ -166,9 +166,10 @@ public sealed class SessionStore : ISessionStore, IDisposable
                     }
                 });
             }
-            else if (evt.Type == "tool_result")
+            else if (evt.Type == "tool_result" || evt.Type == "tool_error")
             {
                 // Tool results are sent as user messages
+                // "tool_error" events carry is_error=true so Claude knows the tool failed
                 messages.Add(new
                 {
                     role = "user",
@@ -178,7 +179,8 @@ public sealed class SessionStore : ISessionStore, IDisposable
                         {
                             type = "tool_result",
                             tool_use_id = evt.ToolUseId,
-                            content = evt.Content
+                            content = evt.Content,
+                            is_error = evt.Type == "tool_error"
                         }
                     }
                 });

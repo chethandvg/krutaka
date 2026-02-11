@@ -52,6 +52,18 @@
 - After completing each issue, update this file: change status to 🟢 Complete and add the date
 - If an issue is in progress, mark it as 🟡 In Progress
 
+### Verification Fixes (2026-02-11)
+
+The following critical bugs were discovered and fixed during the final verification pass:
+
+1. **Tool definitions never sent to Claude API** — `ToolRegistry.GetToolDefinitions()` returned anonymous objects, but `ClaudeClientWrapper` expected `IReadOnlyList<Tool>`. Added `ConvertToTools()` to bridge anonymous objects → Anthropic SDK `Tool` instances.
+2. **Tool use/result message content corrupted** — Complex content (tool_use/tool_result blocks) was serialized to a JSON string instead of proper `ContentBlockParam` lists. Added `ConvertToContentBlockParams()` for correct SDK type construction.
+3. **Session persistence incomplete** — Only user messages were saved; `/resume` lost all assistant context, tool invocations, and results. Added `WrapWithSessionPersistence()` to persist all event types.
+4. **Circular DI dependency in memory tools** — Memory tool factories resolved `IToolRegistry` while being resolved by the `IToolRegistry` factory. Removed redundant `registry.Register()` calls.
+5. **Session replay event ordering** — Accumulated assistant text was only persisted on `FinalResponse`, inverting the original content block order for tool-use turns. Now flushes text before `ToolCallStarted` events.
+6. **Tool error state lost on resume** — Failed/denied tool calls were persisted as `tool_result` without an error flag. Now uses `tool_error` event type so `ReconstructMessagesAsync` reconstructs `is_error=true` for Claude.
+7. **Silent tool definition skipping** — `ConvertToTools()` silently dropped tool definitions with missing properties or JSON errors. Now logs warnings with property name and exception details.
+
 ### Issue #8 Status (Complete)
 
 The Claude API client wrapper has been fully implemented:

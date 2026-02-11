@@ -43,8 +43,11 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         // Convert messages to MessageParam
         var messageParams = ConvertToMessageParams(messages);
 
+        // Convert tool definitions to Anthropic SDK Tool instances
+        var convertedTools = ConvertToTools(tools);
+
         // Build parameters with tools if provided
-        var parameters = tools is IReadOnlyList<Tool> toolsList && toolsList.Count > 0
+        var parameters = convertedTools.Count > 0
             ? new MessageCreateParams
             {
                 Messages = messageParams,
@@ -52,7 +55,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                 MaxTokens = _maxTokens,
                 Model = _modelId,
                 Temperature = _temperature,
-                Tools = toolsList.Select(t => (ToolUnion)t).ToList()
+                Tools = convertedTools.Select(t => (ToolUnion)t).ToList()
             }
             : new MessageCreateParams
             {
@@ -193,7 +196,8 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
     /// <summary>
     /// Converts objects to MessageParam instances.
-    /// Handles both pre-cast MessageParam objects and anonymous objects from SessionStore.
+    /// Handles both pre-cast MessageParam objects and anonymous objects from AgentOrchestrator/SessionStore.
+    /// Properly handles complex content structures including tool_use and tool_result blocks.
     /// </summary>
     private static List<MessageParam> ConvertToMessageParams(IEnumerable<object> messages)
     {
@@ -203,12 +207,10 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         {
             if (msg is MessageParam messageParam)
             {
-                // Already a MessageParam, use directly
                 result.Add(messageParam);
             }
             else
             {
-                // Try to extract role and content from anonymous object using reflection
                 var msgType = msg.GetType();
                 var roleProperty = msgType.GetProperty("role");
                 var contentProperty = msgType.GetProperty("content");
@@ -218,7 +220,6 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                     var role = roleProperty.GetValue(msg)?.ToString() ?? "user";
                     var content = contentProperty.GetValue(msg);
 
-                    // Convert content to appropriate type
                     if (content is string textContent)
                     {
                         result.Add(new MessageParam
@@ -229,13 +230,12 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                     }
                     else
                     {
-                        // For complex content (arrays, objects), serialize and parse
-                        // This handles tool_use and tool_result content structures
-                        var contentJson = System.Text.Json.JsonSerializer.Serialize(content);
+                        // Complex content: convert to proper ContentBlockParam list
+                        var contentBlocks = ConvertToContentBlockParams(content);
                         result.Add(new MessageParam
                         {
                             Role = role,
-                            Content = contentJson
+                            Content = contentBlocks
                         });
                     }
                 }
@@ -250,6 +250,170 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         return result;
     }
 
+    /// <summary>
+    /// Converts anonymous tool definition objects (from ToolRegistry) to Anthropic SDK Tool instances.
+    /// </summary>
+    private List<Tool> ConvertToTools(object? tools)
+    {
+        if (tools == null)
+        {
+            return [];
+        }
+
+        if (tools is IReadOnlyList<Tool> toolsList)
+        {
+            return toolsList.ToList();
+        }
+
+        var result = new List<Tool>();
+
+        if (tools is not System.Collections.IEnumerable enumerable)
+        {
+            return result;
+        }
+
+        foreach (var tool in enumerable)
+        {
+            var toolType = tool.GetType();
+            var name = toolType.GetProperty("name")?.GetValue(tool)?.ToString();
+            var description = toolType.GetProperty("description")?.GetValue(tool)?.ToString();
+            var inputSchema = toolType.GetProperty("input_schema")?.GetValue(tool);
+
+            if (string.IsNullOrEmpty(name) || inputSchema == null)
+            {
+                LogSkippedToolDefinition(
+                    toolType.FullName ?? toolType.Name,
+                    string.IsNullOrEmpty(name) ? "name" : "input_schema");
+                continue;
+            }
+
+            // Convert JsonElement InputSchema to Anthropic InputSchema
+            Dictionary<string, System.Text.Json.JsonElement>? schemaDict;
+            try
+            {
+                schemaDict = inputSchema is System.Text.Json.JsonElement jsonElement
+                    ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(jsonElement.GetRawText())
+                    : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(
+                        System.Text.Json.JsonSerializer.Serialize(inputSchema));
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                LogSkippedToolSchema(toolType.FullName ?? toolType.Name, ex);
+                continue;
+            }
+
+            if (schemaDict == null)
+            {
+                LogSkippedToolDefinition(
+                    toolType.FullName ?? toolType.Name,
+                    "input_schema (deserialized to null)");
+                continue;
+            }
+
+            var apiSchema = InputSchema.FromRawUnchecked(schemaDict);
+
+            result.Add(new Tool
+            {
+                Name = name,
+                Description = description,
+                InputSchema = apiSchema
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Converts complex content (tool_use/tool_result/text blocks) from anonymous objects
+    /// to proper Anthropic SDK ContentBlockParam instances.
+    /// </summary>
+    private static List<ContentBlockParam> ConvertToContentBlockParams(object? content)
+    {
+        var blocks = new List<ContentBlockParam>();
+
+        if (content == null)
+        {
+            return blocks;
+        }
+
+        if (content is not System.Collections.IEnumerable enumerable)
+        {
+            // Single non-list content: treat as text
+            blocks.Add((ContentBlockParam)new TextBlockParam { Text = content.ToString() ?? string.Empty });
+            return blocks;
+        }
+
+        foreach (var item in enumerable)
+        {
+            var itemType = item.GetType();
+            var typeProperty = itemType.GetProperty("type")?.GetValue(item)?.ToString();
+
+            switch (typeProperty)
+            {
+                case "text":
+                {
+                    var text = itemType.GetProperty("text")?.GetValue(item)?.ToString() ?? string.Empty;
+                    blocks.Add((ContentBlockParam)new TextBlockParam { Text = text });
+                    break;
+                }
+                case "tool_use":
+                {
+                    var id = itemType.GetProperty("id")?.GetValue(item)?.ToString() ?? string.Empty;
+                    var name = itemType.GetProperty("name")?.GetValue(item)?.ToString() ?? string.Empty;
+                    var input = itemType.GetProperty("input")?.GetValue(item);
+
+                    var inputDict = DeserializeToJsonElementDict(input);
+
+                    blocks.Add((ContentBlockParam)new ToolUseBlockParam
+                    {
+                        ID = id,
+                        Name = name,
+                        Input = inputDict
+                    });
+                    break;
+                }
+                case "tool_result":
+                {
+                    var toolUseId = itemType.GetProperty("tool_use_id")?.GetValue(item)?.ToString() ?? string.Empty;
+                    var resultContent = itemType.GetProperty("content")?.GetValue(item)?.ToString() ?? string.Empty;
+                    var isError = itemType.GetProperty("is_error")?.GetValue(item) as bool? ?? false;
+
+                    blocks.Add((ContentBlockParam)new ToolResultBlockParam
+                    {
+                        ToolUseID = toolUseId,
+                        Content = resultContent,
+                        IsError = isError
+                    });
+                    break;
+                }
+                default:
+                {
+                    // Unknown type: serialize to text
+                    var text = System.Text.Json.JsonSerializer.Serialize(item);
+                    blocks.Add((ContentBlockParam)new TextBlockParam { Text = text });
+                    break;
+                }
+            }
+        }
+
+        return blocks;
+    }
+
+    /// <summary>
+    /// Deserializes an object (string JSON or anonymous object) to a Dictionary of JsonElements.
+    /// </summary>
+    private static Dictionary<string, System.Text.Json.JsonElement> DeserializeToJsonElementDict(object? input)
+    {
+        if (input == null)
+        {
+            return new Dictionary<string, System.Text.Json.JsonElement>();
+        }
+
+        var json = input is string inputStr ? inputStr : System.Text.Json.JsonSerializer.Serialize(input);
+        return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(json)
+            ?? new Dictionary<string, System.Text.Json.JsonElement>();
+    }
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Received streaming chunk from Claude API")]
     partial void LogChunkReceived();
 
@@ -258,4 +422,10 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Claude API request-id: {RequestId}")]
     partial void LogRequestId(string requestId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping tool definition of type {ToolType}: required property '{MissingProperty}' was null or empty")]
+    partial void LogSkippedToolDefinition(string toolType, string missingProperty);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping tool definition of type {ToolType}: input_schema could not be deserialized")]
+    partial void LogSkippedToolSchema(string toolType, Exception exception);
 }
