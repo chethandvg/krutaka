@@ -63,11 +63,11 @@ The Claude API client wrapper has been implemented with the following completed:
 - ✅ `ServiceExtensions.cs` with `AddClaudeAI(IServiceCollection, IConfiguration)`
 - ✅ API key from `ISecretsProvider` with fallback to configuration for testing
 - ✅ Tools parameter accepted and passed to official package
+- ✅ Request-id extraction from response headers via `WithRawResponse` API
 
 Deferred to agentic loop implementation (Issue #14):
 - Detailed streaming event parsing (official package's streaming event structure still evolving)
 - Tool call event emission
-- Request-id extraction from response headers
 
 This partial implementation provides a working foundation for the agentic loop while acknowledging the official package's evolving API surface.
 
@@ -694,11 +694,13 @@ The structured audit logging system has been fully implemented with correlation 
    - Backward compatible: logging is optional, exceptions still thrown regardless
    - **Note**: Production code does not yet pass CorrelationContext to validation methods; this will be addressed in a future enhancement when tools have access to correlation context
 
-3. ⏸️ **Request-id extraction from Claude API** (Blocked - waiting for SDK update)
-   - Documented in IMPLEMENTATION_SUMMARY.md that official Anthropic package v12.4.0 doesn't expose response headers
-   - Noted as limitation of the package, not our implementation
-   - Cannot be implemented until the official package exposes response headers
-   - Infrastructure is ready (CorrelationContext has RequestId field), waiting on SDK support
+3. ✅ **Request-id extraction from Claude API** (Complete)
+   - Official Anthropic package v12.4.0 supports `WithRawResponse` API for accessing HTTP response headers
+   - `ClaudeClientWrapper` uses `client.WithRawResponse.Messages.CreateStreaming()` to capture `RequestID` from streaming responses
+   - `ClaudeClientWrapper` uses `client.WithRawResponse.Messages.CountTokens()` to capture `RequestID` from token counting responses
+   - New `RequestIdCaptured` agent event type propagates request IDs through the agentic loop
+   - `AgentOrchestrator` handles `RequestIdCaptured` events to set `CorrelationContext.RequestId`
+   - Request IDs are logged via structured `LogRequestId` LoggerMessage
 
 **Future Enhancements:**
 - Claude API request/response event logging (requires SDK support for streaming token counts)
