@@ -5,7 +5,7 @@ using Krutaka.Tools;
 
 namespace Krutaka.Tools.Tests;
 
-internal sealed class ToolRegistryTests
+public sealed class ToolRegistryTests
 {
     private readonly ToolRegistry _registry;
 

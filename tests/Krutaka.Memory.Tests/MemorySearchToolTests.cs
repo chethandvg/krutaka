@@ -5,7 +5,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-internal sealed class MemorySearchToolTests : IDisposable
+public sealed class MemorySearchToolTests : IDisposable
 {
     private readonly SqliteMemoryStore _memoryService;
     private readonly MemorySearchTool _tool;

@@ -3,7 +3,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-internal sealed class TextChunkerTests
+public sealed class TextChunkerTests
 {
     [Fact]
     public void Should_ThrowWhenChunkSizeIsZero()

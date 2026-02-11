@@ -4,7 +4,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-internal sealed class SqliteMemoryStoreTests : IDisposable
+public sealed class SqliteMemoryStoreTests : IDisposable
 {
     private readonly string _testDbPath;
     private readonly SqliteMemoryStore _store;

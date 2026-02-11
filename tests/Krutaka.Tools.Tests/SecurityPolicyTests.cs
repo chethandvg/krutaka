@@ -4,7 +4,7 @@ using Krutaka.Tools;
 
 namespace Krutaka.Tools.Tests;
 
-internal class SecurityPolicyTests
+public class SecurityPolicyTests
 {
     private readonly CommandPolicy _policy;
     private readonly string _projectRoot;
