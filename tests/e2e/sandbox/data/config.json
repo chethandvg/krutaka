@@ -1,0 +1,14 @@
+{
+  "appName": "SampleApp",
+  "version": "1.0.0",
+  "environment": "development",
+  "settings": {
+    "logLevel": "Information",
+    "enableDebug": true,
+    "maxRetries": 3
+  },
+  "features": {
+    "calculator": true,
+    "dataProcessing": true
+  }
+}
