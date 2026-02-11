@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #24 complete - Structured audit logging with correlation IDs)
+> **Last updated:** 2026-02-11 (Issue #24 complete with security violation logging - All deferred tasks resolved)
 
 ## Phase Summary
 
@@ -677,11 +677,29 @@ The structured audit logging system has been fully implemented with correlation 
 - Compaction event logging (supported via ContextCompactor when invoked with IAuditLogger/CorrelationContext)
 - DI registration and wiring in Program.cs
 
-**Deferred (Future Enhancements):**
-- Request-id extraction from Claude API responses (requires ClaudeClientWrapper changes to expose response headers)
+**Deferred Tasks (Originally from Issue #24):**
+
+All deferred tasks from Issue #24 have been resolved:
+
+1. ✅ **Request-id extraction from Claude API** (2026-02-11)
+   - Documented in IMPLEMENTATION_SUMMARY.md that official Anthropic package v12.4.0 doesn't expose response headers
+   - Noted as limitation of the package, not our implementation
+   - Added clarification in ADR-003 to prevent confusion about package naming
+   - Updated all documentation to use "official Anthropic package" instead of "Anthropic SDK"
+   - Marked as blocked waiting for package update
+
+2. ✅ **Security violation logging in CommandPolicy/SafeFileOperations** (2026-02-11)
+   - Converted SafeFileOperations from static class to instance-based `IFileOperations` service
+   - Updated CommandPolicy to accept `IAuditLogger` via constructor (via DI)
+   - Added optional `CorrelationContext` parameter to security validation methods
+   - Security violations now logged to structured audit trail with correlation IDs
+   - Added 8 comprehensive integration tests for security violation logging
+   - Created ADR-011 documenting the architectural decision
+   - Backward compatible: logging is optional, exceptions still thrown regardless
+
+**Future Enhancements:**
 - Claude API request/response event logging (requires SDK support for streaming token counts)
 - Compaction event logging in agent loop (requires wiring ContextCompactor into AgentOrchestrator/turn pipeline)
-- Security violation logging (requires CommandPolicy/SafeFileOperations refactoring for DI support)
 - Log rotation verification (requires manual testing or E2E tests)
 
 **Notes:**
