@@ -397,18 +397,28 @@ Persistence layer for sessions, memory search, and daily logs.
 - `HybridSearchAsync` will fuse both search methods for improved recall
 
 ### Krutaka.Skills (net10.0)
-**Status:** Scaffolded (Issue #5)  
+**Status:** ✅ Implemented (Issue #22 — 2026-02-11)  
 **Path:** `src/Krutaka.Skills/`  
 **Dependencies:** Krutaka.Core, YamlDotNet
 
-Markdown-based skill system.
+Markdown-based skill system with YAML frontmatter parsing and progressive disclosure.
 
-| Type | Description |
-|---|---|
-| `SkillRegistry` | Metadata loading + full content on demand |
-| `SkillLoader` | YAML frontmatter parser |
-| `SkillMetadata` | Name, Description, FilePath, AllowedTools, Model, Version |
-| `ServiceExtensions` | `AddSkills(services, options)` DI registration |
+| Type | Description | Status |
+|---|---|---|
+| `SkillRegistry` | Metadata loading + full content on demand | ✅ Implemented |
+| `SkillLoader` | YAML frontmatter parser (name, description, allowed-tools, model, version) | ✅ Implemented |
+| `SkillMetadata` | Record with Name, Description, FilePath, AllowedTools, Model, Version | ✅ Implemented |
+| `SkillOptions` | Configuration for skill directories (./skills/, ~/.krutaka/skills/) | ✅ Implemented |
+| `ServiceExtensions` | `AddSkills(services, configure)` DI registration | ✅ Implemented |
+
+**Implementation Details:**
+- Progressive disclosure: `GetSkillMetadata()` returns only name + description for system prompt
+- Full content loaded on-demand via `LoadFullContentAsync(name)`
+- YAML frontmatter validation: required fields (name, description), optional (allowed-tools, model, version)
+- Malformed skill files are silently skipped during directory scan
+- Default directories: `./skills/` and `~/.krutaka/skills/`
+- Sample skill: `skills/code-reviewer/SKILL.md`
+- Test coverage: 17 tests (YAML parsing, progressive disclosure, error handling)
 
 ### Krutaka.Console (net10.0-windows)
 **Status:** UI classes implemented (Issue #21 — 2026-02-11)  
