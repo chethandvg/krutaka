@@ -27,9 +27,20 @@ public static class ServiceExtensions
         // Register options as singleton
         services.AddSingleton(options);
 
-        // Register security policy (singleton - stateless)
-        var securityPolicy = new CommandPolicy();
-        services.AddSingleton<ISecurityPolicy>(securityPolicy);
+        // Register file operations service (singleton - will be resolved with IAuditLogger if available)
+        services.AddSingleton<IFileOperations>(sp =>
+        {
+            var auditLogger = sp.GetService<IAuditLogger>();
+            return new SafeFileOperations(auditLogger);
+        });
+
+        // Register security policy (singleton - will be resolved with IAuditLogger if available)
+        services.AddSingleton<ISecurityPolicy>(sp =>
+        {
+            var auditLogger = sp.GetService<IAuditLogger>();
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new CommandPolicy(fileOperations, auditLogger);
+        });
 
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
@@ -61,10 +72,14 @@ public static class ServiceExtensions
         registry.Register(editFileTool);
         services.AddSingleton<ITool>(editFileTool);
 
-        // Command execution tool (always requires approval)
-        var runCommandTool = new RunCommandTool(workingDir, securityPolicy);
-        registry.Register(runCommandTool);
-        services.AddSingleton<ITool>(runCommandTool);
+        // Register a factory for RunCommandTool since it needs ISecurityPolicy from DI
+        services.AddSingleton<ITool>(sp =>
+        {
+            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+            var runCommandTool = new RunCommandTool(workingDir, securityPolicy);
+            registry.Register(runCommandTool);
+            return runCommandTool;
+        });
 
         return services;
     }
