@@ -410,6 +410,17 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
                 break;
 
             case ToolCallStarted tool:
+                // Flush any accumulated assistant text before the tool_use event so that
+                // resume reconstructs content blocks in the same order Claude produced them
+                // (text first, then tool_use).
+                if (textAccumulator.Length > 0)
+                {
+                    await sessionStore.AppendAsync(
+                        new SessionEvent("assistant", "assistant", textAccumulator.ToString(), DateTimeOffset.UtcNow),
+                        cancellationToken).ConfigureAwait(false);
+                    textAccumulator.Clear();
+                }
+
                 await sessionStore.AppendAsync(
                     new SessionEvent("tool_use", "assistant", tool.Input, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
                     cancellationToken).ConfigureAwait(false);
@@ -422,16 +433,15 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
                 break;
 
             case ToolCallFailed tool:
+                // Use "tool_error" type so resume can reconstruct the is_error flag
                 await sessionStore.AppendAsync(
-                    new SessionEvent("tool_result", "user", tool.Error, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
+                    new SessionEvent("tool_error", "user", tool.Error, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
                     cancellationToken).ConfigureAwait(false);
                 break;
 
             case FinalResponse final:
-                // Persist assistant text response.
-                // textAccumulator contains text from TextDelta events; final.Content is the same
-                // accumulated text from the streaming response. Prefer the accumulator since it
-                // captures all deltas; fall back to final.Content if no deltas were received.
+                // Persist any remaining assistant text that wasn't flushed before a tool call.
+                // In non-tool-use turns the text is only emitted here.
                 if (textAccumulator.Length > 0 || !string.IsNullOrEmpty(final.Content))
                 {
                     var content = textAccumulator.Length > 0 ? textAccumulator.ToString() : final.Content;

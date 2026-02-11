@@ -253,7 +253,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
     /// <summary>
     /// Converts anonymous tool definition objects (from ToolRegistry) to Anthropic SDK Tool instances.
     /// </summary>
-    private static List<Tool> ConvertToTools(object? tools)
+    private List<Tool> ConvertToTools(object? tools)
     {
         if (tools == null)
         {
@@ -281,17 +281,32 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
             if (string.IsNullOrEmpty(name) || inputSchema == null)
             {
+                LogSkippedToolDefinition(
+                    toolType.FullName ?? toolType.Name,
+                    string.IsNullOrEmpty(name) ? "name" : "input_schema");
                 continue;
             }
 
             // Convert JsonElement InputSchema to Anthropic InputSchema
-            var schemaDict = inputSchema is System.Text.Json.JsonElement jsonElement
-                ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(jsonElement.GetRawText())
-                : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(
-                    System.Text.Json.JsonSerializer.Serialize(inputSchema));
+            Dictionary<string, System.Text.Json.JsonElement>? schemaDict;
+            try
+            {
+                schemaDict = inputSchema is System.Text.Json.JsonElement jsonElement
+                    ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(jsonElement.GetRawText())
+                    : System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(
+                        System.Text.Json.JsonSerializer.Serialize(inputSchema));
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                LogSkippedToolSchema(toolType.FullName ?? toolType.Name, ex);
+                continue;
+            }
 
             if (schemaDict == null)
             {
+                LogSkippedToolDefinition(
+                    toolType.FullName ?? toolType.Name,
+                    "input_schema (deserialized to null)");
                 continue;
             }
 
@@ -407,4 +422,10 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Claude API request-id: {RequestId}")]
     partial void LogRequestId(string requestId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping tool definition of type {ToolType}: required property '{MissingProperty}' was null or empty")]
+    partial void LogSkippedToolDefinition(string toolType, string missingProperty);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping tool definition of type {ToolType}: input_schema could not be deserialized")]
+    partial void LogSkippedToolSchema(string toolType, Exception exception);
 }
