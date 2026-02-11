@@ -62,7 +62,7 @@ public sealed class MemorySearchToolTests : IDisposable
         queryProp.GetProperty("type").GetString().Should().Be("string");
 
         properties.TryGetProperty("limit", out var limitProp).Should().BeTrue();
-        limitProp.GetProperty("type").GetString().Should().Be("number");
+        limitProp.GetProperty("type").GetString().Should().Be("integer");
 
         var required = schema.GetProperty("required");
         required.ValueKind.Should().Be(JsonValueKind.Array);

@@ -193,4 +193,49 @@ public sealed class MemoryFileServiceTests : IDisposable
         content.Should().Contain("- Item 2");
         content.Should().Contain("- Item 3");
     }
+
+    [Fact]
+    public async Task Should_SanitizeNewlines_InKey()
+    {
+        // Arrange - key with newlines should be sanitized
+        await _service.AppendToMemoryAsync("Section\nWith\nNewlines", "Value");
+
+        // Act
+        var content = await File.ReadAllTextAsync(_memoryFilePath);
+
+        // Assert
+        content.Should().Contain("## Section With Newlines");
+        content.Should().NotContain("\n\n"); // No double newlines in section header
+    }
+
+    [Fact]
+    public async Task Should_SanitizeNewlines_InValue()
+    {
+        // Arrange - value with newlines should be sanitized
+        await _service.AppendToMemoryAsync("Settings", "Value\nWith\nNewlines");
+
+        // Act
+        var content = await File.ReadAllTextAsync(_memoryFilePath);
+
+        // Assert
+        content.Should().Contain("- Value With Newlines");
+        var lines = content.Split('\n');
+        lines.Should().Contain(l => l.Trim() == "- Value With Newlines");
+    }
+
+    [Fact]
+    public async Task Should_NotDetectSubstringAsDuplicate()
+    {
+        // Arrange - "tabs" should not match "Prefers tabs over spaces"
+        await _service.AppendToMemoryAsync("Settings", "Prefers tabs over spaces");
+
+        // Act - "tabs" alone should be added, not rejected as duplicate
+        var wasAdded = await _service.AppendToMemoryAsync("Settings", "tabs");
+
+        // Assert
+        wasAdded.Should().BeTrue();
+        var content = await File.ReadAllTextAsync(_memoryFilePath);
+        content.Should().Contain("- Prefers tabs over spaces");
+        content.Should().Contain("- tabs");
+    }
 }

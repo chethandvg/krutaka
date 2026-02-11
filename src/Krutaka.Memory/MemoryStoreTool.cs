@@ -9,7 +9,7 @@ namespace Krutaka.Memory;
 /// </summary>
 public class MemoryStoreTool : ToolBase
 {
-    private readonly Memory.MemoryFileService _memoryFileService;
+    private readonly MemoryFileService _memoryFileService;
     private readonly IMemoryService _memoryService;
 
     /// <summary>

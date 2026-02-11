@@ -76,21 +76,40 @@ public sealed class MemoryFileService : IDisposable
                 Directory.CreateDirectory(directory);
             }
 
+            // Sanitize key and value: replace newlines with spaces to prevent Markdown corruption
+            var sanitizedKey = key.Trim().Replace("\r", " ", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
+            var sanitizedValue = value.Trim().Replace("\r", " ", StringComparison.Ordinal).Replace("\n", " ", StringComparison.Ordinal);
+
             // Read existing content
             var existingContent = File.Exists(_memoryFilePath)
                 ? await File.ReadAllTextAsync(_memoryFilePath, cancellationToken).ConfigureAwait(false)
                 : string.Empty;
 
-            // Check for duplicates (case-insensitive)
-            var normalizedValue = value.Trim();
-            if (existingContent.Contains(normalizedValue, StringComparison.OrdinalIgnoreCase))
+            // Build the new entry
+            var sectionHeader = $"## {sanitizedKey}";
+            var entry = $"- {sanitizedValue}";
+
+            // Check for duplicates (exact bullet-line match, case-insensitive)
+            var hasDuplicate = false;
+            if (!string.IsNullOrEmpty(existingContent))
+            {
+                var existingLines = existingContent.Split('\n');
+                foreach (var line in existingLines)
+                {
+                    var normalizedLine = line.TrimEnd('\r');
+                    if (string.Equals(normalizedLine, entry, StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasDuplicate = true;
+                        break;
+                    }
+                }
+            }
+
+            if (hasDuplicate)
             {
                 return false; // Duplicate found, skip
             }
 
-            // Build the new entry
-            var sectionHeader = $"## {key}";
-            var entry = $"- {normalizedValue}";
             var newContent = new System.Text.StringBuilder(existingContent);
 
             // Check if section already exists

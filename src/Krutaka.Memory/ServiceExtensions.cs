@@ -39,7 +39,6 @@ public static class ServiceExtensions
         // Register MemoryFileService as singleton
         services.AddSingleton(sp =>
         {
-            var memoryOptions = sp.GetRequiredService<MemoryOptions>();
             var krutakaDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".krutaka");
@@ -58,18 +57,16 @@ public static class ServiceExtensions
             return new DailyLogService(logsDirectory, memoryService);
         });
 
-        // Register memory tools as ITool implementations and add them to the tool registry
-        // Note: This assumes IToolRegistry is already registered (by AddAgentTools)
-        // The composition root should call AddAgentTools() before AddMemory()
+        // Register memory tools eagerly (like AddAgentTools pattern)
+        // Build the tools immediately and register them with the registry
         services.AddSingleton<ITool>(sp =>
         {
             var memoryFileService = sp.GetRequiredService<MemoryFileService>();
             var memoryService = sp.GetRequiredService<IMemoryService>();
-            var tool = new MemoryStoreTool(memoryFileService, memoryService);
+            var registry = sp.GetRequiredService<IToolRegistry>();
             
-            // Register with the tool registry if available
-            var registry = sp.GetService<IToolRegistry>();
-            registry?.Register(tool);
+            var tool = new MemoryStoreTool(memoryFileService, memoryService);
+            registry.Register(tool);
             
             return tool;
         });
@@ -77,11 +74,10 @@ public static class ServiceExtensions
         services.AddSingleton<ITool>(sp =>
         {
             var memoryService = sp.GetRequiredService<IMemoryService>();
-            var tool = new MemorySearchTool(memoryService);
+            var registry = sp.GetRequiredService<IToolRegistry>();
             
-            // Register with the tool registry if available
-            var registry = sp.GetService<IToolRegistry>();
-            registry?.Register(tool);
+            var tool = new MemorySearchTool(memoryService);
+            registry.Register(tool);
             
             return tool;
         });

@@ -34,7 +34,7 @@ public class MemorySearchTool : ToolBase
     /// <inheritdoc/>
     public override JsonElement InputSchema => BuildSchema(
         ("query", "string", "The search query (keywords or natural language question)", true),
-        ("limit", "number", "Maximum number of results to return (default: 10, max: 50)", false)
+        ("limit", "integer", "Maximum number of results to return (default: 10, max: 50)", false)
     );
 
     /// <inheritdoc/>
@@ -56,20 +56,18 @@ public class MemorySearchTool : ToolBase
 
             // Extract optional limit parameter
             var limit = 10;
-            if (input.TryGetProperty("limit", out var limitElement))
+            if (input.TryGetProperty("limit", out var limitElement) &&
+                limitElement.ValueKind == JsonValueKind.Number)
             {
-                if (limitElement.ValueKind == JsonValueKind.Number)
+                limit = limitElement.GetInt32();
+                if (limit <= 0)
                 {
-                    limit = limitElement.GetInt32();
-                    if (limit <= 0)
-                    {
-                        return "Error: Parameter 'limit' must be positive";
-                    }
+                    return "Error: Parameter 'limit' must be positive";
+                }
 
-                    if (limit > 50)
-                    {
-                        limit = 50; // Cap at 50
-                    }
+                if (limit > 50)
+                {
+                    limit = 50; // Cap at 50
                 }
             }
 
@@ -90,7 +88,7 @@ public class MemorySearchTool : ToolBase
             {
                 var result = results[i];
                 output.AppendLine(System.Globalization.CultureInfo.InvariantCulture, $"{i + 1}. **{result.Source}** (Score: {result.Score:F2}, {result.CreatedAt:yyyy-MM-dd HH:mm})");
-                output.AppendLine(System.Globalization.CultureInfo.InvariantCulture, $"   {result.Content}");
+                output.AppendLine(System.Globalization.CultureInfo.InvariantCulture, $"   <untrusted_content>{result.Content}</untrusted_content>");
                 output.AppendLine();
             }
 
