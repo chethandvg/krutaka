@@ -37,13 +37,35 @@ public sealed class DailyLogServiceTests : IDisposable
         _service.Dispose();
         _memoryService.Dispose();
 
-        // Cleanup test directory
+        // Force garbage collection to release any remaining SQLite connections
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+
+        // Cleanup test directory with retry logic for file locks
         if (Directory.Exists(_testRoot))
         {
-            Directory.Delete(_testRoot, true);
+            TryDeleteDirectory(_testRoot);
         }
 
         GC.SuppressFinalize(this);
+    }
+
+    private static void TryDeleteDirectory(string path, int maxRetries = 3)
+    {
+        for (int i = 0; i < maxRetries; i++)
+        {
+            try
+            {
+                Directory.Delete(path, true);
+                return;
+            }
+            catch (IOException) when (i < maxRetries - 1)
+            {
+                // Wait a bit before retrying
+                Thread.Sleep(100);
+            }
+        }
     }
 
     [Fact]

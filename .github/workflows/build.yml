@@ -1,0 +1,69 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.102'
+    
+    - name: Restore dependencies
+      run: dotnet restore --locked-mode
+    
+    - name: Build
+      run: dotnet build --no-restore --configuration Release /p:TreatWarningsAsErrors=true
+    
+    - name: Test
+      run: dotnet test --no-build --configuration Release --verbosity normal --filter "Category!=Quarantined"
+      continue-on-error: false
+    
+    - name: Publish self-contained win-x64
+      run: |
+        dotnet publish src/Krutaka.Console `
+          --configuration Release `
+          --runtime win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -p:EnableCompressionInSingleFile=true `
+          --output ./publish
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: krutaka-win-x64
+        path: ./publish/Krutaka.Console.exe
+        retention-days: 90
+  
+  quarantined-tests:
+    runs-on: windows-latest
+    continue-on-error: true
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.102'
+    
+    - name: Restore dependencies
+      run: dotnet restore --locked-mode
+    
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+    
+    - name: Run Quarantined Tests
+      run: dotnet test --no-build --configuration Release --verbosity normal --filter "Category=Quarantined"
+      continue-on-error: true

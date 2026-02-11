@@ -1,0 +1,29 @@
+name: Security Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  security-tests:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.102'
+    
+    - name: Restore dependencies
+      run: dotnet restore --locked-mode
+    
+    - name: Build
+      run: dotnet build --configuration Release
+    
+    - name: Run Security Tests
+      run: dotnet test --no-build --configuration Release --verbosity normal --filter "FullyQualifiedName~SecurityPolicy|FullyQualifiedName~SecurityViolationLogging"
+      continue-on-error: false
