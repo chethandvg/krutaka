@@ -277,11 +277,18 @@ public class RunCommandTool : ToolBase
             {
                 // Process not yet observable; wait briefly then retry (cancellation-aware)
                 cancellationToken.WaitHandle.WaitOne(retryDelay);
+                cancellationToken.ThrowIfCancellationRequested();
             }
             catch (System.ComponentModel.Win32Exception) when (attempt < maxAssignAttempts - 1)
             {
                 // Transient OS error while process is starting; wait briefly then retry (cancellation-aware)
                 cancellationToken.WaitHandle.WaitOne(retryDelay);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (OperationCanceledException)
+            {
+                // Propagate cancellation cleanly without masking it as a warning
+                throw;
             }
             catch (Exception ex)
             {
