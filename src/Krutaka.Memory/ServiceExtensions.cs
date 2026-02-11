@@ -57,29 +57,20 @@ public static class ServiceExtensions
             return new DailyLogService(logsDirectory, memoryService);
         });
 
-        // Register memory tools eagerly (like AddAgentTools pattern)
-        // Build the tools immediately and register them with the registry
+        // Register memory tools (will be registered with ToolRegistry via AddAgentTools pattern)
         services.AddSingleton<ITool>(sp =>
         {
             var memoryFileService = sp.GetRequiredService<MemoryFileService>();
             var memoryService = sp.GetRequiredService<IMemoryService>();
-            var registry = sp.GetRequiredService<IToolRegistry>();
 
-            var tool = new MemoryStoreTool(memoryFileService, memoryService);
-            registry.Register(tool);
-
-            return tool;
+            return new MemoryStoreTool(memoryFileService, memoryService);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var memoryService = sp.GetRequiredService<IMemoryService>();
-            var registry = sp.GetRequiredService<IToolRegistry>();
 
-            var tool = new MemorySearchTool(memoryService);
-            registry.Register(tool);
-
-            return tool;
+            return new MemorySearchTool(memoryService);
         });
 
         // Note: SessionStore requires runtime parameters (projectPath, sessionId)
