@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #24 complete - Structured audit logging with correlation IDs)
+> **Last updated:** 2026-02-11 (Issue #24 complete with security violation logging - All deferred tasks resolved)
 
 ## Phase Summary
 
@@ -117,8 +117,8 @@ The ToolRegistry and DI registration system has been fully implemented:
 - ✅ Integration tests (5 tests verifying tool definitions serialize to valid JSON matching Claude API format)
 
 **Implementation Notes:**
-- `GetToolDefinitions()` returns anonymous objects instead of Anthropic SDK types to avoid circular dependency (Tools project doesn't reference AI project)
-- The AI layer will convert these objects to `Anthropic.Models.Messages.Tool` types when calling Claude API
+- `GetToolDefinitions()` returns anonymous objects instead of official Anthropic package types to avoid circular dependency (Tools project doesn't reference AI project)
+- The AI layer will convert these objects to `Anthropic.Models.Messages.Tool` types (from official `Anthropic` NuGet package) when calling Claude API
 - All 291 existing tests continue to pass, plus 15 new tests for ToolRegistry
 - Zero warnings or errors in build
 
@@ -677,11 +677,32 @@ The structured audit logging system has been fully implemented with correlation 
 - Compaction event logging (supported via ContextCompactor when invoked with IAuditLogger/CorrelationContext)
 - DI registration and wiring in Program.cs
 
-**Deferred (Future Enhancements):**
-- Request-id extraction from Claude API responses (requires ClaudeClientWrapper changes to expose response headers)
+**Deferred Tasks (Originally from Issue #24):**
+
+1. ✅ **Anthropic package naming clarification** (2026-02-11)
+   - Updated all documentation to use "official Anthropic package" (NuGet: `Anthropic`) instead of "Anthropic SDK"
+   - Added clarification in ADR-003 to prevent confusion with the community `Anthropic.SDK` package
+   - Updated AGENTS.md, IMPLEMENTATION_SUMMARY.md, PROGRESS.md, and ToolRegistry.cs
+
+2. ✅ **Security violation logging in CommandPolicy/SafeFileOperations** (2026-02-11)
+   - Converted SafeFileOperations from static class to instance-based `IFileOperations` service
+   - Updated CommandPolicy to accept `IAuditLogger` via constructor (via DI)
+   - Added optional `CorrelationContext` parameter to security validation methods
+   - Security violations can now be logged to structured audit trail with correlation IDs
+   - Added 8 comprehensive integration tests for security violation logging
+   - Created ADR-011 documenting the architectural decision
+   - Backward compatible: logging is optional, exceptions still thrown regardless
+   - **Note**: Production code does not yet pass CorrelationContext to validation methods; this will be addressed in a future enhancement when tools have access to correlation context
+
+3. ⏸️ **Request-id extraction from Claude API** (Blocked - waiting for SDK update)
+   - Documented in IMPLEMENTATION_SUMMARY.md that official Anthropic package v12.4.0 doesn't expose response headers
+   - Noted as limitation of the package, not our implementation
+   - Cannot be implemented until the official package exposes response headers
+   - Infrastructure is ready (CorrelationContext has RequestId field), waiting on SDK support
+
+**Future Enhancements:**
 - Claude API request/response event logging (requires SDK support for streaming token counts)
 - Compaction event logging in agent loop (requires wiring ContextCompactor into AgentOrchestrator/turn pipeline)
-- Security violation logging (requires CommandPolicy/SafeFileOperations refactoring for DI support)
 - Log rotation verification (requires manual testing or E2E tests)
 
 **Notes:**

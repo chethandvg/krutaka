@@ -24,13 +24,14 @@
 
 ---
 
-## ADR-003: Official Anthropic C# SDK (v12.4.0, GA)
+## ADR-003: Official Anthropic C# Package (v12.4.0, GA)
 
 **Date:** 2026-02-10
 **Status:** Accepted
-**Context:** Three options exist: Official `Anthropic` package (now GA v12.4.0, NuGet package name: `Anthropic`), community `Anthropic.SDK` by tghamm (unofficial, different package), or raw HTTP. The official package is now out of beta and vendor-backed.
-**Decision:** Use the official `Anthropic` NuGet package, wrapped behind our own `IClaudeClient` interface for testability and future migration flexibility.
+**Context:** Three options exist: Official `Anthropic` package (now GA v12.4.0, NuGet package name: `Anthropic`), community `Anthropic.SDK` by tghamm (unofficial, different package with a different NuGet name), or raw HTTP. The official package is now out of beta and vendor-backed.
+**Decision:** Use the official `Anthropic` NuGet package (NOT `Anthropic.SDK`), wrapped behind our own `IClaudeClient` interface for testability and future migration flexibility.
 **Consequences:** Long-term vendor support. Interface wrapper means we can swap implementations without touching consumer code. Trade-off: less convenience helpers than the community SDK, but safer supply chain.
+**Note:** Always refer to this as the "official Anthropic package" or "Anthropic NuGet package", not "Anthropic SDK" to avoid confusion with the community `Anthropic.SDK` package.
 
 ---
 
@@ -101,3 +102,30 @@
 **Context:** Spectre.Console's markup rendering is too slow for per-token streaming display. Need real-time token display during Claude response streaming.
 **Decision:** Use raw `Console.Write()` during streaming, then re-render with full Spectre.Console Markdown formatting after the response completes.
 **Consequences:** Fast streaming display. Full Markdown formatting on final output. Slight visual discontinuity between streaming and final render (acceptable trade-off).
+---
+
+## ADR-011: DI-based Security Violation Logging
+
+**Date:** 2026-02-11
+**Status:** Accepted
+**Context:** Security violations (blocked paths, commands, files) occur deep in the tool layer (SafeFileOperations, CommandPolicy). Original implementation used static classes, preventing audit logging of violations. This was deferred in Issue #24 as "medium impact" because violations are still enforced, just not audited.
+**Decision:** 
+1. Convert `SafeFileOperations` from static class to instance-based `IFileOperations` service
+2. Update `CommandPolicy` (already instance-based) to accept `IAuditLogger` via constructor
+3. Add optional `CorrelationContext` parameter to `ISecurityPolicy.ValidatePath()` and `ValidateCommand()` methods
+4. When both `IAuditLogger` and `CorrelationContext` are provided, log violations before throwing `SecurityException`
+5. Maintain backward compatibility: logging is optional, exceptions still thrown regardless
+
+**Consequences:**
+- ✅ Security violations now logged to structured audit trail with correlation IDs
+- ✅ Tools receive `IFileOperations` via DI instead of calling static methods
+- ✅ Backward compatible: existing code without CorrelationContext still works
+- ✅ Zero-overhead when audit logging not configured (null logger)
+- ⚠️ Larger constructor signatures for security services (acceptable trade-off)
+- ⚠️ Tools don't have CorrelationContext yet (will pass null initially, can be added later if needed)
+- 📈 Test coverage: 8 new integration tests verify logging behavior
+
+**Related:**
+- Resolves second deferred task from Issue #24
+- Complements audit logging infrastructure from Issue #24
+- IFileOperations interface enables future enhancements (e.g., file operation metrics)

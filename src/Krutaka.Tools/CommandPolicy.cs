@@ -6,9 +6,13 @@ namespace Krutaka.Tools;
 /// <summary>
 /// Enforces command execution security policies.
 /// Validates commands against allowlists, blocklists, and shell metacharacter injection.
+/// Logs security violations to the audit trail when audit logger is configured.
 /// </summary>
 public class CommandPolicy : ISecurityPolicy
 {
+    private readonly IAuditLogger? _auditLogger;
+    private readonly IFileOperations _fileOperations;
+
     private static readonly HashSet<string> AllowedExecutables = new(StringComparer.OrdinalIgnoreCase)
     {
         "git", "dotnet", "node", "npm", "npx", "python", "python3", "pip",
@@ -38,19 +42,34 @@ public class CommandPolicy : ISecurityPolicy
         "write_file", "edit_file", "run_command"
     };
 
-    public string ValidatePath(string path, string allowedRoot)
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CommandPolicy"/> class.
+    /// </summary>
+    /// <param name="fileOperations">The file operations service for path validation.</param>
+    /// <param name="auditLogger">Optional audit logger for security violation logging.</param>
+    public CommandPolicy(IFileOperations fileOperations, IAuditLogger? auditLogger = null)
     {
-        return SafeFileOperations.ValidatePath(path, allowedRoot);
+        _fileOperations = fileOperations ?? throw new ArgumentNullException(nameof(fileOperations));
+        _auditLogger = auditLogger;
     }
 
-    public void ValidateCommand(string executable, IEnumerable<string> arguments)
+    public string ValidatePath(string path, string allowedRoot, CorrelationContext? correlationContext = null)
+    {
+        return _fileOperations.ValidatePath(path, allowedRoot, correlationContext);
+    }
+
+    public void ValidateCommand(string executable, IEnumerable<string> arguments, CorrelationContext? correlationContext = null)
     {
         ArgumentNullException.ThrowIfNull(executable);
         ArgumentNullException.ThrowIfNull(arguments);
 
         if (string.IsNullOrWhiteSpace(executable))
         {
-            throw new SecurityException("Executable name cannot be empty.");
+            LogAndThrowSecurityViolation(
+                "blocked_command",
+                executable,
+                "Executable name cannot be empty",
+                correlationContext);
         }
 
         // Security: Reject any path with directory separators - only allow simple executable names
@@ -59,15 +78,21 @@ public class CommandPolicy : ISecurityPolicy
             executable.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
             Path.IsPathRooted(executable))
         {
-            throw new SecurityException(
-                $"Executable path must be a simple name without directory separators: '{executable}'. Only executables resolved from PATH are permitted.");
+            LogAndThrowSecurityViolation(
+                "blocked_command",
+                executable,
+                $"Executable path must be a simple name without directory separators: '{executable}'. Only executables resolved from PATH are permitted.",
+                correlationContext);
         }
 
         // Validate executable path doesn't contain shell metacharacters FIRST
         if (executable.Any(c => ShellMetacharacters.Contains(c)))
         {
-            throw new SecurityException(
-                $"Executable path contains shell metacharacters: '{executable}'. This is a potential command injection attack.");
+            LogAndThrowSecurityViolation(
+                "blocked_command",
+                executable,
+                $"Executable path contains shell metacharacters: '{executable}'. This is a potential command injection attack.",
+                correlationContext);
         }
 
         // Extract just the executable name and preserve original casing for error messages
@@ -83,15 +108,21 @@ public class CommandPolicy : ISecurityPolicy
         // Check blocklist (case-insensitive via HashSet comparer)
         if (BlockedExecutables.Contains(executableNameForComparison))
         {
-            throw new SecurityException(
-                $"Blocked executable: '{executableName}'. This command is not permitted for security reasons.");
+            LogAndThrowSecurityViolation(
+                "blocked_command",
+                executableName,
+                $"Blocked executable: '{executableName}'. This command is not permitted for security reasons.",
+                correlationContext);
         }
 
         // Check allowlist (case-insensitive via HashSet comparer)
         if (!AllowedExecutables.Contains(executableNameForComparison))
         {
-            throw new SecurityException(
-                $"Executable '{executableName}' is not in the allowlist. Only the following commands are permitted: {string.Join(", ", AllowedExecutables)}");
+            LogAndThrowSecurityViolation(
+                "blocked_command",
+                executableName,
+                $"Executable '{executableName}' is not in the allowlist. Only the following commands are permitted: {string.Join(", ", AllowedExecutables)}",
+                correlationContext);
         }
 
         // Validate arguments don't contain shell metacharacters
@@ -104,8 +135,11 @@ public class CommandPolicy : ISecurityPolicy
 
             if (arg.Any(c => ShellMetacharacters.Contains(c)))
             {
-                throw new SecurityException(
-                    $"Argument contains shell metacharacters: '{arg}'. This is a potential command injection attack.");
+                LogAndThrowSecurityViolation(
+                    "blocked_command_argument",
+                    arg,
+                    $"Argument contains shell metacharacters: '{arg}'. This is a potential command injection attack.",
+                    correlationContext);
             }
         }
     }
@@ -119,5 +153,28 @@ public class CommandPolicy : ISecurityPolicy
     {
         ArgumentNullException.ThrowIfNull(toolName);
         return ToolsRequiringApproval.Contains(toolName);
+    }
+
+    /// <summary>
+    /// Logs a security violation to the audit trail and throws a SecurityException.
+    /// </summary>
+    private void LogAndThrowSecurityViolation(
+        string violationType,
+        string blockedValue,
+        string message,
+        CorrelationContext? correlationContext)
+    {
+        // Log the violation if audit logger is configured
+        if (_auditLogger != null && correlationContext != null)
+        {
+            _auditLogger.LogSecurityViolation(
+                correlationContext,
+                violationType,
+                blockedValue,
+                message);
+        }
+
+        // Always throw the security exception
+        throw new SecurityException(message);
     }
 }

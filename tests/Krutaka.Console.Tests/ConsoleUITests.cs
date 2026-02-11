@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Krutaka.Core;
+using Krutaka.Tools;
 using NSubstitute;
 using Xunit;
 
@@ -22,7 +23,7 @@ public class ConsoleUITests
     public void Constructor_WithValidApprovalHandler_Initializes()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act
         using var ui = new ConsoleUI(approvalHandler);
@@ -36,7 +37,7 @@ public class ConsoleUITests
     public void ShutdownToken_ShouldNotBeCancelled_Initially()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -47,7 +48,7 @@ public class ConsoleUITests
     public void Dispose_ShouldNotThrow()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act & Assert
         var act = () =>
@@ -61,7 +62,7 @@ public class ConsoleUITests
     public void Dispose_MultipleCalls_ShouldNotThrow()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -74,7 +75,7 @@ public class ConsoleUITests
     public void DisplayError_WithNullErrorMessage_ThrowsArgumentNullException()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -86,7 +87,7 @@ public class ConsoleUITests
     public void DisplayError_WithEmptyErrorMessage_ThrowsArgumentException()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -98,7 +99,7 @@ public class ConsoleUITests
     public void DisplayError_WithWhitespaceErrorMessage_ThrowsArgumentException()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -110,7 +111,7 @@ public class ConsoleUITests
     public void DisplayMemoryStats_WithNullStats_ThrowsArgumentNullException()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -122,7 +123,7 @@ public class ConsoleUITests
     public void DisplaySessionInfo_WithNullInfo_ThrowsArgumentNullException()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert
@@ -134,7 +135,7 @@ public class ConsoleUITests
     public async Task DisplayStreamingResponseAsync_WithNullEvents_ThrowsArgumentNullException()
     {
         // Arrange
-        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory);
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
         using var ui = new ConsoleUI(approvalHandler);
 
         // Act & Assert

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security;
 using System.Text.Json;
+using Krutaka.Core;
 using Krutaka.Tools;
 using Spectre.Console;
 
@@ -30,15 +31,19 @@ internal sealed class ApprovalHandler
 {
     private readonly Dictionary<string, bool> _alwaysApproveCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _projectRoot;
+    private readonly IFileOperations _fileOps;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ApprovalHandler"/> class.
     /// </summary>
     /// <param name="projectRoot">The project root directory for path validation.</param>
-    public ApprovalHandler(string projectRoot)
+    /// <param name="fileOps">The file operations service for path validation.</param>
+    public ApprovalHandler(string projectRoot, IFileOperations fileOps)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectRoot);
+        ArgumentNullException.ThrowIfNull(fileOps);
         _projectRoot = projectRoot;
+        _fileOps = fileOps;
     }
 
     /// <summary>
@@ -209,8 +214,8 @@ internal sealed class ApprovalHandler
         {
             try
             {
-                // Validate the path using SafeFileOperations before accessing the file
-                var validatedPath = SafeFileOperations.ValidatePath(path, _projectRoot);
+                // Validate the path using IFileOperations before accessing the file
+                var validatedPath = _fileOps.ValidatePath(path, _projectRoot);
 
                 if (File.Exists(validatedPath))
                 {

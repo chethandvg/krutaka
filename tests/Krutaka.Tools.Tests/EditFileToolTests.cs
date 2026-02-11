@@ -15,7 +15,8 @@ public sealed class EditFileToolTests : IDisposable
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-editfile-test-{uniqueId}");
         Directory.CreateDirectory(_testRoot);
-        _tool = new EditFileTool(_testRoot);
+        var fileOps = new SafeFileOperations(null);
+        _tool = new EditFileTool(_testRoot, fileOps);
     }
 
     public void Dispose()
@@ -453,7 +454,8 @@ public sealed class EditFileToolTests : IDisposable
         // Arrange
         var testFile = "large.txt";
         var fullPath = Path.Combine(_testRoot, testFile);
-        var largeContent = new string('x', (int)SafeFileOperations.MaxFileSizeBytes + 1);
+        var fileOps = new SafeFileOperations(null);
+        var largeContent = new string('x', (int)fileOps.MaxFileSizeBytes + 1);
         await File.WriteAllTextAsync(fullPath, largeContent);
 
         var input = JsonSerializer.SerializeToElement(new
@@ -476,7 +478,8 @@ public sealed class EditFileToolTests : IDisposable
     public void Should_ThrowOnNullProjectRoot()
     {
         // Act & Assert
-        var action = () => new EditFileTool(null!);
+        var fileOps = new SafeFileOperations(null);
+        var action = () => new EditFileTool(null!, fileOps);
         action.Should().Throw<ArgumentNullException>();
     }
 
@@ -484,7 +487,8 @@ public sealed class EditFileToolTests : IDisposable
     public void Should_RequireApproval()
     {
         // This test verifies that the tool name matches the approval matrix in CommandPolicy
-        var policy = new CommandPolicy();
+        var fileOps = new SafeFileOperations(null);
+        var policy = new CommandPolicy(fileOps);
         var requiresApproval = policy.IsApprovalRequired(_tool.Name);
 
         // Assert

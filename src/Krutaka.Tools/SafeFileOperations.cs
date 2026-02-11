@@ -1,13 +1,17 @@
 using System.Security;
+using Krutaka.Core;
 
 namespace Krutaka.Tools;
 
 /// <summary>
 /// Provides secure file path validation and operations.
 /// Prevents path traversal, blocks access to sensitive directories and files.
+/// Logs security violations to the audit trail when audit logger is configured.
 /// </summary>
-public static class SafeFileOperations
+public class SafeFileOperations : IFileOperations
 {
+    private readonly IAuditLogger? _auditLogger;
+
     // NOTE: Hardcoded Windows paths are intentional - this project targets Windows only (net10.0-windows)
     // On Linux/Mac, these paths won't match, but AppData checks below will handle platform-specific dirs
     private static readonly string[] BlockedDirectories =
@@ -37,36 +41,39 @@ public static class SafeFileOperations
     ];
 
     /// <summary>
-    /// Maximum file size allowed for read operations (1 MB).
+    /// Initializes a new instance of the <see cref="SafeFileOperations"/> class.
     /// </summary>
-    public const long MaxFileSizeBytes = 1_048_576;
+    /// <param name="auditLogger">Optional audit logger for security violation logging.</param>
+    public SafeFileOperations(IAuditLogger? auditLogger = null)
+    {
+        _auditLogger = auditLogger;
+    }
 
-    /// <summary>
-    /// Validates a file path for read or write access.
-    /// Performs canonicalization and checks against blocked directories and patterns.
-    /// </summary>
-    /// <param name="path">The path to validate (can be relative or absolute).</param>
-    /// <param name="allowedRoot">The allowed root directory (project root).</param>
-    /// <returns>The canonicalized, validated absolute path.</returns>
-    /// <exception cref="SecurityException">Thrown if the path violates security policy.</exception>
-    /// <remarks>
-    /// KNOWN LIMITATION: This method does not detect symlinks/junctions that may escape the allowed root.
-    /// On Windows, reparse points (symlinks, junctions) could potentially bypass the path traversal check.
-    /// Future enhancement: Add FileAttributes.ReparsePoint detection for additional security.
-    /// </remarks>
-    public static string ValidatePath(string path, string allowedRoot)
+    /// <inheritdoc/>
+    public long MaxFileSizeBytes => 1_048_576;
+
+    /// <inheritdoc/>
+    public string ValidatePath(string path, string allowedRoot, CorrelationContext? correlationContext = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(allowedRoot);
 
         if (string.IsNullOrWhiteSpace(path))
         {
-            throw new SecurityException("Path cannot be empty.");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                "Path cannot be empty.",
+                correlationContext);
         }
 
         if (string.IsNullOrWhiteSpace(allowedRoot))
         {
-            throw new SecurityException("Allowed root cannot be empty.");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                allowedRoot,
+                "Allowed root cannot be empty.",
+                correlationContext);
         }
 
         // Canonicalize the allowed root and ensure it ends with a separator for safe prefix checking
@@ -79,7 +86,11 @@ public static class SafeFileOperations
         // Block UNC paths
         if (path.StartsWith("\\\\", StringComparison.Ordinal) || path.StartsWith("//", StringComparison.Ordinal))
         {
-            throw new SecurityException($"UNC paths are not permitted: '{path}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"UNC paths are not permitted: '{path}'",
+                correlationContext);
         }
 
         // Combine with root if relative, or use as-is if absolute
@@ -95,7 +106,12 @@ public static class SafeFileOperations
         }
         catch (Exception ex)
         {
-            throw new SecurityException($"Invalid path: '{path}'. {ex.Message}", ex);
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Invalid path: '{path}'. {ex.Message}",
+                correlationContext);
+            throw; // Unreachable, but satisfies compiler
         }
 
         // Verify the path is within the allowed root (prevents path traversal and sibling directory access)
@@ -107,14 +123,14 @@ public static class SafeFileOperations
 
         if (!isWithinRoot)
         {
-            throw new SecurityException(
-                $"Path traversal detected: '{path}' resolves to '{canonicalPath}' which is outside the allowed root '{canonicalRoot.TrimEnd(Path.DirectorySeparatorChar)}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Path traversal detected: '{path}' resolves to '{canonicalPath}' which is outside the allowed root '{canonicalRoot.TrimEnd(Path.DirectorySeparatorChar)}'",
+                correlationContext);
         }
 
         // Check for blocked directories
-        // Note: On Windows, these are exact path prefixes. On Linux, these Windows paths become
-        // relative and get combined with projectRoot, so they won't match - but path traversal
-        // check already blocks paths outside projectRoot, which provides the security guarantee.
         foreach (var blockedDir in BlockedDirectories)
         {
             var index = canonicalPath.IndexOf(blockedDir, StringComparison.OrdinalIgnoreCase);
@@ -135,8 +151,11 @@ public static class SafeFileOperations
 
                     if (isAtComponentEnd)
                     {
-                        throw new SecurityException(
-                            $"Access to '{blockedDir}' is not permitted: '{canonicalPath}'");
+                        LogAndThrowSecurityViolation(
+                            "blocked_path",
+                            path,
+                            $"Access to '{blockedDir}' is not permitted: '{canonicalPath}'",
+                            correlationContext);
                     }
                 }
 
@@ -152,15 +171,21 @@ public static class SafeFileOperations
         if (!string.IsNullOrEmpty(appDataPath) &&
             canonicalPath.StartsWith(appDataPath, StringComparison.OrdinalIgnoreCase))
         {
-            throw new SecurityException(
-                $"Access to AppData is not permitted: '{canonicalPath}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Access to AppData is not permitted: '{canonicalPath}'",
+                correlationContext);
         }
 
         if (!string.IsNullOrEmpty(localAppDataPath) &&
             canonicalPath.StartsWith(localAppDataPath, StringComparison.OrdinalIgnoreCase))
         {
-            throw new SecurityException(
-                $"Access to LocalAppData is not permitted: '{canonicalPath}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Access to LocalAppData is not permitted: '{canonicalPath}'",
+                correlationContext);
         }
 
         // Block access to agent's own config directory
@@ -168,8 +193,11 @@ public static class SafeFileOperations
         var krutakaConfigPath = Path.Combine(userProfile, ".krutaka");
         if (canonicalPath.StartsWith(krutakaConfigPath, StringComparison.OrdinalIgnoreCase))
         {
-            throw new SecurityException(
-                $"Access to Krutaka configuration directory is not permitted: '{canonicalPath}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Access to Krutaka configuration directory is not permitted: '{canonicalPath}'",
+                correlationContext);
         }
 
         // Check for blocked file patterns
@@ -179,8 +207,11 @@ public static class SafeFileOperations
 
         if (matchedPattern != null)
         {
-            throw new SecurityException(
-                $"Access to files matching pattern '{matchedPattern}' is not permitted: '{fileName}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Access to files matching pattern '{matchedPattern}' is not permitted: '{fileName}'",
+                correlationContext);
         }
 
         // Check for blocked file extensions
@@ -192,27 +223,29 @@ public static class SafeFileOperations
 
             if (matchedExtension != null)
             {
-                throw new SecurityException(
-                    $"Access to '{matchedExtension}' files is not permitted: '{fileName}'");
+                LogAndThrowSecurityViolation(
+                    "blocked_path",
+                    path,
+                    $"Access to '{matchedExtension}' files is not permitted: '{fileName}'",
+                    correlationContext);
             }
         }
 
         // Check for .env.* pattern (e.g., .env.local, .env.production)
         if (fileName.StartsWith(".env.", StringComparison.OrdinalIgnoreCase))
         {
-            throw new SecurityException(
-                $"Access to .env configuration files is not permitted: '{fileName}'");
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                $"Access to .env configuration files is not permitted: '{fileName}'",
+                correlationContext);
         }
 
         return canonicalPath;
     }
 
-    /// <summary>
-    /// Validates that a file size does not exceed the maximum allowed size.
-    /// </summary>
-    /// <param name="filePath">The file path to check.</param>
-    /// <exception cref="SecurityException">Thrown if the file exceeds the size limit.</exception>
-    public static void ValidateFileSize(string filePath)
+    /// <inheritdoc/>
+    public void ValidateFileSize(string filePath, CorrelationContext? correlationContext = null)
     {
         ArgumentNullException.ThrowIfNull(filePath);
 
@@ -224,8 +257,34 @@ public static class SafeFileOperations
         var fileInfo = new FileInfo(filePath);
         if (fileInfo.Length > MaxFileSizeBytes)
         {
-            throw new SecurityException(
-                $"File size ({fileInfo.Length} bytes) exceeds maximum allowed size ({MaxFileSizeBytes} bytes): '{filePath}'");
+            LogAndThrowSecurityViolation(
+                "blocked_file_size",
+                filePath,
+                $"File size ({fileInfo.Length} bytes) exceeds maximum allowed size ({MaxFileSizeBytes} bytes): '{filePath}'",
+                correlationContext);
         }
+    }
+
+    /// <summary>
+    /// Logs a security violation to the audit trail and throws a SecurityException.
+    /// </summary>
+    private void LogAndThrowSecurityViolation(
+        string violationType,
+        string blockedValue,
+        string message,
+        CorrelationContext? correlationContext)
+    {
+        // Log the violation if audit logger is configured
+        if (_auditLogger != null && correlationContext != null)
+        {
+            _auditLogger.LogSecurityViolation(
+                correlationContext,
+                violationType,
+                blockedValue,
+                message);
+        }
+
+        // Always throw the security exception
+        throw new SecurityException(message);
     }
 }

@@ -22,7 +22,7 @@ public sealed class ToolRegistry : IToolRegistry
     public object GetToolDefinitions()
     {
         // Return a list of anonymous objects that can be serialized to Claude API format
-        // The AI layer will convert these to the appropriate Anthropic SDK types
+        // The AI layer will convert these to the official Anthropic package types (Anthropic.Models.Messages.Tool)
         var toolDefinitions = _tools.Values.Select(t => new
         {
             name = t.Name,

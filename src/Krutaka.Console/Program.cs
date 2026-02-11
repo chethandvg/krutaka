@@ -211,7 +211,8 @@ try
     // Register ApprovalHandler
     builder.Services.AddSingleton(sp =>
     {
-        return new ApprovalHandler(workingDirectory);
+        var fileOps = sp.GetRequiredService<IFileOperations>();
+        return new ApprovalHandler(workingDirectory, fileOps);
     });
 
     // Register ConsoleUI

@@ -98,8 +98,8 @@ Identify and resolve all build errors in the Krutaka repository, and fully compl
 ### Why Some Items Are Deferred:
 
 1. **Request-id extraction from Claude API**
-   - The official Anthropic SDK (v12.4.0) doesn't expose response headers
-   - Cannot be implemented until SDK supports it
+   - The official Anthropic package (NuGet: `Anthropic` v12.4.0) doesn't expose response headers
+   - Cannot be implemented until the package supports it
    - Low impact: correlation still works with SessionId/TurnId
 
 2. **Security violation logging in CommandPolicy/SafeFileOperations**

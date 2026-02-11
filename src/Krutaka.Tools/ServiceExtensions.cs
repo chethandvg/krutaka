@@ -27,44 +27,79 @@ public static class ServiceExtensions
         // Register options as singleton
         services.AddSingleton(options);
 
-        // Register security policy (singleton - stateless)
-        var securityPolicy = new CommandPolicy();
-        services.AddSingleton<ISecurityPolicy>(securityPolicy);
+        // Register file operations service (singleton - will be resolved with IAuditLogger if available)
+        services.AddSingleton<IFileOperations>(sp =>
+        {
+            var auditLogger = sp.GetService<IAuditLogger>();
+            return new SafeFileOperations(auditLogger);
+        });
+
+        // Register security policy (singleton - will be resolved with IAuditLogger if available)
+        services.AddSingleton<ISecurityPolicy>(sp =>
+        {
+            var auditLogger = sp.GetService<IAuditLogger>();
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new CommandPolicy(fileOperations, auditLogger);
+        });
 
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
-        services.AddSingleton<IToolRegistry>(registry);
 
         // Get working directory from options
         var workingDir = options.WorkingDirectory;
 
-        // Register and add all tool implementations
+        // Register and add all tool implementations using factories to resolve IFileOperations
         // Read-only tools (auto-approve)
-        var readFileTool = new ReadFileTool(workingDir);
-        registry.Register(readFileTool);
-        services.AddSingleton<ITool>(readFileTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new ReadFileTool(workingDir, fileOperations);
+        });
 
-        var listFilesTool = new ListFilesTool(workingDir);
-        registry.Register(listFilesTool);
-        services.AddSingleton<ITool>(listFilesTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new ListFilesTool(workingDir, fileOperations);
+        });
 
-        var searchFilesTool = new SearchFilesTool(workingDir);
-        registry.Register(searchFilesTool);
-        services.AddSingleton<ITool>(searchFilesTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new SearchFilesTool(workingDir, fileOperations);
+        });
 
         // Write tools (require approval)
-        var writeFileTool = new WriteFileTool(workingDir);
-        registry.Register(writeFileTool);
-        services.AddSingleton<ITool>(writeFileTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new WriteFileTool(workingDir, fileOperations);
+        });
 
-        var editFileTool = new EditFileTool(workingDir);
-        registry.Register(editFileTool);
-        services.AddSingleton<ITool>(editFileTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            return new EditFileTool(workingDir, fileOperations);
+        });
 
         // Command execution tool (always requires approval)
-        var runCommandTool = new RunCommandTool(workingDir, securityPolicy);
-        registry.Register(runCommandTool);
-        services.AddSingleton<ITool>(runCommandTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+            return new RunCommandTool(workingDir, securityPolicy);
+        });
+
+        // Register the tool registry with a factory that resolves and registers all tools
+        // Tools are added to the registry when IToolRegistry is first resolved from the DI container
+        services.AddSingleton<IToolRegistry>(sp =>
+        {
+            var tools = sp.GetServices<ITool>();
+            foreach (var tool in tools)
+            {
+                registry.Register(tool);
+            }
+
+            return registry;
+        });
 
         return services;
     }

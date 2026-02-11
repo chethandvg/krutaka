@@ -16,7 +16,8 @@ public sealed class ReadFileToolTests : IDisposable
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-readfile-test-{uniqueId}");
         Directory.CreateDirectory(_testRoot);
-        _tool = new ReadFileTool(_testRoot);
+        var fileOps = new SafeFileOperations(null);
+        _tool = new ReadFileTool(_testRoot, fileOps);
     }
 
     public void Dispose()
@@ -178,7 +179,8 @@ public sealed class ReadFileToolTests : IDisposable
     {
         // Arrange
         var testFile = Path.Combine(_testRoot, "large.txt");
-        var largeContent = new string('x', (int)SafeFileOperations.MaxFileSizeBytes + 1);
+        var fileOps = new SafeFileOperations(null);
+        var largeContent = new string('x', (int)fileOps.MaxFileSizeBytes + 1);
         await File.WriteAllTextAsync(testFile, largeContent);
 
         var input = JsonSerializer.SerializeToElement(new { path = "large.txt" });
@@ -232,7 +234,8 @@ public sealed class ReadFileToolTests : IDisposable
     public void Should_ThrowOnNullProjectRoot()
     {
         // Act & Assert
-        var action = () => new ReadFileTool(null!);
+        var fileOps = new SafeFileOperations(null);
+        var action = () => new ReadFileTool(null!, fileOps);
         action.Should().Throw<ArgumentNullException>();
     }
 }
