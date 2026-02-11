@@ -207,6 +207,8 @@ Claude API integration layer with token counting and context management.
 - **TokenCounter**: Bounded in-memory cache (100 entries, 60 min expiry) with content-based SHA256 hashing to minimize redundant token counting API calls ✅ Implemented
   - Cache eviction removes oldest entries by insertion time (at least 1 entry or 20% of cache, whichever is greater)
   - Content-based cache keys use JSON serialization + SHA256 for collision resistance
+- **Tool definition conversion**: `ConvertToTools()` bridges anonymous objects from `ToolRegistry.GetToolDefinitions()` to Anthropic SDK `Tool` instances using `InputSchema.FromRawUnchecked()`. Logs warnings when tool definitions are skipped due to missing properties or JSON deserialization failures.
+- **Message content conversion**: `ConvertToContentBlockParams()` converts anonymous content blocks (tool_use, tool_result, text) from `AgentOrchestrator` to proper Anthropic SDK `ContentBlockParam` lists (`ToolUseBlockParam`, `ToolResultBlockParam`, `TextBlockParam`).
 - HTTP resilience configured via official package's built-in retry mechanism:
   - Package MaxRetries set to 3 (exponential backoff with jitter)
   - Request timeout set to 120 seconds
@@ -303,10 +305,14 @@ Persistence layer for sessions, memory search, and daily logs.
 - **File format**: One JSON object per line (JSONL) for efficient append-only writes
 - **Concurrency**: Thread-safe with `SemaphoreSlim(1,1)` protecting file I/O
 - **Metadata**: Companion `.meta.json` file stores session start time, project path, and model ID
+- **Event types**: `user`, `assistant`, `tool_use`, `tool_result`, `tool_error` (failed/denied tool calls)
+- **Session persistence**: All event types are persisted during the agentic loop via `WrapWithSessionPersistence()` in the composition root:
+  - Accumulated assistant text is flushed before tool_use events to preserve content block ordering
+  - Tool errors use `tool_error` type so `ReconstructMessagesAsync` reconstructs `is_error=true` for Claude
 - **Key methods**:
   - `AppendAsync(SessionEvent)`: Appends events to JSONL file immediately
   - `LoadAsync()`: Returns `IAsyncEnumerable<SessionEvent>` from JSONL file
-  - `ReconstructMessagesAsync()`: Rebuilds message list from events for Claude API
+  - `ReconstructMessagesAsync()`: Rebuilds message list from events for Claude API (handles `tool_error` → `is_error=true`)
   - `SaveMetadataAsync(projectPath, modelId)`: Writes session metadata
 - **Resource management**: Implements `IDisposable` for `SemaphoreSlim` cleanup
 - **Testing**: 18 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, and concurrent access
