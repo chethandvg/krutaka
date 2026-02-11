@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-10 (Issue #17 complete - Token counting and context compaction)
+> **Last updated:** 2026-02-11 (Issue #18 complete - SQLite FTS5 keyword search and memory v1)
 
 ## Phase Summary
 
@@ -34,7 +34,7 @@
 | 15 | Implement human-in-the-loop approval UI | 2 | 🟢 Complete | 2026-02-10 |
 | 16 | Implement JSONL session persistence | 3 | 🟢 Complete | 2026-02-10 |
 | 17 | Implement token counting and context compaction | 3 | 🟢 Complete | 2026-02-10 |
-| 18 | Implement SQLite FTS5 keyword search | 3 | 🔴 Not Started | — |
+| 18 | Implement SQLite FTS5 keyword search | 3 | 🟢 Complete | 2026-02-11 |
 | 19 | Implement MEMORY.md and daily log management | 3 | 🔴 Not Started | — |
 | 20 | Implement system prompt builder | 4 | 🔴 Not Started | — |
 | 21 | Implement Spectre.Console streaming UI | 4 | 🔴 Not Started | — |
@@ -216,6 +216,63 @@ The JSONL session persistence system has been fully implemented:
 - Consecutive dashes from adjacent special characters (e.g., `C:\` → `C--`) are collapsed to single dash
 - SessionStore requires runtime parameters (projectPath, sessionId) so DI registration is deferred to composition root
 - Message reconstruction creates simple anonymous objects compatible with Claude API client
+
+### Issue #18 Status (Complete)
+
+SQLite FTS5 keyword search (Memory v1) has been fully implemented:
+
+- ✅ **SqliteMemoryStore** class implementing `IMemoryService` in `Krutaka.Memory`:
+  - Database initialization creates `memory_chunks` table (id, content, source, chunk_index, created_at, embedding BLOB nullable)
+  - Creates `memory_fts` FTS5 virtual table with `porter unicode61` tokenizer
+  - Triggers automatically sync FTS5 index with content table on INSERT/UPDATE/DELETE
+  - `StoreAsync(content, source)` stores single content item
+  - `ChunkAndIndexAsync(content, source)` chunks large text and stores all chunks in a transaction
+  - `KeywordSearchAsync(query, limit)` performs FTS5 search and returns ranked `MemoryResult` list
+  - `HybridSearchAsync(query, topK)` delegates to `KeywordSearchAsync` (v1: FTS5 only, v2: + vector search)
+  
+- ✅ **TextChunker** class:
+  - Splits text into configurable chunks (~500 tokens by default) with overlap (50 tokens by default)
+  - Word-based approximation (splits on whitespace as proxy for token count)
+  - Normalizes whitespace in chunks
+  - Handles edge cases: empty text, single-chunk content, overlap validation
+  - 16 unit tests covering chunking logic, overlap calculation, edge cases
+  
+- ✅ **MemoryOptions** configuration class:
+  - `DatabasePath` (defaults to `~/.krutaka/memory.db`)
+  - `ChunkSizeTokens` (defaults to 500)
+  - `ChunkOverlapTokens` (defaults to 50)
+  
+- ✅ **ServiceExtensions.AddMemory(services, configureOptions)**:
+  - Registers `MemoryOptions` as singleton (configurable via action delegate)
+  - Registers `SqliteMemoryStore` as `IMemoryService` singleton
+  - Database schema initialized synchronously during DI registration
+  
+- ✅ **FTS5 Features**:
+  - Porter stemming: matches word variants (e.g., "program" matches "programming", "programmer")
+  - Unicode61 tokenizer: handles international characters
+  - Query sanitization: wraps user queries in quotes to prevent FTS5 syntax errors with special characters
+  - Relevance ranking: uses FTS5's built-in BM25 ranking (lower rank = better match, inverted to positive score)
+  
+- ✅ **Testing**:
+  - 21 unit tests for `SqliteMemoryStore` using in-memory SQLite database (all passing)
+  - 16 unit tests for `TextChunker` (all passing)
+  - Total: 55 tests in Krutaka.Memory.Tests (all passing)
+  - Tests cover initialization, storage, search, chunking, edge cases, error handling
+  - Validates FTS5 stemming, relevance ranking, timestamp handling, concurrency safety
+  
+- ✅ **Build**: Zero warnings, zero errors
+- ✅ **Documentation**: Updated `docs/architecture/OVERVIEW.md` with detailed memory system section
+
+**Deferred to Issue #19 (MEMORY.md and daily logs):**
+- MemoryFileService for MEMORY.md management
+- DailyLogService for daily log append + indexing
+
+**Deferred to future enhancement (Memory v2):**
+- Vector embeddings via local ONNX models (e.g., `bge-micro-v2`)
+- Vector similarity search alongside FTS5 keyword search
+- Reciprocal Rank Fusion (RRF) to combine keyword + vector results
+- `HybridSearchAsync` will fuse both search methods for improved recall
+
 
 ### Issue #17 Status (Complete)
 
