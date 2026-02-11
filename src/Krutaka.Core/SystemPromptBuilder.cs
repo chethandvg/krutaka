@@ -102,6 +102,17 @@ public sealed class SystemPromptBuilder
             return string.Empty;
         }
 
+        // Validate file size to prevent reading excessively large files
+        var fileInfo = new FileInfo(_agentsPromptPath);
+        const long maxFileSizeBytes = 1_048_576; // 1 MB limit (same as ReadFileTool)
+        
+        if (fileInfo.Length > maxFileSizeBytes)
+        {
+            throw new InvalidOperationException(
+                $"AGENTS.md file at '{_agentsPromptPath}' exceeds maximum size of 1 MB. " +
+                $"Current size: {fileInfo.Length:N0} bytes.");
+        }
+
         var content = await File.ReadAllTextAsync(_agentsPromptPath, cancellationToken).ConfigureAwait(false);
         return content.Trim();
     }
@@ -222,7 +233,9 @@ public sealed class SystemPromptBuilder
         sb.AppendLine();
         sb.AppendLine("The following information has been saved from previous interactions:");
         sb.AppendLine();
+        sb.AppendLine("<untrusted_content>");
         sb.AppendLine(content.Trim());
+        sb.AppendLine("</untrusted_content>");
 
         return sb.ToString().Trim();
     }
@@ -247,6 +260,7 @@ public sealed class SystemPromptBuilder
         sb.AppendLine();
         sb.AppendLine("The following memories may be relevant to the current query:");
         sb.AppendLine();
+        sb.AppendLine("<untrusted_content>");
 
         for (var i = 0; i < results.Count; i++)
         {
@@ -255,6 +269,8 @@ public sealed class SystemPromptBuilder
             sb.AppendLine(CultureInfo.InvariantCulture, $"   {result.Content}");
             sb.AppendLine();
         }
+
+        sb.AppendLine("</untrusted_content>");
 
         return sb.ToString().Trim();
     }
