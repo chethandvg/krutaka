@@ -16,7 +16,8 @@ public sealed class WriteFileToolTests : IDisposable
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-writefile-test-{uniqueId}");
         Directory.CreateDirectory(_testRoot);
-        _tool = new WriteFileTool(_testRoot);
+        var fileOps = new SafeFileOperations(null);
+        _tool = new WriteFileTool(_testRoot, fileOps);
     }
 
     public void Dispose()
@@ -284,7 +285,8 @@ public sealed class WriteFileToolTests : IDisposable
     public void Should_ThrowOnNullProjectRoot()
     {
         // Act & Assert
-        var action = () => new WriteFileTool(null!);
+        var fileOps = new SafeFileOperations(null);
+        var action = () => new WriteFileTool(null!, fileOps);
         action.Should().Throw<ArgumentNullException>();
     }
 
@@ -292,7 +294,8 @@ public sealed class WriteFileToolTests : IDisposable
     public void Should_RequireApproval()
     {
         // This test verifies that the tool name matches the approval matrix in CommandPolicy
-        var policy = new CommandPolicy();
+        var fileOps = new SafeFileOperations(null);
+        var policy = new CommandPolicy(fileOps);
         var requiresApproval = policy.IsApprovalRequired(_tool.Name);
 
         // Assert

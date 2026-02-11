@@ -471,12 +471,12 @@ public sealed class AgentOrchestratorTests
             return _approvalRequirements.TryGetValue(toolName, out var required) && required;
         }
 
-        public string ValidatePath(string path, string allowedRoot)
+        public string ValidatePath(string path, string allowedRoot, CorrelationContext? correlationContext = null)
         {
             return path;
         }
 
-        public void ValidateCommand(string executable, IEnumerable<string> arguments)
+        public void ValidateCommand(string executable, IEnumerable<string> arguments, CorrelationContext? correlationContext = null)
         {
             // No validation in mock
         }

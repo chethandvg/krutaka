@@ -11,7 +11,8 @@ public class SecurityPolicyTests
 
     public SecurityPolicyTests()
     {
-        _policy = new CommandPolicy();
+        var fileOps = new SafeFileOperations(null);
+        _policy = new CommandPolicy(fileOps);
         // Use a unique directory that won't be blocked by path validation
         // and won't collide with parallel test runs
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
@@ -697,13 +698,14 @@ public class SecurityPolicyTests
         Directory.CreateDirectory(_projectRoot);
 
         // Create a file larger than 1MB
-        var largeContent = new string('x', (int)SafeFileOperations.MaxFileSizeBytes + 1);
+        var fileOps = new SafeFileOperations(null);
+        var largeContent = new string('x', (int)fileOps.MaxFileSizeBytes + 1);
         File.WriteAllText(testFile, largeContent);
 
         try
         {
             // Act
-            var action = () => SafeFileOperations.ValidateFileSize(testFile);
+            var action = () => fileOps.ValidateFileSize(testFile);
 
             // Assert
             action.Should().Throw<SecurityException>()
@@ -730,7 +732,8 @@ public class SecurityPolicyTests
         try
         {
             // Act
-            var action = () => SafeFileOperations.ValidateFileSize(testFile);
+            var fileOps = new SafeFileOperations(null);
+            var action = () => fileOps.ValidateFileSize(testFile);
 
             // Assert
             action.Should().NotThrow();
@@ -752,7 +755,8 @@ public class SecurityPolicyTests
         var nonExistentFile = Path.Combine(_projectRoot, "nonexistent.txt");
 
         // Act
-        var action = () => SafeFileOperations.ValidateFileSize(nonExistentFile);
+        var fileOps = new SafeFileOperations(null);
+        var action = () => fileOps.ValidateFileSize(nonExistentFile);
 
         // Assert
         action.Should().NotThrow();

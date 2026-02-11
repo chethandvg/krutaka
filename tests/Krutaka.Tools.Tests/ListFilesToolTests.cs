@@ -15,7 +15,8 @@ public sealed class ListFilesToolTests : IDisposable
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-listfiles-test-{uniqueId}");
         Directory.CreateDirectory(_testRoot);
-        _tool = new ListFilesTool(_testRoot);
+        var fileOps = new SafeFileOperations(null);
+        _tool = new ListFilesTool(_testRoot, fileOps);
     }
 
     public void Dispose()
@@ -252,7 +253,8 @@ public sealed class ListFilesToolTests : IDisposable
     public void Should_ThrowOnNullProjectRoot()
     {
         // Act & Assert
-        var action = () => new ListFilesTool(null!);
+        var fileOps = new SafeFileOperations(null);
+        var action = () => new ListFilesTool(null!, fileOps);
         action.Should().Throw<ArgumentNullException>();
     }
 }

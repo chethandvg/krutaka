@@ -15,7 +15,8 @@ public sealed class SearchFilesToolTests : IDisposable
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-searchfiles-test-{uniqueId}");
         Directory.CreateDirectory(_testRoot);
-        _tool = new SearchFilesTool(_testRoot);
+        var fileOps = new SafeFileOperations(null);
+        _tool = new SearchFilesTool(_testRoot, fileOps);
     }
 
     public void Dispose()
@@ -296,7 +297,8 @@ public sealed class SearchFilesToolTests : IDisposable
         var smallFile = Path.Combine(_testRoot, "small.txt");
         var largeFile = Path.Combine(_testRoot, "large.txt");
         await File.WriteAllTextAsync(smallFile, "Hello");
-        await File.WriteAllTextAsync(largeFile, new string('x', (int)SafeFileOperations.MaxFileSizeBytes + 1));
+        var fileOps = new SafeFileOperations(null);
+        await File.WriteAllTextAsync(largeFile, new string('x', (int)fileOps.MaxFileSizeBytes + 1));
 
         var input = JsonSerializer.SerializeToElement(new { pattern = "Hello" });
 
@@ -347,7 +349,8 @@ public sealed class SearchFilesToolTests : IDisposable
     public void Should_ThrowOnNullProjectRoot()
     {
         // Act & Assert
-        var action = () => new SearchFilesTool(null!);
+        var fileOps = new SafeFileOperations(null);
+        var action = () => new SearchFilesTool(null!, fileOps);
         action.Should().Throw<ArgumentNullException>();
     }
 }

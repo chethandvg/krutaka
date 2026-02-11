@@ -50,12 +50,13 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_RegisterAllTools_AndSerializeToValidJSON()
     {
         // Arrange - Register all 6 tools
-        _registry.Register(new ReadFileTool(_testRoot));
-        _registry.Register(new WriteFileTool(_testRoot));
-        _registry.Register(new EditFileTool(_testRoot));
-        _registry.Register(new ListFilesTool(_testRoot));
-        _registry.Register(new SearchFilesTool(_testRoot));
-        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy()));
+        var fileOps = new SafeFileOperations(null);
+        _registry.Register(new ReadFileTool(_testRoot, fileOps));
+        _registry.Register(new WriteFileTool(_testRoot, fileOps));
+        _registry.Register(new EditFileTool(_testRoot, fileOps));
+        _registry.Register(new ListFilesTool(_testRoot, fileOps));
+        _registry.Register(new SearchFilesTool(_testRoot, fileOps));
+        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy(fileOps)));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -94,12 +95,13 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_ContainExpectedToolNames()
     {
         // Arrange - Register all tools
-        _registry.Register(new ReadFileTool(_testRoot));
-        _registry.Register(new WriteFileTool(_testRoot));
-        _registry.Register(new EditFileTool(_testRoot));
-        _registry.Register(new ListFilesTool(_testRoot));
-        _registry.Register(new SearchFilesTool(_testRoot));
-        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy()));
+        var fileOps = new SafeFileOperations(null);
+        _registry.Register(new ReadFileTool(_testRoot, fileOps));
+        _registry.Register(new WriteFileTool(_testRoot, fileOps));
+        _registry.Register(new EditFileTool(_testRoot, fileOps));
+        _registry.Register(new ListFilesTool(_testRoot, fileOps));
+        _registry.Register(new SearchFilesTool(_testRoot, fileOps));
+        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy(fileOps)));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -124,12 +126,13 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_HaveValidInputSchemaForEachTool()
     {
         // Arrange
-        _registry.Register(new ReadFileTool(_testRoot));
-        _registry.Register(new WriteFileTool(_testRoot));
-        _registry.Register(new EditFileTool(_testRoot));
-        _registry.Register(new ListFilesTool(_testRoot));
-        _registry.Register(new SearchFilesTool(_testRoot));
-        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy()));
+        var fileOps = new SafeFileOperations(null);
+        _registry.Register(new ReadFileTool(_testRoot, fileOps));
+        _registry.Register(new WriteFileTool(_testRoot, fileOps));
+        _registry.Register(new EditFileTool(_testRoot, fileOps));
+        _registry.Register(new ListFilesTool(_testRoot, fileOps));
+        _registry.Register(new SearchFilesTool(_testRoot, fileOps));
+        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy(fileOps)));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -191,8 +194,9 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public async Task Should_ExecuteToolsViaRegistry()
     {
         // Arrange
-        _registry.Register(new ReadFileTool(_testRoot));
-        _registry.Register(new ListFilesTool(_testRoot));
+        var fileOps = new SafeFileOperations(null);
+        _registry.Register(new ReadFileTool(_testRoot, fileOps));
+        _registry.Register(new ListFilesTool(_testRoot, fileOps));
 
         // Create a test file
         var testFile = Path.Combine(_testRoot, "test.txt");
@@ -211,7 +215,8 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     public void Should_SerializeToClaudeAPIFormat()
     {
         // Arrange
-        _registry.Register(new ReadFileTool(_testRoot));
+        var fileOps = new SafeFileOperations(null);
+        _registry.Register(new ReadFileTool(_testRoot, fileOps));
 
         // Act
         var definitions = _registry.GetToolDefinitions();

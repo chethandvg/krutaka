@@ -17,7 +17,8 @@ public sealed class RunCommandToolTests : IDisposable
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
         _testRoot = Path.Combine(Path.GetTempPath(), $"krutaka-runcmd-test-{uniqueId}");
         Directory.CreateDirectory(_testRoot);
-        _securityPolicy = new CommandPolicy();
+        var fileOps = new SafeFileOperations(null);
+        _securityPolicy = new CommandPolicy(fileOps);
         _tool = new RunCommandTool(_testRoot, _securityPolicy);
     }
 
