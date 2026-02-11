@@ -284,9 +284,7 @@ try
                     else
                     {
                         // Restore conversation history into orchestrator
-                        // The orchestrator's ConversationHistory is read-only, so we replay messages
-                        // by adding them directly to the internal state via reflection-free approach:
-                        // We simply inform the user the session is loaded and let the next prompt continue the conversation.
+                        orchestrator.RestoreConversationHistory(messages);
                         AnsiConsole.MarkupLine($"[green]✓ Resumed session with {messages.Count} messages from previous conversation.[/]");
                         Log.Information("Session resumed with {MessageCount} messages", messages.Count);
                     }

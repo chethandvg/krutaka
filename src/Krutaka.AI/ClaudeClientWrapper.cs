@@ -128,6 +128,8 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                 if (toolUseBuilders.TryGetValue(contentBlockStop.Index, out var completed))
                 {
                     var inputJson = completed.JsonInput.ToString();
+                    // Some tools may be called with no parameters (e.g., a tool that takes no input),
+                    // in which case the accumulated JSON input is empty. Default to "{}" for valid JSON.
                     if (string.IsNullOrEmpty(inputJson))
                     {
                         inputJson = "{}";

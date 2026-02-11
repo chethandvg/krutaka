@@ -57,6 +57,20 @@ public sealed class AgentOrchestrator : IDisposable
     public IReadOnlyList<object> ConversationHistory => _conversationHistory.AsReadOnly();
 
     /// <summary>
+    /// Restores conversation history from a previous session.
+    /// Used by the /resume command to continue previous conversations.
+    /// </summary>
+    /// <param name="messages">The messages to restore from a previous session.</param>
+    public void RestoreConversationHistory(IReadOnlyList<object> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _conversationHistory.Clear();
+        _conversationHistory.AddRange(messages);
+    }
+
+    /// <summary>
     /// Runs the agentic loop for a single user turn.
     /// Sends the user prompt to Claude, processes tool calls, and yields events.
     /// </summary>
@@ -220,9 +234,17 @@ public sealed class AgentOrchestrator : IDisposable
                     
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
                     
-                    // Block until ApproveTool or DenyTool is called
-                    var approved = await _pendingApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    _pendingApproval = null;
+                    // Block until ApproveTool or DenyTool is called.
+                    // Use try-finally to ensure _pendingApproval is cleaned up even on cancellation.
+                    bool approved;
+                    try
+                    {
+                        approved = await _pendingApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _pendingApproval = null;
+                    }
                     
                     if (!approved)
                     {
