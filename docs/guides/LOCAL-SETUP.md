@@ -319,14 +319,25 @@ The project uses GitHub Actions for continuous integration:
 
 **Note on Quarantined Tests:**
 
-5 tests in `AgentOrchestratorTests` are marked as `[Trait("Category", "Quarantined")]` and run separately:
+12 tests are marked as `[Trait("Category", "Quarantined")]` and run separately in a job that's allowed to fail:
+
+**AgentOrchestratorTests (5 tests):**
 - `RunAsync_Should_ProcessToolCalls_WhenClaudeRequestsTools`
 - `RunAsync_Should_YieldHumanApprovalRequired_WhenToolRequiresApproval`
 - `RunAsync_Should_ProcessMultipleToolCalls_InSingleResponse`
 - `RunAsync_Should_SerializeTurnExecution`
 - `RunAsync_Should_HandleToolExecutionFailure_WithoutCrashingLoop`
 
-These tests validate critical AgentOrchestrator functionality (tool execution, approval flows, error handling). They are preserved in the codebase and run in a separate CI job that's allowed to fail, keeping them visible until fixed.
+**AuditLoggerTests (7 tests):**
+- `Should_TruncateLongUserInput`
+- `Should_LogClaudeApiRequestEvent`
+- `Should_LogClaudeApiResponseEvent`
+- `Should_LogToolExecutionEvent_WithApproval`
+- `Should_LogToolExecutionEvent_WithError`
+- `Should_LogCompactionEvent`
+- `Should_LogSecurityViolationEvent`
+
+These tests validate critical functionality but are currently failing. They are preserved in the codebase and run in a separate CI job that's allowed to fail, keeping them visible until fixed.
 
 ## Troubleshooting
 
