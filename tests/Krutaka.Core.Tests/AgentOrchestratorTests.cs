@@ -154,6 +154,52 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task RunAsync_Should_SetCorrelationRequestId_BeforeYielding()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddRequestIdCaptured("req_early_stop");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var correlationContext = new CorrelationContext();
+        using var orchestrator = CreateOrchestrator(claudeClient, correlationContext: correlationContext);
+
+        // Act - stop enumerating immediately after receiving RequestIdCaptured
+        await foreach (var evt in orchestrator.RunAsync("Test prompt", "System prompt"))
+        {
+            if (evt is RequestIdCaptured)
+            {
+                break;
+            }
+        }
+
+        // Assert - correlation context should already be set even though we stopped early
+        correlationContext.RequestId.Should().Be("req_early_stop");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_ClearStaleRequestId_BeforeNewRequest()
+    {
+        // Arrange
+        var correlationContext = new CorrelationContext();
+        correlationContext.SetRequestId("stale_request_id");
+
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = CreateOrchestrator(claudeClient, correlationContext: correlationContext);
+
+        // Act
+        await foreach (var _ in orchestrator.RunAsync("Test prompt", "System prompt"))
+        {
+            // consume all events
+        }
+
+        // Assert - stale request-id should be cleared (no new RequestIdCaptured was emitted)
+        correlationContext.RequestId.Should().BeNull();
+    }
+
+    [Fact]
     [Trait("Category", "Quarantined")]
     public async Task RunAsync_Should_ProcessToolCalls_WhenClaudeRequestsTools()
     {

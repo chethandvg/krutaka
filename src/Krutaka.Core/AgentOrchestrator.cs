@@ -135,6 +135,9 @@ public sealed class AgentOrchestrator : IDisposable
             string? finalResponseContent = null;
             string? finalStopReason = null;
 
+            // Clear any stale request-id before starting a new Claude request
+            _correlationContext?.ClearRequestId();
+
             // Stream the response from Claude
             await foreach (var evt in _claudeClient.SendMessageAsync(
                 _conversationHistory,
@@ -142,16 +145,19 @@ public sealed class AgentOrchestrator : IDisposable
                 toolDefinitions,
                 cancellationToken).ConfigureAwait(false))
             {
+                // Update correlation context before yielding to ensure state is set
+                // even if the caller stops enumerating early
+                if (evt is RequestIdCaptured requestIdCaptured)
+                {
+                    _correlationContext?.SetRequestId(requestIdCaptured.RequestId);
+                }
+
                 // Yield streaming events to caller
                 yield return evt;
 
                 // Track tool calls and final response
                 switch (evt)
                 {
-                    case RequestIdCaptured requestIdCaptured:
-                        _correlationContext?.SetRequestId(requestIdCaptured.RequestId);
-                        break;
-
                     case ToolCallStarted toolCallStarted:
                         toolCalls.Add(new ToolCall(
                             toolCallStarted.ToolName,
