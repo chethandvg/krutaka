@@ -89,12 +89,11 @@ try
         workingDirectory = Environment.CurrentDirectory;
     }
 
-    var commandTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:CommandTimeoutSeconds", 30);
-
+    // Note: CommandTimeoutSeconds is not currently used by RunCommandTool (hardcoded 30s timeout)
+    // This configuration is reserved for future implementation
     builder.Services.AddAgentTools(options =>
     {
         options.WorkingDirectory = workingDirectory;
-        options.CommandTimeoutSeconds = commandTimeoutSeconds;
     });
 
     // Register Memory services
@@ -293,7 +292,9 @@ try
     AnsiConsole.MarkupLine("[dim]Shutting down...[/]");
 
     Log.Information("Krutaka shutting down");
-    await host.StopAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+    
+    using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    await host.StopAsync(shutdownCts.Token).ConfigureAwait(false);
 
     return 0;
 }

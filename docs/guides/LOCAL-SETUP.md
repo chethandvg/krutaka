@@ -208,9 +208,9 @@ Application settings are configured in `src/Krutaka.Console/appsettings.json`:
 - `WorkingDirectory`: Defaults to current directory if empty
 - `MaxTokens`: Maximum tokens for Claude response (default: 8192)
 - `Temperature`: Claude temperature setting (0.0 = deterministic, 1.0 = creative, default: 0.7)
-- `CommandTimeoutSeconds`: Timeout for shell command execution (default: 30)
+- `CommandTimeoutSeconds`: Reserved for future use. Shell commands currently use a hardcoded 30-second timeout in `run_command` regardless of this setting.
 - `ToolTimeoutSeconds`: Timeout for tool execution (default: 30)
-- `RequireApprovalForWrites`: Whether to require human approval for write/execute operations (default: true)
+- `RequireApprovalForWrites`: Reserved for future use. Approval requirements are currently determined by the security policy and enforced in the agentic loop.
 
 ### Application Directories
 
