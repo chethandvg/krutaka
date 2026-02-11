@@ -192,12 +192,16 @@ try
         var claudeClient = sp.GetRequiredService<IClaudeClient>();
         var toolRegistry = sp.GetRequiredService<IToolRegistry>();
         var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+        var auditLogger = sp.GetRequiredService<IAuditLogger>();
+        var correlationContext = sp.GetRequiredService<CorrelationContext>();
 
         return new AgentOrchestrator(
             claudeClient,
             toolRegistry,
             securityPolicy,
-            toolTimeoutSeconds);
+            toolTimeoutSeconds,
+            auditLogger,
+            correlationContext);
     });
 
     // Register ApprovalHandler

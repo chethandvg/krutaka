@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #22 complete - Skill system with YAML frontmatter)
+> **Last updated:** 2026-02-11 (Issue #24 complete - Structured audit logging with correlation IDs)
 
 ## Phase Summary
 
@@ -10,8 +10,8 @@
 | 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🟡 In Progress |
 | 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🟢 Complete |
 | 3 | Persistence & Memory | #16, #17, #18, #19 | 🟢 Complete |
-| 4 | UI & System Prompt | #20, #21, #23 | 🟡 In Progress |
-| 5 | Skills & Observability | #22, #24 | 🟡 In Progress |
+| 4 | UI & System Prompt | #20, #21, #23 | 🟢 Complete |
+| 5 | Skills & Observability | #22, #24 | 🟢 Complete |
 | 6 | Build, Package & Verify | #25, #26, #27, #28 | 🔴 Not Started |
 
 ## Issue Status
@@ -40,7 +40,7 @@
 | 21 | Implement Spectre.Console streaming UI | 4 | 🟢 Complete | 2026-02-11 |
 | 22 | Implement skill system | 5 | 🟢 Complete | 2026-02-11 |
 | 23 | Implement Program.cs composition root (integration) | 4 | 🟢 Complete | 2026-02-11 |
-| 24 | Implement structured audit logging | 5 | 🔴 Not Started | — |
+| 24 | Implement structured audit logging | 5 | 🟢 Complete | 2026-02-11 |
 | 25 | Create GitHub Actions CI pipeline | 6 | 🔴 Not Started | — |
 | 26 | Self-contained single-file publishing | 6 | 🔴 Not Started | — |
 | 27 | End-to-end integration testing | 6 | 🔴 Not Started | — |
@@ -618,3 +618,73 @@ The Markdown-based skill system with YAML frontmatter parsing has been fully imp
 - Compiled C# skill plugins (if needed beyond Markdown)
 
 
+
+### Issue #24 Status (Complete)
+
+The structured audit logging system has been fully implemented with correlation IDs:
+
+- ✅ `AuditEvent` base class and derived event types in `src/Krutaka.Core/AuditEvent.cs`:
+  - `UserInputEvent` - User input with content sanitization
+  - `ClaudeApiRequestEvent` - API requests with model and token counts
+  - `ClaudeApiResponseEvent` - API responses with stop reason and token usage
+  - `ToolExecutionEvent` - Tool execution with timing and error tracking
+  - `CompactionEvent` - Context compaction with before/after token counts
+  - `SecurityViolationEvent` - Security policy violations
+
+- ✅ `CorrelationContext` class in `src/Krutaka.Core/CorrelationContext.cs`:
+  - `SessionId` (Guid) - Generated once per session
+  - `TurnId` (int) - Incremented per user turn
+  - `RequestId` (string) - Claude API request-id header (when available)
+  - Methods: `IncrementTurn()`, `SetRequestId()`, `ClearRequestId()`
+
+- ✅ `IAuditLogger` interface in `src/Krutaka.Core/IAuditLogger.cs`:
+  - Generic `Log(AuditEvent)` method
+  - Convenience methods for each event type
+
+- ✅ `AuditLogger` implementation in `src/Krutaka.Console/Logging/AuditLogger.cs`:
+  - Serilog-based structured logging
+  - JSON serialization with runtime type support
+  - Caches `JsonSerializerOptions` for performance
+
+- ✅ Serilog configuration in `Program.cs`:
+  - JSON audit log: `~/.krutaka/logs/audit-{Date}.json`
+  - Daily rolling files with 30-day retention
+  - Existing log redaction via `LogRedactionEnricher`
+
+- ✅ Integration in `AgentOrchestrator`:
+  - Accepts optional `IAuditLogger` and `CorrelationContext` via constructor
+  - Logs tool execution events with timing via `System.Diagnostics.Stopwatch`
+  - Captures approval status, duration, result length, and errors
+
+- ✅ Integration in `Program.cs`:
+  - Registers `CorrelationContext` and `IAuditLogger` in DI
+  - Increments turn ID before processing user input
+  - Logs user input events (sanitized, truncated at 500 characters)
+  - Passes audit logger and correlation context to `AgentOrchestrator`
+
+- ✅ Testing:
+  - 13 unit tests for `AuditLogger` in `tests/Krutaka.Console.Tests/AuditLoggerTests.cs`
+  - 9 unit tests for `CorrelationContext` in `tests/Krutaka.Core.Tests/CorrelationContextTests.cs`
+  - All 22 tests passing
+  - Tests cover event serialization, correlation ID tracking, null handling, and validation
+
+**What's Implemented:**
+- Core audit logging infrastructure with all event types
+- Correlation ID tracking (SessionId, TurnId, RequestId placeholder)
+- JSON structured logging to daily rolling files
+- User input logging with sanitization
+- Tool execution logging with timing and error capture
+- DI registration and wiring in Program.cs
+
+**Deferred (Future Enhancements):**
+- Request-id extraction from Claude API responses (requires ClaudeClientWrapper changes)
+- Claude API request/response event logging (requires token count and model info from client)
+- Compaction event logging (requires ContextCompactor integration)
+- Security violation logging (requires CommandPolicy/SafeFileOperations refactoring for DI)
+- Log rotation verification (requires manual testing or E2E tests)
+
+**Notes:**
+- `AgentOrchestrator` accepts audit logger and correlation context as optional parameters for backward compatibility
+- Null-conditional operators used (`?.`) to avoid NullReferenceException when audit logger not provided
+- JSON serialization uses runtime type to capture derived class properties
+- Log redaction still applies to audit events via existing `LogRedactionEnricher`
