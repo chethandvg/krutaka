@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Test sandbox files intentionally have imperfections for E2E testing -->
+    <!-- Do not treat warnings as errors in the sandbox -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+  </PropertyGroup>
+</Project>

@@ -1,6 +1,6 @@
 # Krutaka — Testing Guide
 
-> **Last updated:** 2026-02-10 (Issue #9 completed — Security policy implementation)
+> **Last updated:** 2026-02-11 (Issue #27 completed — E2E integration testing infrastructure)
 
 ## Test Strategy
 
@@ -156,3 +156,190 @@ public async Task MethodName_ShouldExpectedBehavior_WhenCondition()
     result.Should().BeExpectedValue();
 }
 ```
+
+## End-to-End Integration Tests
+
+> ⚠️ **Status:** ✅ **Implemented** (Issue #27 — 2026-02-11)
+>
+> E2E tests are **manual** integration tests designed for local verification.
+> They require human-in-the-loop approval and cannot be fully automated in CI.
+
+### Test Infrastructure
+
+The E2E test infrastructure is located in `tests/e2e/`:
+
+- **`sandbox/`** — Controlled test environment with sample files
+  - `src/*.cs` — Sample C# source files with TODO comments
+  - `docs/*.md` — Sample documentation files
+  - `data/*.json`, `*.csv` — Sample data files
+- **`TEST-SCENARIOS.md`** — Comprehensive manual test scenarios (20+ scenarios)
+- **`run-manual-tests.md`** — Quick smoke test reference (5-minute validation)
+- **`README.md`** — E2E testing documentation
+
+### Running E2E Tests
+
+**Quick Smoke Test (5 minutes):**
+```bash
+cd tests/e2e/sandbox
+../../../src/Krutaka.Console/bin/Debug/net10.0-windows/win-x64/Krutaka.Console.exe
+```
+
+Then execute the prompts in `tests/e2e/run-manual-tests.md`.
+
+**Full Test Suite:**
+See `tests/e2e/TEST-SCENARIOS.md` for comprehensive test scenarios covering:
+1. Read-only operations (auto-approved)
+2. Write operations (require approval)
+3. Command execution (always require approval)
+4. Security boundary tests (blocked operations)
+5. Session persistence (conversation state)
+6. Context compaction (token management)
+7. Memory system (storage and retrieval)
+
+### Test Categories
+
+#### 1. Read-Only Operations (Auto-Approved)
+Test that read operations do **NOT** require user approval:
+- List all `.cs` files
+- Read `Program.cs`
+- Search for TODO comments
+- Read JSON configuration
+
+**Expected:** All operations complete without approval prompts.
+
+#### 2. Write Operations (Require Approval)
+Test that write operations **DO** require user approval:
+- Create new file (`test.txt`)
+- Edit existing file (add method to `Calculator.cs`)
+- Denial handling (user enters `N`)
+
+**Expected:**
+- Approval prompt shown with file path and content preview
+- `[A]lways for this session` option available
+- Files modified only after approval
+- Denial handled gracefully (no crash)
+
+#### 3. Command Execution (Always Require Approval)
+Test that `run_command` **ALWAYS** requires approval with **NO** "Always" option:
+- Run `dotnet build` (allowed command)
+- Run `powershell` (blocked command)
+- Command injection attempt (`git status && rm -rf /`)
+
+**Expected:**
+- Approval prompt shown for allowed commands
+- **NO** `[A]lways` option for `run_command`
+- Blocked commands rejected before approval stage
+- Shell metacharacters detected and blocked
+
+#### 4. Security Boundary Tests (Critical)
+Test that security policy blocks dangerous operations:
+- Path traversal: `../../../../../../etc/passwd`
+- Windows system paths: `C:\Windows\System32\config\SAM`
+- Sensitive file patterns: `.env`, `.secret`
+- UNC paths: `\\server\share\secret.txt`
+- Blocked executables: `certutil`, `powershell`, `cmd`
+
+**Expected:**
+- All dangerous operations blocked at validation stage
+- Agent does NOT crash
+- Clear error messages shown
+- Agent gracefully refuses
+
+#### 5. Session Persistence Tests
+Test that conversation state is saved and restored:
+- Store information, exit, restart, verify recall
+- Multi-turn conversations
+- Session files created in `.krutaka/sessions/`
+
+**Expected:**
+- Session JSONL files created
+- Conversation history restored after restart
+- Multi-turn context maintained
+
+#### 6. Context Compaction Tests
+Test that token management triggers compaction:
+- Long conversation (20+ turns)
+- Monitor for compaction event in logs
+
+**Expected:**
+- Token counting works
+- Compaction triggers at threshold (~100k tokens)
+- Session continuity maintained
+
+#### 7. Memory System Tests
+Test the hybrid memory search and storage:
+- Store a fact: "Remember that our release date is March 15, 2026"
+- Search for fact: "When is our release date?"
+- Cross-session persistence
+
+**Expected:**
+- Memory stored in `.krutaka/memory.db` (SQLite FTS5)
+- Search retrieves relevant results
+- Memory persists across sessions
+
+### Critical Security Tests
+
+> 🚨 **ALL security boundary tests MUST pass before any release.**
+
+The following tests are **blocking** for release:
+- ✅ Scenario 3.2: Blocked command (`powershell`) rejected
+- ✅ Scenario 3.3: Command injection (`&&`) blocked
+- ✅ Scenario 4.1: Path traversal blocked
+- ✅ Scenario 4.2: `.env` file blocked
+- ✅ Scenario 4.3: UNC path blocked
+- ✅ Scenario 4.4: `certutil` blocked
+
+**Failure of ANY security test is a CRITICAL ISSUE.**
+
+### E2E Test Execution Checklist
+
+Before claiming E2E testing is complete, verify:
+
+- [ ] Sandbox environment created with sample files
+- [ ] All 20+ test scenarios documented in `TEST-SCENARIOS.md`
+- [ ] Quick smoke test (5 scenarios) documented in `run-manual-tests.md`
+- [ ] Read-only operations work without approval
+- [ ] Write operations show approval prompts correctly
+- [ ] `run_command` has NO "Always" option
+- [ ] All security boundary tests block dangerous operations
+- [ ] Session persistence works (exit/restart)
+- [ ] Memory storage and retrieval works
+- [ ] Context compaction can be triggered (long conversations)
+- [ ] Denial handling works (user enters `N`)
+- [ ] No crashes or errors during any test
+
+### Automated CI vs. Manual E2E
+
+**Automated CI Tests** (via `dotnet test`):
+- Unit tests (fast, deterministic)
+- Integration tests (mocked APIs)
+- Security policy tests (125 tests)
+
+**Manual E2E Tests** (via `tests/e2e/`):
+- Full agent loop with real Claude API
+- Human-in-the-loop approval prompts
+- Interactive console UI
+- Windows Credential Manager integration
+
+**Why Manual?**
+- Approval prompts require human interaction
+- Interactive console UI cannot be fully automated
+- Real API calls may exceed rate limits in CI
+- Credential Manager requires interactive login (DPAPI)
+
+### E2E Test Results Summary
+
+After running manual tests, record results in `tests/e2e/TEST-SCENARIOS.md`:
+
+| Category | Scenario | Pass | Fail | Notes |
+|---|---|---|---|---|
+| Read-Only | List .cs files | ☐ | ☐ | |
+| Read-Only | Read Program.cs | ☐ | ☐ | |
+| Write Ops | Create file | ☐ | ☐ | |
+| Commands | dotnet build | ☐ | ☐ | |
+| Security | Blocked command | ☐ | ☐ | |
+| Security | Path traversal | ☐ | ☐ | |
+| Persistence | Exit/restart | ☐ | ☐ | |
+| Memory | Store/search | ☐ | ☐ | |
+
+See `tests/e2e/TEST-SCENARIOS.md` for the full results table.
