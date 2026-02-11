@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-11 (Issue #20 complete — SystemPromptBuilder with layered assembly)
+> **Last updated:** 2026-02-11 (Issue #21 complete — ConsoleUI and MarkdownRenderer with streaming support)
 
 ## System Architecture
 
@@ -411,20 +411,88 @@ Markdown-based skill system.
 | `ServiceExtensions` | `AddSkills(services, options)` DI registration |
 
 ### Krutaka.Console (net10.0-windows)
-**Status:** Scaffolded (Issue #5)  
+**Status:** UI classes implemented (Issue #21 — 2026-02-11)  
 **Path:** `src/Krutaka.Console/`  
 **Dependencies:** All Krutaka projects, Spectre.Console, Markdig, Serilog, Meziantou CredentialManager
 
-Entry point and console UI.
+Entry point and console UI with streaming display and Markdown rendering.
 
-| Type | Description |
-|---|---|
-| `Program` | Composition root, DI wiring, main loop |
-| `ConsoleUI` | Streaming display, input prompt, tool indicators |
-| `MarkdownRenderer` | Markdig AST → Spectre.Console markup |
-| `ApprovalHandler` | Human-in-the-loop approval prompts |
-| `SetupWizard` | First-run API key configuration |
-| `SecretsProvider` | Windows Credential Manager read/write |
+| Type | Description | Status |
+|---|---|---|
+| `Program` | Composition root, DI wiring, main loop | Placeholder |
+| `ConsoleUI` | Streaming display, input prompt, tool indicators | ✅ Implemented |
+| `MarkdownRenderer` | Markdig AST → Spectre.Console markup | ✅ Implemented |
+| `ApprovalHandler` | Human-in-the-loop approval prompts | ✅ Implemented |
+| `SetupWizard` | First-run API key configuration | ✅ Implemented |
+| `SecretsProvider` | Windows Credential Manager read/write | ✅ Implemented |
+
+**ConsoleUI Implementation Details:**
+
+**Status:** ✅ Complete (Issue #21 — 2026-02-11)
+
+The `ConsoleUI` class provides the main console interface with the following features:
+
+- **Startup banner**: FigletText display with "Krutaka" branding and version info from assembly metadata
+- **User input**: TextPrompt with blue `>` prompt styling, supports empty input
+- **Streaming display**: Three-phase rendering strategy:
+  1. Initial spinner animation while waiting for first token
+  2. Raw `Console.Write()` during token streaming for maximum speed
+  3. Full Markdown re-render with Spectre styling after completion
+- **Tool call indicators**:
+  - `ToolCallStarted`: `[dim]⚙ Calling {name}...[/]` in dimmed text
+  - `ToolCallCompleted`: `[green]✓ {name} complete[/]` in green
+  - `ToolCallFailed`: `[red]✗ {name} failed: {error}[/]` in red
+- **Error display**: Red-bordered Panel with escaped error message
+- **Command handling**: Display methods for:
+  - `/help`: Table of available commands
+  - `/memory`: Memory statistics panel (facts, chunks, database size)
+  - `/session`: Session information panel (ID, start time, project, model, turn count)
+  - `/compact`: Compaction result display with token reduction percentage
+- **Graceful shutdown**: Ctrl+C handling with `CancellationTokenSource` and event registration
+  - Displays `[yellow]Shutting down gracefully...[/]` message
+  - Prevents default process termination
+  - Implements `IDisposable` for proper cleanup
+- **Event stream processing**: Handles `IAsyncEnumerable<AgentEvent>` from `AgentOrchestrator`:
+  - `TextDelta`: Raw console write for streaming
+  - `ToolCallStarted/Completed/Failed`: Status indicators
+  - `HumanApprovalRequired`: Triggers approval handler (integration pending)
+  - `FinalResponse`: Re-renders content with Markdown formatting
+
+**MarkdownRenderer Implementation Details:**
+
+**Status:** ✅ Complete (Issue #21 — 2026-02-11)
+
+The `MarkdownRenderer` class converts Markdown to Spectre.Console output using Markdig for AST parsing:
+
+- **Markdown parsing**: Uses Markdig with `UseAdvancedExtensions()` for GFM support
+- **Rendering modes**:
+  - `Render(markdown)`: Direct console output via `AnsiConsole`
+  - `ToMarkup(markdown)`: Returns Spectre markup string for embedding
+- **Element rendering**:
+  - **Headers**: `[bold blue]#{n} {text}[/]` with hash marks preserved
+  - **Code blocks**: Rounded Panel with dim border, language as header, escaped content
+  - **Inline code**: `[grey]{escaped code}[/]`
+  - **Bold text**: `[bold]{text}[/]`
+  - **Italic text**: `[italic]{text}[/]`
+  - **Links**: `[link={url}]{text}[/]`
+  - **Unordered lists**: `•` bullets with 2-space indentation per level
+  - **Ordered lists**: Numbered items (1., 2., 3., etc.) with 2-space indentation
+  - **Quotes**: `[dim]│[/]` prefix with `[italic]{text}[/]`
+  - **Thematic breaks**: 80-character horizontal line
+- **Security**: Uses `Markup.Escape()` for all user content to prevent Spectre markup injection
+- **Locale handling**: Uses `CultureInfo.InvariantCulture` for all string formatting
+
+**Testing:**
+- 19 unit tests for `MarkdownRenderer` covering all rendering modes and edge cases
+- 19 unit tests for `ConsoleUI` covering argument validation, disposal, and record types
+- All 48 tests passing
+- Tests validate argument validation, proper disposal, and output formatting
+
+**Deferred to Issue #23 (Program.cs composition root):**
+- Integration of `ConsoleUI` with `AgentOrchestrator` in main loop
+- Command parsing and routing (`/exit`, `/quit`, `/compact`, `/memory`, `/session`, `/help`)
+- Actual human-in-the-loop approval handling (currently UI displays approval request but orchestrator doesn't wait)
+- DI registration of `ConsoleUI` and dependencies
 
 ## Project Dependency Graph
 

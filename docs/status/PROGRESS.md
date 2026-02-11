@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #19 complete - MEMORY.md and daily log management)
+> **Last updated:** 2026-02-11 (Issue #21 complete - Spectre.Console streaming UI)
 
 ## Phase Summary
 
@@ -8,9 +8,9 @@
 |---|---|---|---|
 | 0 | Foundation Documentation | #2, #3 | 🟢 Complete |
 | 1 | Project Scaffolding & API | #5, #6, #7, #8 | 🟡 In Progress |
-| 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🟡 In Progress |
-| 3 | Persistence & Memory | #16, #17, #18, #19 | 🟡 In Progress |
-| 4 | UI & System Prompt | #20, #21, #23 | 🔴 Not Started |
+| 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🟢 Complete |
+| 3 | Persistence & Memory | #16, #17, #18, #19 | 🟢 Complete |
+| 4 | UI & System Prompt | #20, #21, #23 | 🟡 In Progress |
 | 5 | Skills & Observability | #22, #24 | 🔴 Not Started |
 | 6 | Build, Package & Verify | #25, #26, #27, #28 | 🔴 Not Started |
 
@@ -37,7 +37,7 @@
 | 18 | Implement SQLite FTS5 keyword search | 3 | 🟢 Complete | 2026-02-11 |
 | 19 | Implement MEMORY.md and daily log management | 3 | 🟢 Complete | 2026-02-11 |
 | 20 | Implement system prompt builder | 4 | 🟢 Complete | 2026-02-11 |
-| 21 | Implement Spectre.Console streaming UI | 4 | 🔴 Not Started | — |
+| 21 | Implement Spectre.Console streaming UI | 4 | 🟢 Complete | 2026-02-11 |
 | 22 | Implement skill system | 5 | 🔴 Not Started | — |
 | 23 | Implement Program.cs composition root (integration) | 4 | 🔴 Not Started | — |
 | 24 | Implement structured audit logging | 5 | 🔴 Not Started | — |
@@ -450,5 +450,84 @@ The system prompt builder with layered assembly has been fully implemented:
 - `SkillRegistry` implementation of `ISkillRegistry`
 - `SkillLoader` for parsing YAML frontmatter from Markdown skill files
 - Actual skill files and skill activation mechanism
+
+### Issue #21 Status (Complete)
+
+The Spectre.Console streaming UI has been fully implemented:
+
+- ✅ **ConsoleUI** class in `Krutaka.Console`:
+  - Startup banner with `FigletText("Krutaka")` and version info from assembly metadata
+  - User input prompt using `TextPrompt<string>("[blue]>[/]")` with empty input support
+  - Streaming display with three-phase rendering:
+    1. Spinner animation while waiting for first token
+    2. Raw `Console.Write()` during streaming for maximum performance
+    3. Full Markdown re-render with Spectre styling after completion
+  - Tool call indicators:
+    - `ToolCallStarted`: `[dim]⚙ Calling {name}...[/]`
+    - `ToolCallCompleted`: `[green]✓ {name} complete[/]`
+    - `ToolCallFailed`: `[red]✗ {name} failed: {error}[/]`
+  - Error display using red-bordered `Panel` with escaped content
+  - Display methods for commands:
+    - `DisplayHelp()`: Table of available commands
+    - `DisplayMemoryStats(MemoryStats)`: Memory statistics panel
+    - `DisplaySessionInfo(SessionInfo)`: Session information panel
+    - `DisplayCompactionResult(int, int)`: Token reduction results
+  - Graceful Ctrl+C handling with `CancellationTokenSource` and `IDisposable` pattern
+  - Event stream processing for `IAsyncEnumerable<AgentEvent>` from `AgentOrchestrator`
+
+- ✅ **MarkdownRenderer** class in `Krutaka.Console`:
+  - Uses Markdig with `UseAdvancedExtensions()` for GFM (GitHub Flavored Markdown) support
+  - Two rendering modes:
+    - `Render(markdown)`: Direct output to console via `AnsiConsole`
+    - `ToMarkup(markdown)`: Returns Spectre markup string
+  - Element rendering:
+    - Headers: `[bold blue]#{n} {text}[/]`
+    - Code blocks: Rounded `Panel` with dim border, language header
+    - Inline code: `[grey]{code}[/]`
+    - Bold/Italic: `[bold]` and `[italic]` tags
+    - Links: `[link={url}]{text}[/]`
+    - Lists: Bullets (`•`) for unordered, numbers for ordered, 2-space indentation
+    - Quotes: `[dim]│[/]` prefix with italic text
+    - Thematic breaks: 80-character horizontal line
+  - Security: All content escaped via `Markup.Escape()` to prevent markup injection
+  - Locale handling: Uses `CultureInfo.InvariantCulture` for all formatting
+
+- ✅ **Testing**:
+  - 19 unit tests for `MarkdownRenderer` (all passing)
+    - Constructor initialization
+    - Null argument validation
+    - Simple text rendering
+    - All Markdown elements (headers, code, lists, links, etc.)
+    - Complex multi-element documents
+    - Special character escaping
+  - 19 unit tests for `ConsoleUI` (all passing)
+    - Constructor validation with null approval handler
+    - ShutdownToken initialization
+    - IDisposable pattern (single and multiple calls)
+    - Argument validation for display methods
+    - Async event stream processing
+    - Record types (MemoryStats, SessionInfo) equality
+  - Fixed visibility of existing test classes (`ApprovalHandlerTests`, `LogRedactionEnricherTests`) from internal to public
+  - Total: 48 tests in Krutaka.Console.Tests (all passing)
+
+**Implementation Notes:**
+- ConsoleUI implements `IDisposable` for proper cleanup of `CancellationTokenSource` and event handlers
+- All display methods use proper argument validation (`ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrWhiteSpace`)
+- Some display methods suppressed CA1822 warnings as they are part of instance lifecycle (may use instance state in future)
+- MarkdownRenderer uses static methods where appropriate (code blocks, generic blocks)
+- Both classes follow project conventions:
+  - Nullable reference types enabled
+  - CultureInfo.InvariantCulture for formatting
+  - ConfigureAwait(false) for async operations (where applicable)
+  - Proper XML documentation
+
+**Deferred to Issue #23 (Program.cs composition root):**
+- Integration of `ConsoleUI` with `AgentOrchestrator` in main loop
+- Command parsing and routing (`/exit`, `/quit`, `/compact`, `/memory`, `/session`, `/help`)
+- Actual human-in-the-loop approval handling (currently UI displays approval but orchestrator doesn't wait for decision)
+- DI registration of `ConsoleUI`, `MarkdownRenderer`, and `ApprovalHandler`
+- Main loop implementation with session management
+- Compaction triggering logic
+- Memory and session information retrieval
 
 
