@@ -802,12 +802,14 @@ Self-contained single-file publishing for Windows x64 has been fully configured:
   - `<PublishSingleFile>true</PublishSingleFile>`
   - `<SelfContained>true</SelfContained>`
   - `<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>`
-- ✅ `dotnet publish -c Release` produces a single `.exe` file (82 MB)
-- ✅ Published binary includes all dependencies:
+- ✅ `dotnet publish -c Release` produces a single-file `.exe` as the main artifact (82 MB)
+- ✅ Single-file binary bundles all managed and native dependencies:
   - .NET 10 runtime (embedded)
-  - All NuGet packages (Anthropic SDK, Spectre.Console, Serilog, SQLite, etc.)
+  - All NuGet packages (official Anthropic package, Spectre.Console, Serilog, SQLite, etc.)
   - Native libraries (SQLite)
-  - Configuration files (`appsettings.json`, `prompts/AGENTS.md`)
+- ✅ Publish output directory also contains required content files copied alongside the `.exe`:
+  - Configuration and prompt files (for example: `appsettings.json`, `prompts/AGENTS.md`)
+  - Optional diagnostic artifacts (for example: `.pdb` files when enabled)
 - ✅ GitHub Actions workflow already publishes single-file artifact (from Issue #25)
   - `build.yml` uses command-line parameters that override project settings
   - Workflow includes `EnableCompressionInSingleFile=true` for additional optimization

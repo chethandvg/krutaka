@@ -273,13 +273,13 @@ dotnet publish src/Krutaka.Console -c Release --output ./publish
 
 The self-contained single-file executable is approximately **82 MB**, which includes:
 - .NET 10 runtime (embedded)
-- All application dependencies (Anthropic SDK, Spectre.Console, Serilog, SQLite, etc.)
+- All application dependencies (official Anthropic package, Spectre.Console, Serilog, SQLite, etc.)
 - Application code and assemblies
 - Native libraries (SQLite, etc.)
 
 ### Running the Published Binary
 
-```bash
+```powershell
 # Navigate to publish directory
 cd src/Krutaka.Console/bin/Release/net10.0-windows/win-x64/publish
 
