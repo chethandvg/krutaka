@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #25 complete - GitHub Actions CI pipeline)
+> **Last updated:** 2026-02-11 (Issue #26 complete - Self-contained single-file publishing)
 
 ## Phase Summary
 
@@ -42,7 +42,7 @@
 | 23 | Implement Program.cs composition root (integration) | 4 | 🟢 Complete | 2026-02-11 |
 | 24 | Implement structured audit logging | 5 | 🟢 Complete | 2026-02-11 |
 | 25 | Create GitHub Actions CI pipeline | 6 | 🟢 Complete | 2026-02-11 |
-| 26 | Self-contained single-file publishing | 6 | 🔴 Not Started | — |
+| 26 | Self-contained single-file publishing | 6 | 🟢 Complete | 2026-02-11 |
 | 27 | End-to-end integration testing | 6 | 🔴 Not Started | — |
 | 28 | Final documentation polish | 6 | 🔴 Not Started | — |
 
@@ -793,3 +793,42 @@ These tests should be fixed in a separate issue (not removed) as they define exp
 - Structured logging uses Serilog destructuring (`{@AuditEvent}`) for proper JSON output
 - Log redaction still applies to audit events via existing `LogRedactionEnricher`
 - SessionId is now shared between CorrelationContext and SessionStore for proper correlation
+
+### Issue #26 Status (Complete)
+
+Self-contained single-file publishing for Windows x64 has been fully configured:
+- ✅ `Krutaka.Console.csproj` configured with required properties:
+  - `<RuntimeIdentifier>win-x64</RuntimeIdentifier>`
+  - `<PublishSingleFile>true</PublishSingleFile>`
+  - `<SelfContained>true</SelfContained>`
+  - `<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>`
+- ✅ `dotnet publish -c Release` produces a single `.exe` file (82 MB)
+- ✅ Published binary includes all dependencies:
+  - .NET 10 runtime (embedded)
+  - All NuGet packages (Anthropic SDK, Spectre.Console, Serilog, SQLite, etc.)
+  - Native libraries (SQLite)
+  - Configuration files (`appsettings.json`, `prompts/AGENTS.md`)
+- ✅ GitHub Actions workflow already publishes single-file artifact (from Issue #25)
+  - `build.yml` uses command-line parameters that override project settings
+  - Workflow includes `EnableCompressionInSingleFile=true` for additional optimization
+- ✅ Documentation updated:
+  - `docs/guides/LOCAL-SETUP.md` - Added simplified publish command and running instructions
+  - `docs/status/PROGRESS.md` - Marked Issue #26 as complete
+
+**File Size:** 82 MB (self-contained with .NET 10 runtime and all dependencies)
+
+**Publish Command:**
+```bash
+dotnet publish src/Krutaka.Console -c Release
+```
+
+**Output Location:**
+- `src/Krutaka.Console/bin/Release/net10.0-windows/win-x64/publish/Krutaka.Console.exe`
+
+**Binary Requirements:**
+- Windows 10 22H2+ or Windows 11 (x64)
+- No .NET SDK required (runtime is embedded)
+- No other dependencies needed
+
+**Note on ONNX Models:**
+Vector search is not yet implemented (planned for future enhancement), so ONNX model files are not included. The application gracefully functions without them using SQLite FTS5 for keyword-based search only.
