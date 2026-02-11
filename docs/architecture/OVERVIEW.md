@@ -221,7 +221,7 @@ Tool implementations with security policy enforcement.
   - Accepts optional `Action<ToolOptions>` for configuration
 
 ### Krutaka.Memory (net10.0)
-**Status:** SessionStore implemented (Issue #16 — 2026-02-10)  
+**Status:** SessionStore and SQLite FTS5 memory implemented (Issues #16, #18 — 2026-02-11)  
 **Path:** `src/Krutaka.Memory/`  
 **Dependencies:** Krutaka.Core, Microsoft.Data.Sqlite
 
@@ -230,12 +230,13 @@ Persistence layer for sessions, memory search, and daily logs.
 | Type | Description | Status |
 |---|---|---|
 | `SessionStore` | JSONL session files under `~/.krutaka/sessions/` | ✅ Implemented |
-| `SqliteMemoryStore` | FTS5 keyword search + (future) vector search | Not Started |
-| `TextChunker` | Split text into ~500 token chunks with overlap | Not Started |
+| `SqliteMemoryStore` | FTS5 keyword search (v1: keyword only, v2: + vector search) | ✅ Implemented (v1) |
+| `TextChunker` | Split text into ~500 token chunks with overlap | ✅ Implemented |
+| `MemoryOptions` | Configuration for database path and chunking parameters | ✅ Implemented |
 | `MemoryFileService` | MEMORY.md read/update | Not Started |
 | `DailyLogService` | Daily log append + indexing | Not Started |
 | `HybridSearchService` | (Future v2) RRF fusion of FTS5 + vector | Not Started |
-| `ServiceExtensions` | `AddMemory(services, options)` DI registration | In Progress |
+| `ServiceExtensions` | `AddMemory(services, options)` DI registration | ✅ Implemented |
 
 **SessionStore Implementation Details:**
 - **Storage path**: `~/.krutaka/sessions/{encoded-project-path}/{session-id}.jsonl`
@@ -250,6 +251,44 @@ Persistence layer for sessions, memory search, and daily logs.
   - `SaveMetadataAsync(projectPath, modelId)`: Writes session metadata
 - **Resource management**: Implements `IDisposable` for `SemaphoreSlim` cleanup
 - **Testing**: 18 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, and concurrent access
+
+**SqliteMemoryStore Implementation Details (v1 — FTS5 only):**
+- **Database path**: `~/.krutaka/memory.db` (configurable via `MemoryOptions`)
+- **Schema**:
+  - `memory_chunks` table: id, content, source, chunk_index, created_at, embedding (BLOB, nullable, reserved for v2)
+  - `memory_fts` FTS5 virtual table with `porter unicode61` tokenizer for keyword search
+  - Triggers automatically sync FTS5 index with content table on INSERT/UPDATE/DELETE
+- **Text chunking**: Uses `TextChunker` to split large content into ~500 token chunks with 50-token overlap
+  - Word-based approximation (real tokenization would use BPE/WordPiece)
+  - Configurable chunk size and overlap via `MemoryOptions`
+- **Key methods**:
+  - `InitializeAsync()`: Creates database schema (tables, FTS5 index, triggers)
+  - `StoreAsync(content, source)`: Stores single content item without chunking
+  - `ChunkAndIndexAsync(content, source)`: Chunks large text and stores all chunks in a transaction
+  - `KeywordSearchAsync(query, limit)`: FTS5 full-text search, returns ranked results
+  - `HybridSearchAsync(query, topK)`: For v1, delegates to `KeywordSearchAsync` (vector search in v2)
+- **FTS5 features**:
+  - Porter stemming: matches word variants (e.g., "program" matches "programming", "programmer")
+  - Unicode61 tokenizer: handles international characters
+  - Query sanitization: wraps user queries in quotes to prevent FTS5 syntax errors
+  - Relevance ranking: uses FTS5's built-in BM25 ranking (lower rank = better match)
+- **Concurrency**: Thread-safe with `SemaphoreSlim(1,1)` protecting database access
+- **Testing**: 21 comprehensive unit tests using in-memory SQLite database
+  - Tests cover initialization, storage, search, chunking, edge cases, error handling
+  - Validates FTS5 stemming, relevance ranking, timestamp handling
+
+**DI Registration:**
+- `AddMemory(services, configureOptions)` extension method
+- Registers `MemoryOptions` as singleton (configurable via action delegate)
+- Registers `SqliteMemoryStore` as `IMemoryService` singleton
+- Database schema initialized synchronously during DI registration
+- SessionStore requires runtime parameters (projectPath, sessionId), so registration is deferred to composition root
+
+**Future Enhancements (v2):**
+- Vector embeddings via local ONNX models (e.g., `bge-micro-v2`)
+- Vector similarity search alongside FTS5 keyword search
+- Reciprocal Rank Fusion (RRF) to combine keyword + vector results
+- `HybridSearchAsync` will fuse both search methods for improved recall
 
 ### Krutaka.Skills (net10.0)
 **Status:** Scaffolded (Issue #5)  
