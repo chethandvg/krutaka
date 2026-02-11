@@ -1,5 +1,8 @@
 # Krutaka
 
+[![Build and Test](https://github.com/chethandvg/krutaka/actions/workflows/build.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/build.yml)
+[![Security Tests](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml)
+
 An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened console agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations.
 
 > **Status:** 🚧 Pre-implementation — Architecture and documentation phase. See [Progress Tracker](docs/status/PROGRESS.md).
