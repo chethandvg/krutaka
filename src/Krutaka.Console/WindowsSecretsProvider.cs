@@ -17,8 +17,8 @@ internal sealed class WindowsSecretsProvider : ISecretsProvider
         // For now, only support the Claude API key
         if (key == "Claude:ApiKey" || key == ApiKeyName)
         {
-            return SecretsProvider.HasStoredCredential() 
-                ? SecretsProvider.ReadCredential() 
+            return SecretsProvider.HasStoredCredential()
+                ? SecretsProvider.ReadCredential()
                 : null;
         }
 

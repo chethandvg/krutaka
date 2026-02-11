@@ -93,7 +93,7 @@ public sealed class ContextCompactor
 
         // Check the role of the first kept message to maintain alternation
         var firstKeptRole = GetMessageRole(messagesToKeep[0]);
-        
+
         // Only add assistant acknowledgment if the first kept message is from user
         // This prevents consecutive assistant messages
         if (firstKeptRole == "user")
@@ -164,7 +164,7 @@ Provide a concise but comprehensive summary that captures all essential informat
 
         // Call SendMessageAsync and collect the response
         var textContent = new System.Text.StringBuilder();
-        
+
         await foreach (var evt in _claudeClient.SendMessageAsync(
             summarizationMessages,
             "You are a helpful assistant that creates concise, accurate summaries of technical conversations.",

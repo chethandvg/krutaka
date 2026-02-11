@@ -5,7 +5,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-public sealed class MemoryStoreToolTests : IDisposable
+internal sealed class MemoryStoreToolTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly string _memoryFilePath;

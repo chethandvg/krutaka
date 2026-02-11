@@ -155,13 +155,13 @@ public class RunCommandTool : ToolBase
                 output.AppendLine(CultureInfo.InvariantCulture, $"Command executed: {executable} {string.Join(" ", arguments)}");
                 output.AppendLine(CultureInfo.InvariantCulture, $"Working directory: {workingDirectory}");
                 output.AppendLine(CultureInfo.InvariantCulture, $"Exit code: {result.ExitCode}");
-                
+
                 // Include sandboxing warnings if any
                 if (sandboxingWarnings.Count > 0)
                 {
                     output.AppendLine(CultureInfo.InvariantCulture, $"Sandboxing warnings: {string.Join("; ", sandboxingWarnings)}");
                 }
-                
+
                 output.AppendLine();
 
                 var stdOut = stdOutBuffer.ToString();
@@ -218,7 +218,7 @@ public class RunCommandTool : ToolBase
         try
         {
             var job = new JobObject();
-            
+
             // Set Job Object limits:
             // - Memory limit: 256 MB
             // - CPU time limit: 30 seconds
@@ -229,7 +229,7 @@ public class RunCommandTool : ToolBase
                 ProcessMemoryLimit = (UIntPtr)(256 * 1024 * 1024), // 256 MB
                 PerProcessUserTimeLimit = 30 * 10_000_000L // 30 seconds in 100-nanosecond units
             });
-            
+
             return job;
         }
         catch (Exception ex)

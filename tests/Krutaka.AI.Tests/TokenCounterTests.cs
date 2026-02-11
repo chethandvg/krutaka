@@ -8,7 +8,7 @@ namespace Krutaka.AI.Tests;
 /// <summary>
 /// Unit tests for TokenCounter class.
 /// </summary>
-public sealed class TokenCounterTests
+internal sealed class TokenCounterTests
 {
     private readonly IClaudeClient _mockClaudeClient;
     private readonly TokenCounter _tokenCounter;
@@ -65,7 +65,7 @@ public sealed class TokenCounterTests
         // Assert
         result1.Should().Be(100);
         result2.Should().Be(100);
-        
+
         // Client should be called only once (second call uses cache)
         await _mockClaudeClient.Received(1).CountTokensAsync(
             Arg.Any<IEnumerable<object>>(),
@@ -96,7 +96,7 @@ public sealed class TokenCounterTests
         // Assert
         result1.Should().Be(100);
         result2.Should().Be(150);
-        
+
         // Client should be called twice for different messages
         await _mockClaudeClient.Received(2).CountTokensAsync(
             Arg.Any<IEnumerable<object>>(),

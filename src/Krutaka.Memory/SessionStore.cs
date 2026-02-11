@@ -50,7 +50,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
         var baseDir = storageRoot ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".krutaka");
-        
+
         var sessionDir = Path.Combine(baseDir, "sessions", encodedPath);
 
         // Ensure directory exists

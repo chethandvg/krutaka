@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace Krutaka.Core.Tests;
 
-public class AgentConfigurationTests
+internal class AgentConfigurationTests
 {
     [Fact]
     public void AgentConfiguration_Should_HaveDefaultValues()

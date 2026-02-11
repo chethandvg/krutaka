@@ -83,8 +83,8 @@ public static class SafeFileOperations
         }
 
         // Combine with root if relative, or use as-is if absolute
-        var combinedPath = Path.IsPathRooted(path) 
-            ? path 
+        var combinedPath = Path.IsPathRooted(path)
+            ? path
             : Path.Combine(canonicalRoot, path);
 
         // Canonicalize the combined path
@@ -104,7 +104,7 @@ public static class SafeFileOperations
         // 2. OR if canonicalPath equals canonicalRoot without the trailing separator (handles the root itself)
         var isWithinRoot = canonicalPath.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(canonicalPath, canonicalRoot.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
-        
+
         if (!isWithinRoot)
         {
             throw new SecurityException(
@@ -148,15 +148,15 @@ public static class SafeFileOperations
         // Check for AppData directories
         var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        
-        if (!string.IsNullOrEmpty(appDataPath) && 
+
+        if (!string.IsNullOrEmpty(appDataPath) &&
             canonicalPath.StartsWith(appDataPath, StringComparison.OrdinalIgnoreCase))
         {
             throw new SecurityException(
                 $"Access to AppData is not permitted: '{canonicalPath}'");
         }
 
-        if (!string.IsNullOrEmpty(localAppDataPath) && 
+        if (!string.IsNullOrEmpty(localAppDataPath) &&
             canonicalPath.StartsWith(localAppDataPath, StringComparison.OrdinalIgnoreCase))
         {
             throw new SecurityException(
@@ -176,7 +176,7 @@ public static class SafeFileOperations
         var fileName = Path.GetFileName(canonicalPath);
         var matchedPattern = BlockedFilePatterns
             .FirstOrDefault(pattern => fileName.StartsWith(pattern, StringComparison.OrdinalIgnoreCase));
-        
+
         if (matchedPattern != null)
         {
             throw new SecurityException(
@@ -189,7 +189,7 @@ public static class SafeFileOperations
         {
             var matchedExtension = BlockedFileExtensions
                 .FirstOrDefault(blockedExt => extension.Equals(blockedExt, StringComparison.OrdinalIgnoreCase));
-            
+
             if (matchedExtension != null)
             {
                 throw new SecurityException(

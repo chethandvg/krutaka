@@ -4,7 +4,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-public sealed class DailyLogServiceTests : IDisposable
+internal sealed class DailyLogServiceTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly string _logsDirectory;

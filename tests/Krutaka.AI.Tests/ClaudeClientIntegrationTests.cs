@@ -10,7 +10,7 @@ namespace Krutaka.AI.Tests;
 /// <summary>
 /// Integration tests for ClaudeClientWrapper using WireMock.Net.
 /// </summary>
-public class ClaudeClientIntegrationTests
+internal class ClaudeClientIntegrationTests
 {
     [Fact]
     public void Should_RegisterIClaudeClient()

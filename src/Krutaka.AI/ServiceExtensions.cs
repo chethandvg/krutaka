@@ -1,10 +1,10 @@
 using System.Globalization;
+using Anthropic;
+using Krutaka.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
-using Anthropic;
-using Krutaka.Core;
 
 namespace Krutaka.AI;
 
@@ -54,8 +54,8 @@ public static class ServiceExtensions
             // Create Anthropic client with retry configuration
             // Note: The SDK has built-in retry logic (2 retries by default)
             // We configure it to use 3 retries and 120s timeout
-            var client = new AnthropicClient 
-            { 
+            var client = new AnthropicClient
+            {
                 ApiKey = apiKey,
                 MaxRetries = 3,
                 Timeout = TimeSpan.FromSeconds(120)
@@ -74,12 +74,12 @@ public static class ServiceExtensions
                 options.Retry.MaxRetryAttempts = 3;
                 options.Retry.BackoffType = DelayBackoffType.Exponential;
                 options.Retry.UseJitter = true;
-                
+
                 // Circuit breaker for sustained failures
                 options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
                 options.CircuitBreaker.MinimumThroughput = 5;
                 options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
-                
+
                 // Request timeout
                 options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(120);
                 options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(300);

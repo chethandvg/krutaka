@@ -5,7 +5,7 @@ using Serilog.Events;
 
 namespace Krutaka.Console.Tests;
 
-public class LogRedactionEnricherTests
+internal class LogRedactionEnricherTests
 {
     [Fact]
     public void Should_RedactAnthropicApiKeyInMessage()
@@ -25,7 +25,7 @@ public class LogRedactionEnricherTests
     {
         // Arrange - generate synthetic key to avoid secret scanning
         var testApiKey = "sk-ant-" + new string('b', 95);
-        var output = CaptureLogWithRedaction("Test message", 
+        var output = CaptureLogWithRedaction("Test message",
             new { ApiKey = testApiKey });
 
         // Assert
@@ -126,7 +126,7 @@ public class LogRedactionEnricherTests
     public void Should_HandleNullPropertiesGracefully()
     {
         // Arrange
-        var output = CaptureLogWithRedaction("Test message", 
+        var output = CaptureLogWithRedaction("Test message",
             new { NullValue = (string?)null });
 
         // Assert
@@ -138,7 +138,7 @@ public class LogRedactionEnricherTests
     public void Should_HandleEmptyStringPropertiesGracefully()
     {
         // Arrange
-        var output = CaptureLogWithRedaction("Test message", 
+        var output = CaptureLogWithRedaction("Test message",
             new { EmptyValue = string.Empty });
 
         // Assert
@@ -169,7 +169,7 @@ public class LogRedactionEnricherTests
     }
 
     private static string CaptureLogWithRedaction(
-        string messageTemplate, 
+        string messageTemplate,
         object? propertyValueOrObject = null)
     {
         var logs = new List<string>();
@@ -215,7 +215,7 @@ public class LogRedactionEnricherTests
             using var output = new System.IO.StringWriter(System.Globalization.CultureInfo.InvariantCulture);
             logEvent.RenderMessage(output, System.Globalization.CultureInfo.InvariantCulture);
             _logs.Add(output.ToString());
-            
+
             // Also add property values for comprehensive checking
             foreach (var prop in logEvent.Properties.Where(p => p.Key != "SourceContext"))
             {

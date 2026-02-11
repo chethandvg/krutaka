@@ -108,7 +108,7 @@ public class ListFilesTool : ToolBase
                     try
                     {
                         SafeFileOperations.ValidatePath(file, _projectRoot);
-                        
+
                         // Make path relative to project root for cleaner output
                         var relativePath = Path.GetRelativePath(_projectRoot, file);
                         result.AppendLine(relativePath);

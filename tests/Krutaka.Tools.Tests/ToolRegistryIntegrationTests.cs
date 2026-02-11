@@ -10,7 +10,7 @@ namespace Krutaka.Tools.Tests;
 /// Integration tests for ToolRegistry with actual tool implementations.
 /// Verifies that tool definitions serialize correctly to Claude API format.
 /// </summary>
-public sealed class ToolRegistryIntegrationTests : IDisposable
+internal sealed class ToolRegistryIntegrationTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly ToolRegistry _registry;
@@ -263,7 +263,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         var definitions = toolRegistry!.GetToolDefinitions();
         var json = JsonSerializer.Serialize(definitions);
         var jsonDoc = JsonDocument.Parse(json);
-        
+
         jsonDoc.RootElement.GetArrayLength().Should().Be(6);
 
         var toolNames = jsonDoc.RootElement

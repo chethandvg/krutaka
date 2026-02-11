@@ -6,7 +6,7 @@ namespace Krutaka.Console.Tests;
 /// <summary>
 /// Unit tests for ApprovalHandler class.
 /// </summary>
-public class ApprovalHandlerTests
+internal class ApprovalHandlerTests
 {
     [Fact]
     public void RequestApproval_WithNullToolName_ThrowsArgumentNullException()
