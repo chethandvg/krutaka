@@ -177,8 +177,8 @@ Tool implementations with security policy enforcement.
 | `WriteFileTool` | High | Required | ✅ Implemented |
 | `EditFileTool` | High | Required | ✅ Implemented |
 | `RunCommandTool` | Critical | Always required | ✅ Fully Implemented |
-| `MemoryStoreTool` | Medium | Auto-approve | Not Started |
-| `MemorySearchTool` | Low | Auto-approve | Not Started |
+| `MemoryStoreTool` | Medium | Auto-approve | ✅ Implemented |
+| `MemorySearchTool` | Low | Auto-approve | ✅ Implemented |
 | `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
 | `SafeFileOperations` | — | Path canonicalization + jail | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
@@ -221,7 +221,7 @@ Tool implementations with security policy enforcement.
   - Accepts optional `Action<ToolOptions>` for configuration
 
 ### Krutaka.Memory (net10.0)
-**Status:** SessionStore and SQLite FTS5 memory implemented (Issues #16, #18 — 2026-02-11)  
+**Status:** SessionStore and SQLite FTS5 memory implemented (Issues #16, #18, #19 — 2026-02-11)  
 **Path:** `src/Krutaka.Memory/`  
 **Dependencies:** Krutaka.Core, Microsoft.Data.Sqlite
 
@@ -233,8 +233,10 @@ Persistence layer for sessions, memory search, and daily logs.
 | `SqliteMemoryStore` | FTS5 keyword search (v1: keyword only, v2: + vector search) | ✅ Implemented (v1) |
 | `TextChunker` | Split text into ~500 token chunks with overlap | ✅ Implemented |
 | `MemoryOptions` | Configuration for database path and chunking parameters | ✅ Implemented |
-| `MemoryFileService` | MEMORY.md read/update | Not Started |
-| `DailyLogService` | Daily log append + indexing | Not Started |
+| `MemoryFileService` | MEMORY.md read/update | ✅ Implemented |
+| `DailyLogService` | Daily log append + indexing | ✅ Implemented |
+| `MemoryStoreTool` | Tool for storing facts in MEMORY.md and SQLite | ✅ Implemented |
+| `MemorySearchTool` | Tool for searching persistent memory | ✅ Implemented |
 | `HybridSearchService` | (Future v2) RRF fusion of FTS5 + vector | Not Started |
 | `ServiceExtensions` | `AddMemory(services, options)` DI registration | ✅ Implemented |
 
@@ -281,8 +283,55 @@ Persistence layer for sessions, memory search, and daily logs.
 - `AddMemory(services, configureOptions)` extension method
 - Registers `MemoryOptions` as singleton (configurable via action delegate)
 - Registers `SqliteMemoryStore` as `IMemoryService` singleton
+- Registers `MemoryFileService` as singleton (path: `~/.krutaka/MEMORY.md`)
+- Registers `DailyLogService` as singleton (path: `~/.krutaka/logs/{date}.md`)
+- Registers `MemoryStoreTool` and `MemorySearchTool` as `ITool` implementations
 - Database schema initialized synchronously during DI registration
 - SessionStore requires runtime parameters (projectPath, sessionId), so registration is deferred to composition root
+
+**MemoryFileService Implementation Details:**
+- **Storage path**: `~/.krutaka/MEMORY.md` (curated persistent memory)
+- **File format**: Markdown with section headers (e.g., `## User Preferences`)
+- **Key methods**:
+  - `ReadMemoryAsync()`: Returns full MEMORY.md contents or empty string if file doesn't exist
+  - `AppendToMemoryAsync(key, value)`: Appends fact under section header, returns false if duplicate detected
+- **Duplicate detection**: Case-insensitive content matching prevents redundant entries
+- **Atomic writes**: Uses temp file → `File.Move(overwrite: true)` to prevent corruption
+- **Concurrency**: Thread-safe with `SemaphoreSlim(1,1)` protecting file I/O
+- **Testing**: 12 comprehensive unit tests covering read/write, sections, duplicates, atomic writes
+
+**DailyLogService Implementation Details:**
+- **Storage path**: `~/.krutaka/logs/{yyyy-MM-dd}.md` (one file per day)
+- **Entry format**: `**[HH:mm:ss]** {content}` (timestamped with UTC time)
+- **Key methods**:
+  - `AppendEntryAsync(content)`: Appends timestamped entry to today's log file
+  - `GetTodaysLogPath()`: Returns path to today's log file
+- **Indexing**: Each entry is chunked and indexed into SQLite via `IMemoryService.ChunkAndIndexAsync()`
+- **Source tagging**: Entries are tagged with `daily-log/{date}` for searchability
+- **Concurrency**: Thread-safe with `SemaphoreSlim(1,1)` protecting file I/O
+- **Testing**: 11 comprehensive unit tests covering log creation, timestamps, indexing, validation
+
+**Memory Tools Implementation Details:**
+
+**MemoryStoreTool** (auto-approve, medium risk):
+- **Input schema**: `key` (category/section header), `value` (fact to remember)
+- **Behavior**:
+  - Appends fact to MEMORY.md under specified section header
+  - Prevents duplicates by checking existing content
+  - Indexes fact into SQLite FTS5 for search
+  - Returns success message or duplicate warning
+- **Example**: `{ "key": "User Preferences", "value": "Prefers TypeScript over JavaScript" }`
+- **Testing**: 11 unit tests covering storage, indexing, validation, duplicates
+
+**MemorySearchTool** (auto-approve, read-only):
+- **Input schema**: `query` (search string), optional `limit` (max results, default 10, max 50)
+- **Behavior**:
+  - Searches SQLite FTS5 via `IMemoryService.HybridSearchAsync()`
+  - Returns formatted results with source, score, timestamp, and content
+  - Handles empty results gracefully
+- **Example**: `{ "query": "TypeScript", "limit": 5 }`
+- **Output format**: Numbered list with Markdown formatting for Claude
+- **Testing**: 12 unit tests covering search, formatting, limits, validation
 
 **Future Enhancements (v2):**
 - Vector embeddings via local ONNX models (e.g., `bge-micro-v2`)

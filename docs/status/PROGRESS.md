@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #18 complete - SQLite FTS5 keyword search and memory v1)
+> **Last updated:** 2026-02-11 (Issue #19 complete - MEMORY.md and daily log management)
 
 ## Phase Summary
 
@@ -35,7 +35,7 @@
 | 16 | Implement JSONL session persistence | 3 | 🟢 Complete | 2026-02-10 |
 | 17 | Implement token counting and context compaction | 3 | 🟢 Complete | 2026-02-10 |
 | 18 | Implement SQLite FTS5 keyword search | 3 | 🟢 Complete | 2026-02-11 |
-| 19 | Implement MEMORY.md and daily log management | 3 | 🔴 Not Started | — |
+| 19 | Implement MEMORY.md and daily log management | 3 | 🟢 Complete | 2026-02-11 |
 | 20 | Implement system prompt builder | 4 | 🔴 Not Started | — |
 | 21 | Implement Spectre.Console streaming UI | 4 | 🔴 Not Started | — |
 | 22 | Implement skill system | 5 | 🔴 Not Started | — |
@@ -322,4 +322,63 @@ Token counting and context compaction have been fully implemented:
 - Cache uses content-based SHA256 hashing instead of object identity for correctness
 - Role alternation maintained to comply with Claude API requirements
 - Messages reported as "removed" = messages summarized (not net reduction) for clarity in logging/reporting
+
+### Issue #19 Status (Complete)
+
+MEMORY.md and daily log management have been fully implemented:
+
+- ✅ **MemoryFileService** class in `Krutaka.Memory`:
+  - `ReadMemoryAsync()` reads `~/.krutaka/MEMORY.md`, returns empty string if file doesn't exist
+  - `AppendToMemoryAsync(key, value)` appends facts under section headers (e.g., `## User Preferences`)
+  - Duplicate detection: case-insensitive content matching prevents redundant entries
+  - Atomic writes: uses temp file → `File.Move(overwrite: true)` to prevent corruption
+  - Thread-safe with `SemaphoreSlim(1,1)` protecting file I/O
+  - 12 unit tests (all passing): read/write, sections, duplicates, atomic writes
+
+- ✅ **DailyLogService** class in `Krutaka.Memory`:
+  - `AppendEntryAsync(content)` appends timestamped entries to `~/.krutaka/logs/{yyyy-MM-dd}.md`
+  - Entry format: `**[HH:mm:ss]** {content}` (UTC timestamps)
+  - Automatic indexing: chunks and indexes entries into SQLite via `IMemoryService.ChunkAndIndexAsync()`
+  - Source tagging: entries tagged with `daily-log/{date}` for searchability
+  - `GetTodaysLogPath()` returns path to today's log file
+  - Thread-safe with `SemaphoreSlim(1,1)` protecting file I/O
+  - 11 unit tests (all passing): log creation, timestamps, indexing, validation
+
+- ✅ **MemoryStoreTool** extending `ToolBase` in `Krutaka.Memory`:
+  - Input schema: `key` (category/section header), `value` (fact to remember)
+  - Updates MEMORY.md via `MemoryFileService.AppendToMemoryAsync()`
+  - Indexes into SQLite via `IMemoryService.StoreAsync()`
+  - Auto-approve (medium risk, no destructive action per security policy)
+  - Returns success message or duplicate warning
+  - 11 unit tests (all passing): storage, indexing, validation, duplicates
+
+- ✅ **MemorySearchTool** extending `ToolBase` in `Krutaka.Memory`:
+  - Input schema: `query` (search string), optional `limit` (max results, default 10, max 50)
+  - Searches SQLite FTS5 via `IMemoryService.HybridSearchAsync()`
+  - Returns formatted results with source, score, timestamp, and content
+  - Auto-approve (read-only per security policy)
+  - Output format: numbered list with Markdown formatting for Claude
+  - 12 unit tests (all passing): search, formatting, limits, validation
+
+- ✅ **ServiceExtensions.AddMemory()** updated:
+  - Registers `MemoryFileService` as singleton (path: `~/.krutaka/MEMORY.md`)
+  - Registers `DailyLogService` as singleton (path: `~/.krutaka/logs/{date}.md`)
+  - Registers `MemoryStoreTool` and `MemorySearchTool` as `ITool` implementations
+  - Tools automatically registered with `IToolRegistry` if available
+
+- ✅ **Build status**: All 108 tests passing in Krutaka.Memory.Tests, zero warnings, zero errors
+- ✅ **Documentation**: Updated `docs/architecture/OVERVIEW.md` with tool inventory and implementation details
+
+**Implementation Notes:**
+- Memory tools are in `Krutaka.Memory` project (not `Krutaka.Tools`) to avoid circular dependencies
+- Tools are registered with `IToolRegistry` via DI container when available
+- File-based SQLite databases used for testing (in-memory mode has FTS5 trigger issues)
+- All services follow existing coding conventions (nullable types, ConfigureAwait, CultureInfo.InvariantCulture)
+- Atomic file writes prevent corruption during concurrent access
+- Duplicate detection is case-insensitive for better user experience
+
+**Deferred to future issues:**
+- Integration with AgentOrchestrator to automatically log interactions
+- Integration with system prompt builder to include MEMORY.md contents
+- Daily log rotation/archival policies
 
