@@ -1,8 +1,11 @@
 # Krutaka
 
+[![Build and Test](https://github.com/chethandvg/krutaka/actions/workflows/build.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/build.yml)
+[![Security Tests](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml)
+
 An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened console agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations.
 
-> **Status:** 🚧 Pre-implementation — Architecture and documentation phase. See [Progress Tracker](docs/status/PROGRESS.md).
+> **Status:** 🚧 Phase 6 — Build, Package & Verify. See [Progress Tracker](docs/status/PROGRESS.md).
 
 ## Why Krutaka?
 
@@ -100,6 +103,22 @@ dotnet test
 # Publish self-contained binary
 dotnet publish src/Krutaka.Console -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
+
+## CI/CD & Downloads
+
+Krutaka uses GitHub Actions for continuous integration:
+
+- **Build & Test**: Runs on every push and PR to `main` ([View Workflow](https://github.com/chethandvg/krutaka/actions/workflows/build.yml))
+  - Builds on Windows with .NET 10
+  - Runs all 201 tests
+  - Publishes self-contained win-x64 executable
+  - Artifacts available for 90 days
+
+- **Security Tests**: Runs 125 security-focused tests on every PR ([View Workflow](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml))
+  - Tests command validation, path sandboxing, environment scrubbing
+  - Fails the build if any security test fails
+
+**Download latest build**: Go to [Actions](https://github.com/chethandvg/krutaka/actions), select a successful workflow run, and download the `krutaka-win-x64` artifact.
 
 ## Documentation
 
