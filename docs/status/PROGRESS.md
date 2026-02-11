@@ -1031,7 +1031,7 @@ Final documentation polish and README update has been completed:
 - **6 projects** in solution (5 libraries + 1 console app)
 - **576 tests** passing (1 skipped)
 - **125 security policy tests** — All passing
-- **6 implemented tools** with full security controls
+- **8 implemented tools** (6 file/command tools + 2 memory tools) with full security controls
 - **0 build warnings** — Warnings treated as errors
 - **82 MB** self-contained single-file executable
 
@@ -1050,15 +1050,15 @@ Final documentation polish and README update has been completed:
 
 ### Security Posture
 
-All security controls from threat model implemented and tested:
-- ✅ DPAPI-encrypted secrets (Windows Credential Manager)
+Core security controls implemented and tested:
 - ✅ Command allowlist/blocklist enforcement
 - ✅ Path canonicalization and sandboxing
 - ✅ Process memory/CPU limits (Windows Job Objects)
 - ✅ Environment variable scrubbing
 - ✅ Log redaction (API keys, secrets)
-- ✅ Prompt injection defense (XML tagging)
 - ✅ Audit trail with correlation IDs
+- ⚠️ DPAPI-encrypted secrets (Windows Credential Manager) - Partially complete (Issue #7)
+- 📋 Prompt injection defense (XML tagging) - Documented, implementation pending
 
 ### Known Limitations
 
@@ -1066,11 +1066,11 @@ All security controls from threat model implemented and tested:
   - SecretsProvider and SetupWizard fully implemented and integrated
   - Log redaction fully implemented and tested
   - Status reflects original conservative estimate; all planned functionality is complete
-- **12 Quarantined Tests:** Some AgentOrchestrator and AuditLogger tests quarantined
-  - Tests define expected behavior but currently fail
-  - Run in separate CI job (allowed to fail)
-  - Do not block release; functionality works in practice
-  - Should be fixed in future maintenance
+- **Single Skipped Test:** One test is currently skipped
+  - `RunCommandToolTests.Should_TimeoutLongRunningCommand` - timeout test for long-running commands
+  - Test is part of normal CI test job and marked as skipped
+  - Does not block release; related functionality works in practice
+  - Should be re-enabled or fixed in future maintenance
 
 ### Next Steps
 

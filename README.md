@@ -124,14 +124,14 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 
 | Control | Implementation | Status |
 |---|---|---|
-| **Secrets Management** | Windows Credential Manager with DPAPI encryption | ✅ Complete |
+| **Secrets Management** | Windows Credential Manager with DPAPI encryption | ⚠️ Partially Complete |
 | **Command Allowlist** | Hardcoded allowlist/blocklist in `CommandPolicy` | ✅ Complete |
 | **Path Validation** | Canonical path resolution + project root sandboxing | ✅ Complete |
 | **Process Sandboxing** | Windows Job Objects (256MB memory, 30s CPU limits) | ✅ Complete |
 | **Human Approval** | Blocking approval for write/execute operations | ✅ Complete |
 | **Environment Scrubbing** | Remove API keys/secrets from child processes | ✅ Complete |
 | **Log Redaction** | Automatic API key scrubbing from all log output | ✅ Complete |
-| **Prompt Injection Defense** | Untrusted content wrapped in XML tags | ✅ Complete |
+| **Prompt Injection Defense** | Untrusted content wrapped in XML tags | 📋 Documented (implementation pending) |
 | **Audit Logging** | Structured JSON logs with correlation IDs | ✅ Complete |
 
 ### Security Test Coverage
@@ -173,7 +173,7 @@ Contributions are welcome! Please follow these guidelines:
 2. **Understand the security rules** (see [docs/architecture/SECURITY.md](docs/architecture/SECURITY.md)):
    - Never hardcode secrets
    - Always validate paths through `IFileOperations.ValidatePath()`
-   - Always validate commands through `CommandPolicy.Validate()`
+   - Always validate commands through `CommandPolicy.ValidateCommand()`
    - Use CliWrap with explicit argument arrays (never string interpolation)
    - Wrap untrusted content in `<untrusted_content>` tags
 
@@ -205,7 +205,7 @@ dotnet format
 
 1. **Fork the repository** and create a feature branch
 2. **Write tests** for new functionality (use xUnit + FluentAssertions)
-3. **Run security tests:** `dotnet test --filter FullyQualifiedName~SecurityPolicyTests`
+3. **Run security tests:** `dotnet test --filter "FullyQualifiedName~SecurityPolicy|FullyQualifiedName~SecurityViolationLogging"`
 4. **Ensure all tests pass:** `dotnet test`
 5. **Format code:** `dotnet format`
 6. **Update documentation** if you change architecture or add features
@@ -237,7 +237,7 @@ MIT License — Copyright (c) 2026 Chethan D V G. See [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- Inspired by [OpenClaw](https://github.com/example/openclaw) and its security lessons
+- Inspired by OpenClaw and its security lessons
 - Built with the official [Anthropic Claude API](https://www.anthropic.com/api)
 - Uses [Spectre.Console](https://spectreconsole.net/) for rich terminal UI
 - Security controls informed by OWASP and Microsoft SDL practices
