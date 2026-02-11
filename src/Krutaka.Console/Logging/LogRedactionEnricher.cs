@@ -41,6 +41,9 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
         // Check the message template text itself for sensitive data.
         // If found, replace the MessageTemplate by setting the backing field directly,
         // ensuring all sinks (console, file, JSON) render the redacted version.
+        // Note: This uses reflection on the compiler-generated backing field, which is
+        // fragile but necessary since Serilog's MessageTemplate property is read-only.
+        // The Serilog version is pinned in Directory.Packages.props to mitigate breakage.
         var templateText = logEvent.MessageTemplate.Text;
         var redactedTemplate = RedactSensitiveData(templateText);
         if (templateText != redactedTemplate)
@@ -49,7 +52,18 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
             var backingField = typeof(LogEvent).GetField(
                 "<MessageTemplate>k__BackingField",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            backingField?.SetValue(logEvent, parsedTemplate);
+
+            if (backingField != null)
+            {
+                backingField.SetValue(logEvent, parsedTemplate);
+            }
+            else
+            {
+                // Fallback: add a RedactedMessage property so the secret is at least
+                // available in redacted form, even if the original template still renders.
+                logEvent.AddOrUpdateProperty(
+                    propertyFactory.CreateProperty("RedactedMessage", redactedTemplate));
+            }
         }
     }
 
