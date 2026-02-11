@@ -119,15 +119,34 @@ try
     builder.Services.AddSingleton(sp =>
     {
         var toolRegistry = sp.GetRequiredService<IToolRegistry>();
+        
+        // Try to locate AGENTS.md in multiple locations
         var agentsPromptPath = Path.Combine(
             AppContext.BaseDirectory,
             "..", "..", "..", "..", "..", // Navigate to repo root from bin/Debug/net10.0-windows
             "prompts", "AGENTS.md");
 
-        // Fallback if running from published location
+        // Normalize the path
+        agentsPromptPath = Path.GetFullPath(agentsPromptPath);
+
+        // Fallback 1: Check if running from published location
         if (!File.Exists(agentsPromptPath))
         {
             agentsPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", "AGENTS.md");
+        }
+
+        // Fallback 2: Try current working directory
+        if (!File.Exists(agentsPromptPath))
+        {
+            agentsPromptPath = Path.Combine(workingDirectory, "prompts", "AGENTS.md");
+        }
+
+        // Final check - if still not found, log warning and use empty path (will fail at runtime)
+        if (!File.Exists(agentsPromptPath))
+        {
+            Log.Warning("AGENTS.md not found. SystemPromptBuilder may fail at runtime. Searched: {BaseDir}, {WorkingDir}",
+                AppContext.BaseDirectory, workingDirectory);
+            agentsPromptPath = "prompts/AGENTS.md"; // Let it fail with a clear error
         }
 
         var skillRegistry = sp.GetService<ISkillRegistry>();
