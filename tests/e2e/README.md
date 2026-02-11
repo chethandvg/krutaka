@@ -14,21 +14,20 @@ This directory contains the end-to-end integration test infrastructure for Kruta
 ## Quick Start
 
 1. **Build Krutaka:**
-   ```bash
-   cd /home/runner/work/krutaka/krutaka
+   ```powershell
    dotnet build
    ```
 
 2. **Configure API Key:**
-   ```bash
+   ```powershell
    # Run the console app to trigger setup wizard
-   ./src/Krutaka.Console/bin/Debug/net10.0-windows/win-x64/Krutaka.Console.exe
+   .\src\Krutaka.Console\bin\Debug\net10.0-windows\win-x64\Krutaka.Console.exe
    ```
 
 3. **Run Manual Tests:**
-   ```bash
-   cd tests/e2e/sandbox
-   ../../../src/Krutaka.Console/bin/Debug/net10.0-windows/win-x64/Krutaka.Console.exe
+   ```powershell
+   cd tests\e2e\sandbox
+   ..\..\..\src\Krutaka.Console\bin\Debug\net10.0-windows\win-x64\Krutaka.Console.exe
    ```
 
 4. **Follow Test Scenarios:**

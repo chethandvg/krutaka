@@ -154,8 +154,8 @@ Create a new file called test.txt with the content "Hello from Krutaka E2E test"
 - ✅ `[A]lways` option available for `write_file`
 
 **Verification:**
-```bash
-cat test.txt
+```powershell
+Get-Content test.txt
 # Should output: Hello from Krutaka E2E test
 ```
 
@@ -189,8 +189,8 @@ Add a new method to Calculator.cs called Power that raises a to the power of b
 - ✅ `[A]lways` option available for `edit_file`
 
 **Verification:**
-```bash
-grep "Power" src/Calculator.cs
+```powershell
+Select-String "Power" src/Calculator.cs
 # Should find the new Power method
 ```
 
@@ -216,9 +216,9 @@ Create a file called denied.txt with any content
 - ✅ Agent adapts to denial
 
 **Verification:**
-```bash
-ls -la denied.txt
-# Should output: No such file or directory
+```powershell
+Get-Item denied.txt
+# Should output: Cannot find path '...\denied.txt' because it does not exist
 ```
 
 ---
@@ -258,8 +258,8 @@ Build this project using dotnet build
 - ✅ Exit code and output captured
 
 **Verification:**
-```bash
-ls -la src/bin/Debug/net10.0/
+```powershell
+Get-ChildItem src\bin\Debug\net10.0\
 # Should contain compiled binaries
 ```
 
@@ -416,10 +416,10 @@ These tests verify that conversation state is saved and restored correctly.
 - ✅ Conversation history restored
 
 **Verification:**
-```bash
-ls -la .krutaka/sessions/
+```powershell
+Get-ChildItem .krutaka\sessions\
 # Should contain session JSONL file
-cat .krutaka/sessions/session_*.jsonl | tail -20
+Get-Content .krutaka\sessions\session_*.jsonl | Select-Object -Last 20
 ```
 
 ---
@@ -463,8 +463,8 @@ Test that context window management triggers compaction when needed.
 
 **Verification:**
 Check logs for compaction event:
-```bash
-cat .krutaka/logs/audit-*.jsonl | grep "ContextCompaction"
+```powershell
+Get-Content .krutaka\logs\audit-*.jsonl | Select-String "ContextCompaction"
 ```
 
 ---
@@ -489,10 +489,13 @@ Remember that our release date is March 15, 2026
 - ✅ No approval required
 
 **Verification:**
-```bash
-ls -la .krutaka/memory.db
+```powershell
+Get-Item .krutaka\memory.db
 # Should exist
-sqlite3 .krutaka/memory.db "SELECT content FROM memories WHERE content LIKE '%March 15%';"
+
+# Optional: Query the database (requires sqlite3 CLI tool or DB Browser for SQLite)
+# If you have sqlite3 installed:
+# sqlite3 .krutaka\memory.db "SELECT content FROM memories WHERE content LIKE '%March 15%';"
 # Should return the stored fact
 ```
 

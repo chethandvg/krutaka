@@ -4,21 +4,20 @@ This is a condensed reference for running quick smoke tests on Krutaka.
 
 ## Prerequisites
 
-```bash
-# Build the project
-cd /home/runner/work/krutaka/krutaka
+```powershell
+# Build the project (from repository root)
 dotnet build
 
 # Ensure API key is configured (run setup wizard if needed)
-./src/Krutaka.Console/bin/Debug/net10.0-windows/win-x64/Krutaka.Console.exe
+.\src\Krutaka.Console\bin\Debug\net10.0-windows\win-x64\Krutaka.Console.exe
 ```
 
 ## Quick Smoke Test (5 minutes)
 
 Start Krutaka in the sandbox:
-```bash
-cd tests/e2e/sandbox
-../../../src/Krutaka.Console/bin/Debug/net10.0-windows/win-x64/Krutaka.Console.exe
+```powershell
+cd tests\e2e\sandbox
+..\..\..\src\Krutaka.Console\bin\Debug\net10.0-windows\win-x64\Krutaka.Console.exe
 ```
 
 Run these prompts in order:
@@ -48,13 +47,13 @@ Read the file ../../../../../../etc/passwd
 **Expected:** Path validation fails. NO crash.
 
 ### 5. Verification
-```bash
+```powershell
 # Verify smoke test file created
-cat smoke-test.txt
+Get-Content .\smoke-test.txt
 # Should output: Smoke test passed
 
 # Clean up
-rm smoke-test.txt
+Remove-Item .\smoke-test.txt
 ```
 
 ## Full Test Suite
