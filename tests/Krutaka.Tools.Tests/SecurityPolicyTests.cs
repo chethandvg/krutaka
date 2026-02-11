@@ -4,7 +4,7 @@ using Krutaka.Tools;
 
 namespace Krutaka.Tools.Tests;
 
-public class SecurityPolicyTests
+public sealed class SecurityPolicyTests : IDisposable
 {
     private readonly CommandPolicy _policy;
     private readonly string _projectRoot;
@@ -13,10 +13,23 @@ public class SecurityPolicyTests
     {
         var fileOps = new SafeFileOperations(null);
         _policy = new CommandPolicy(fileOps);
+        
         // Use a unique directory that won't be blocked by path validation
-        // and won't collide with parallel test runs
+        // Avoid AppData directories which trigger security validation failures
         var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        _projectRoot = Path.Combine(Path.GetTempPath(), $"krutaka-test-{uniqueId}");
+        
+        if (OperatingSystem.IsWindows())
+        {
+            // Use C:\temp instead of user's temp folder (which is in AppData)
+            // This avoids triggering the LocalAppData security check
+            _projectRoot = Path.Combine(@"C:\temp", $"krutaka-test-{uniqueId}");
+        }
+        else
+        {
+            // On Linux/Mac, use /tmp which is standard and not restricted
+            _projectRoot = Path.Combine("/tmp", $"krutaka-test-{uniqueId}");
+        }
+        
         Directory.CreateDirectory(_projectRoot);
     }
 
@@ -763,4 +776,23 @@ public class SecurityPolicyTests
     }
 
     #endregion
+
+    public void Dispose()
+    {
+        // Cleanup test directory with retry logic for file locks
+        if (Directory.Exists(_projectRoot))
+        {
+            try
+            {
+                Directory.Delete(_projectRoot, true);
+            }
+            catch (IOException)
+            {
+                // Ignore cleanup failures - test directories will be cleaned up eventually
+                // This prevents test failures due to lingering file locks
+            }
+        }
+        
+        GC.SuppressFinalize(this);
+    }
 }
