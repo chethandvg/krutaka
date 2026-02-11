@@ -225,6 +225,36 @@ public class MarkdownRendererTests
     }
 
     [Fact]
+    public void ToMarkup_WithQuote_ReturnsFormattedQuote()
+    {
+        // Arrange
+        var renderer = new MarkdownRenderer();
+        var markdown = "> This is a quote";
+
+        // Act
+        var result = renderer.ToMarkup(markdown);
+
+        // Assert
+        result.Should().Contain("[dim]│[/]");
+        result.Should().Contain("[italic]");
+        result.Should().Contain("This is a quote");
+    }
+
+    [Fact]
+    public void ToMarkup_WithThematicBreak_ReturnsHorizontalLine()
+    {
+        // Arrange
+        var renderer = new MarkdownRenderer();
+        var markdown = "---";
+
+        // Act
+        var result = renderer.ToMarkup(markdown);
+
+        // Assert
+        result.Should().Contain("─");
+    }
+
+    [Fact]
     public void ToMarkup_WithSpecialCharacters_EscapesCorrectly()
     {
         // Arrange

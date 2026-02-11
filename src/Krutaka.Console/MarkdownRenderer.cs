@@ -126,6 +126,15 @@ internal sealed class MarkdownRenderer
                 ConvertListToMarkup(list, builder, 0);
                 break;
 
+            case QuoteBlock quote:
+                ConvertQuoteToMarkup(quote, builder);
+                break;
+
+            case ThematicBreakBlock:
+                builder.AppendLine(new string('─', 80));
+                builder.AppendLine();
+                break;
+
             default:
                 builder.AppendLine(Markup.Escape(block.ToString() ?? string.Empty));
                 break;
@@ -252,16 +261,59 @@ internal sealed class MarkdownRenderer
 
     private void RenderQuote(QuoteBlock quote)
     {
-        foreach (var block in quote)
+        foreach (var block in quote.OfType<ParagraphBlock>())
         {
-            if (block is ParagraphBlock para && para.Inline is not null)
+            if (block.Inline is not null)
             {
-                var text = GetInlineText(para.Inline);
+                var text = GetInlineText(block.Inline);
                 AnsiConsole.MarkupLine($"[dim]│[/] [italic]{Markup.Escape(text)}[/]");
             }
         }
 
         AnsiConsole.WriteLine();
+    }
+
+    private static void ConvertQuoteToMarkup(QuoteBlock quote, StringBuilder builder)
+    {
+        foreach (var block in quote.OfType<ParagraphBlock>())
+        {
+            if (block.Inline is not null)
+            {
+                var text = GetInlineTextStatic(block.Inline);
+                builder.AppendLine(CultureInfo.InvariantCulture, $"[dim]│[/] [italic]{Markup.Escape(text)}[/]");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static string GetInlineTextStatic(ContainerInline? inline)
+    {
+        if (inline is null)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        foreach (var child in inline)
+        {
+            builder.Append(GetInlineElementTextStatic(child));
+        }
+
+        return builder.ToString();
+    }
+
+    private static string GetInlineElementTextStatic(Inline inline)
+    {
+        return inline switch
+        {
+            LiteralInline literal => literal.Content.ToString(),
+            CodeInline code => code.Content,
+            EmphasisInline emphasis => GetInlineTextStatic(emphasis),
+            LinkInline link => GetInlineTextStatic(link),
+            LineBreakInline => " ",
+            _ => inline.ToString() ?? string.Empty
+        };
     }
 
     private static void RenderGenericBlock(Block block)

@@ -142,11 +142,11 @@ internal sealed class ConsoleUI : IDisposable
                                 AnsiConsole.WriteLine();
                             }
 
-                            var decision = _approvalHandler.RequestApproval(
+                            // Display approval request (orchestrator will handle the actual decision)
+                            _ = _approvalHandler.RequestApproval(
                                 approval.ToolName,
                                 approval.Input);
 
-                            // Decision handling will be done by the orchestrator
                             firstToken = false;
                             break;
 
