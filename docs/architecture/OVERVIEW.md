@@ -35,11 +35,11 @@ flowchart LR
 ## Component Map
 
 ### Krutaka.Core (net10.0)
-**Status:** Interfaces, model types, and AgentOrchestrator complete (Issues #6, #14 — 2026-02-10)  
+**Status:** Interfaces, model types, AgentOrchestrator, and ContextCompactor complete (Issues #6, #14, #17 — 2026-02-10)  
 **Path:** `src/Krutaka.Core/`  
 **Dependencies:** None (zero NuGet packages)
 
-The shared contract layer. Defines all interfaces that other projects implement, all model types used across the solution, and the core agentic loop orchestrator.
+The shared contract layer. Defines all interfaces that other projects implement, all model types used across the solution, the core agentic loop orchestrator, and context window management.
 
 #### Core Interfaces
 
@@ -61,7 +61,14 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `SessionEvent` | Record | JSONL event: Type, Role, Content, Timestamp, ToolName, ToolUseId, IsMeta |
 | `MemoryResult` | Record | Search result: Id, Content, Source, CreatedAt, Score |
 | `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
-| `AgentOrchestrator` | Sealed Class | Core agentic loop orchestrator implementing Pattern A (manual loop with full control) |
+| `CompactionResult` | Record | Context compaction result: message counts, token counts, summary, compacted messages |
+
+#### Core Classes
+
+| Class | Description | Status |
+|---|---|---|
+| `AgentOrchestrator` | Core agentic loop implementing Pattern A (manual loop with full control) | ✅ Implemented |
+| `ContextCompactor` | Context window compaction when token count exceeds threshold | ✅ Implemented |
 
 #### AgentOrchestrator Implementation
 
@@ -87,22 +94,62 @@ The `AgentOrchestrator` implements the core agentic loop with the following feat
 - `ApproveTool(toolUseId, alwaysApprove)`: Approves pending tool execution
 - `ConversationHistory`: Read-only access to conversation state
 
+#### ContextCompactor Implementation
+
+**Status:** ✅ Complete (Issue #17 — 2026-02-10)
+
+The `ContextCompactor` provides automatic context window management with the following features:
+
+- **Threshold-based triggering**: Automatically triggers when `input_tokens > 160,000` (80% of 200K context window)
+- **Summarization**: Uses the configured Claude model via `IClaudeClient` to generate conversation summaries
+  - Note: For production use, configure a cheaper model (e.g., Claude Haiku) via a dedicated `IClaudeClient` instance
+- **Message preservation**: Keeps last 6 messages (3 user/assistant pairs) + adds summary message
+  - Conditionally adds assistant acknowledgment only when needed to maintain role alternation
+- **Content preservation**: Summary focuses on:
+  - File paths mentioned or modified
+  - Action items completed or pending
+  - Technical decisions made
+  - Error context and debugging insights
+  - Key outcomes from tool executions
+- **Security**: Wraps untrusted conversation content in `<untrusted_content>` tags for prompt injection defense
+- **Short-circuit optimization**: When `messages.Count <= messagesToKeep`, returns original messages without summarization
+- **Token counting**: Counts tokens in compacted conversation and reports original vs. new token count
+- **Manual trigger**: Can be invoked programmatically for manual compaction
+
+**Key Methods:**
+- `ShouldCompact(currentTokenCount)`: Checks if compaction is needed based on threshold
+- `CompactAsync(messages, systemPrompt, currentTokenCount, cancellationToken)`: Performs compaction and returns `CompactionResult`
+
+**Compaction Strategy:**
+1. Short-circuit if `messages.Count <= messagesToKeep` (nothing to summarize)
+2. Identify messages to summarize (all except last 6)
+3. Generate summary via configured Claude client with structured prompt
+4. Replace summarized messages with:
+   - User message: `[Previous conversation summary]\n{summary}`
+   - Assistant acknowledgment: Only added if first kept message is from user (maintains role alternation)
+   - Last 6 messages from original conversation
+5. Return metadata about compaction (messages removed, token reduction)
+
 ### Krutaka.AI (net10.0)
-**Status:** Implemented (Issue #8 — 2026-02-10)  
+**Status:** Implemented (Issue #8, #17 — 2026-02-10)  
 **Path:** `src/Krutaka.AI/`  
 **Dependencies:** Krutaka.Core, official Anthropic package (v12.4.0), Microsoft.Extensions.Http.Resilience
 
-Claude API integration layer.
+Claude API integration layer with token counting and context management.
 
 | Type | Description | Status |
 |---|---|---|
 | `ClaudeClientWrapper` | Wraps official Anthropic package behind `IClaudeClient` | ✅ Implemented |
+| `TokenCounter` | Token counting with caching to avoid redundant API calls | ✅ Implemented |
 | `ServiceExtensions` | `AddClaudeAI(services, config)` DI registration | ✅ Implemented |
 
 **Implementation Details:**
 - Uses official Anthropic C# package v12.4.0 (NuGet: `Anthropic`) for all API calls
 - Streaming support via `IAsyncEnumerable<AgentEvent>` (basic implementation, to be enhanced in agentic loop)
 - Token counting via `Messages.CountTokens()` endpoint ✅ Implemented
+- **TokenCounter**: Bounded in-memory cache (100 entries, 60 min expiry) with content-based SHA256 hashing to minimize redundant token counting API calls ✅ Implemented
+  - Cache eviction removes oldest entries by insertion time (at least 1 entry or 20% of cache, whichever is greater)
+  - Content-based cache keys use JSON serialization + SHA256 for collision resistance
 - HTTP resilience configured via official package's built-in retry mechanism:
   - Package MaxRetries set to 3 (exponential backoff with jitter)
   - Request timeout set to 120 seconds
