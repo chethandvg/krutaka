@@ -14,15 +14,19 @@ namespace Krutaka.Tools;
 public class SearchFilesTool : ToolBase
 {
     private readonly string _projectRoot;
+    private readonly IFileOperations _fileOperations;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SearchFilesTool"/> class.
     /// </summary>
     /// <param name="projectRoot">The allowed root directory for file access.</param>
-    public SearchFilesTool(string projectRoot)
+    /// <param name="fileOperations">The file operations service.</param>
+    public SearchFilesTool(string projectRoot, IFileOperations fileOperations)
     {
         ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(fileOperations);
         _projectRoot = projectRoot;
+        _fileOperations = fileOperations;
     }
 
     /// <inheritdoc/>
@@ -97,7 +101,7 @@ public class SearchFilesTool : ToolBase
             string validatedPath;
             try
             {
-                validatedPath = SafeFileOperations.ValidatePath(path, _projectRoot);
+                validatedPath = _fileOperations.ValidatePath(path, _projectRoot);
             }
             catch (SecurityException ex)
             {
@@ -148,7 +152,7 @@ public class SearchFilesTool : ToolBase
                     // Validate file path
                     try
                     {
-                        SafeFileOperations.ValidatePath(file, _projectRoot);
+                        _fileOperations.ValidatePath(file, _projectRoot);
                     }
                     catch (SecurityException)
                     {
@@ -159,7 +163,7 @@ public class SearchFilesTool : ToolBase
                     // Validate file size
                     try
                     {
-                        SafeFileOperations.ValidateFileSize(file);
+                        _fileOperations.ValidateFileSize(file);
                     }
                     catch (SecurityException)
                     {

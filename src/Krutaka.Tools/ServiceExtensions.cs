@@ -49,28 +49,48 @@ public static class ServiceExtensions
         // Get working directory from options
         var workingDir = options.WorkingDirectory;
 
-        // Register and add all tool implementations
+        // Register and add all tool implementations using factories to resolve IFileOperations
         // Read-only tools (auto-approve)
-        var readFileTool = new ReadFileTool(workingDir);
-        registry.Register(readFileTool);
-        services.AddSingleton<ITool>(readFileTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var readFileTool = new ReadFileTool(workingDir, fileOperations);
+            registry.Register(readFileTool);
+            return readFileTool;
+        });
 
-        var listFilesTool = new ListFilesTool(workingDir);
-        registry.Register(listFilesTool);
-        services.AddSingleton<ITool>(listFilesTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var listFilesTool = new ListFilesTool(workingDir, fileOperations);
+            registry.Register(listFilesTool);
+            return listFilesTool;
+        });
 
-        var searchFilesTool = new SearchFilesTool(workingDir);
-        registry.Register(searchFilesTool);
-        services.AddSingleton<ITool>(searchFilesTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var searchFilesTool = new SearchFilesTool(workingDir, fileOperations);
+            registry.Register(searchFilesTool);
+            return searchFilesTool;
+        });
 
         // Write tools (require approval)
-        var writeFileTool = new WriteFileTool(workingDir);
-        registry.Register(writeFileTool);
-        services.AddSingleton<ITool>(writeFileTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var writeFileTool = new WriteFileTool(workingDir, fileOperations);
+            registry.Register(writeFileTool);
+            return writeFileTool;
+        });
 
-        var editFileTool = new EditFileTool(workingDir);
-        registry.Register(editFileTool);
-        services.AddSingleton<ITool>(editFileTool);
+        services.AddSingleton<ITool>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var editFileTool = new EditFileTool(workingDir, fileOperations);
+            registry.Register(editFileTool);
+            return editFileTool;
+        });
 
         // Register a factory for RunCommandTool since it needs ISecurityPolicy from DI
         services.AddSingleton<ITool>(sp =>

@@ -13,15 +13,19 @@ namespace Krutaka.Tools;
 public class WriteFileTool : ToolBase
 {
     private readonly string _projectRoot;
+    private readonly IFileOperations _fileOperations;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WriteFileTool"/> class.
     /// </summary>
     /// <param name="projectRoot">The allowed root directory for file access.</param>
-    public WriteFileTool(string projectRoot)
+    /// <param name="fileOperations">The file operations service.</param>
+    public WriteFileTool(string projectRoot, IFileOperations fileOperations)
     {
         ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(fileOperations);
         _projectRoot = projectRoot;
+        _fileOperations = fileOperations;
     }
 
     /// <inheritdoc/>
@@ -73,7 +77,7 @@ public class WriteFileTool : ToolBase
             string validatedPath;
             try
             {
-                validatedPath = SafeFileOperations.ValidatePath(path, _projectRoot);
+                validatedPath = _fileOperations.ValidatePath(path, _projectRoot);
             }
             catch (SecurityException ex)
             {

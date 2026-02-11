@@ -11,15 +11,19 @@ namespace Krutaka.Tools;
 public class ReadFileTool : ToolBase
 {
     private readonly string _projectRoot;
+    private readonly IFileOperations _fileOperations;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadFileTool"/> class.
     /// </summary>
     /// <param name="projectRoot">The allowed root directory for file access.</param>
-    public ReadFileTool(string projectRoot)
+    /// <param name="fileOperations">The file operations service for security validation.</param>
+    public ReadFileTool(string projectRoot, IFileOperations fileOperations)
     {
         ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(fileOperations);
         _projectRoot = projectRoot;
+        _fileOperations = fileOperations;
     }
 
     /// <inheritdoc/>
@@ -57,7 +61,7 @@ public class ReadFileTool : ToolBase
             string validatedPath;
             try
             {
-                validatedPath = SafeFileOperations.ValidatePath(path, _projectRoot);
+                validatedPath = _fileOperations.ValidatePath(path, _projectRoot);
             }
             catch (SecurityException ex)
             {
@@ -73,7 +77,7 @@ public class ReadFileTool : ToolBase
             // Validate file size (security check)
             try
             {
-                SafeFileOperations.ValidateFileSize(validatedPath);
+                _fileOperations.ValidateFileSize(validatedPath);
             }
             catch (SecurityException ex)
             {
