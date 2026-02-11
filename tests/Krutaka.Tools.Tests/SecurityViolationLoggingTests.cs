@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security;
 using FluentAssertions;
 using Krutaka.Core;
@@ -68,7 +67,7 @@ public class SecurityViolationLoggingTests
             // Write more than 1MB
             using (var fs = new FileStream(tempFile, FileMode.Create))
             {
-                var buffer = new byte[fileOps.MaxFileSizeBytes + 1000];
+                var buffer = new byte[checked((int)(fileOps.MaxFileSizeBytes + 1000L))];
                 fs.Write(buffer, 0, buffer.Length);
             }
 

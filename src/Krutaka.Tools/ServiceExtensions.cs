@@ -88,8 +88,8 @@ public static class ServiceExtensions
             return new RunCommandTool(workingDir, securityPolicy);
         });
 
-        // Register the tool registry with a factory that eagerly resolves and registers all tools
-        // This ensures tools are available in the registry immediately after DI container is built
+        // Register the tool registry with a factory that resolves and registers all tools
+        // Tools are added to the registry when IToolRegistry is first resolved from the DI container
         services.AddSingleton<IToolRegistry>(sp =>
         {
             var tools = sp.GetServices<ITool>();

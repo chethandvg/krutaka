@@ -679,23 +679,26 @@ The structured audit logging system has been fully implemented with correlation 
 
 **Deferred Tasks (Originally from Issue #24):**
 
-All deferred tasks from Issue #24 have been resolved:
-
-1. ✅ **Request-id extraction from Claude API** (2026-02-11)
-   - Documented in IMPLEMENTATION_SUMMARY.md that official Anthropic package v12.4.0 doesn't expose response headers
-   - Noted as limitation of the package, not our implementation
-   - Added clarification in ADR-003 to prevent confusion about package naming
-   - Updated all documentation to use "official Anthropic package" instead of "Anthropic SDK"
-   - Marked as blocked waiting for package update
+1. ✅ **Anthropic package naming clarification** (2026-02-11)
+   - Updated all documentation to use "official Anthropic package" (NuGet: `Anthropic`) instead of "Anthropic SDK"
+   - Added clarification in ADR-003 to prevent confusion with the community `Anthropic.SDK` package
+   - Updated AGENTS.md, IMPLEMENTATION_SUMMARY.md, PROGRESS.md, and ToolRegistry.cs
 
 2. ✅ **Security violation logging in CommandPolicy/SafeFileOperations** (2026-02-11)
    - Converted SafeFileOperations from static class to instance-based `IFileOperations` service
    - Updated CommandPolicy to accept `IAuditLogger` via constructor (via DI)
    - Added optional `CorrelationContext` parameter to security validation methods
-   - Security violations now logged to structured audit trail with correlation IDs
+   - Security violations can now be logged to structured audit trail with correlation IDs
    - Added 8 comprehensive integration tests for security violation logging
    - Created ADR-011 documenting the architectural decision
    - Backward compatible: logging is optional, exceptions still thrown regardless
+   - **Note**: Production code does not yet pass CorrelationContext to validation methods; this will be addressed in a future enhancement when tools have access to correlation context
+
+3. ⏸️ **Request-id extraction from Claude API** (Blocked - waiting for SDK update)
+   - Documented in IMPLEMENTATION_SUMMARY.md that official Anthropic package v12.4.0 doesn't expose response headers
+   - Noted as limitation of the package, not our implementation
+   - Cannot be implemented until the official package exposes response headers
+   - Infrastructure is ready (CorrelationContext has RequestId field), waiting on SDK support
 
 **Future Enhancements:**
 - Claude API request/response event logging (requires SDK support for streaming token counts)
