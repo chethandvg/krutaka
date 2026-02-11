@@ -12,6 +12,7 @@
     <Project Path="tests/Krutaka.Console.Tests/Krutaka.Console.Tests.csproj" />
     <Project Path="tests/Krutaka.Core.Tests/Krutaka.Core.Tests.csproj" />
     <Project Path="tests/Krutaka.Memory.Tests/Krutaka.Memory.Tests.csproj" />
+    <Project Path="tests/Krutaka.Skills.Tests/Krutaka.Skills.Tests.csproj" />
     <Project Path="tests/Krutaka.Tools.Tests/Krutaka.Tools.Tests.csproj" />
   </Folder>
 </Solution>

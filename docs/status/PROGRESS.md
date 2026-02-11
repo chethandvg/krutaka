@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #21 complete - Spectre.Console streaming UI)
+> **Last updated:** 2026-02-11 (Issue #22 complete - Skill system with YAML frontmatter)
 
 ## Phase Summary
 
@@ -11,7 +11,7 @@
 | 2 | Tool System & Agentic Loop | #9, #10, #11, #12, #13, #14, #15 | 🟢 Complete |
 | 3 | Persistence & Memory | #16, #17, #18, #19 | 🟢 Complete |
 | 4 | UI & System Prompt | #20, #21, #23 | 🟡 In Progress |
-| 5 | Skills & Observability | #22, #24 | 🔴 Not Started |
+| 5 | Skills & Observability | #22, #24 | 🟡 In Progress |
 | 6 | Build, Package & Verify | #25, #26, #27, #28 | 🔴 Not Started |
 
 ## Issue Status
@@ -38,7 +38,7 @@
 | 19 | Implement MEMORY.md and daily log management | 3 | 🟢 Complete | 2026-02-11 |
 | 20 | Implement system prompt builder | 4 | 🟢 Complete | 2026-02-11 |
 | 21 | Implement Spectre.Console streaming UI | 4 | 🟢 Complete | 2026-02-11 |
-| 22 | Implement skill system | 5 | 🔴 Not Started | — |
+| 22 | Implement skill system | 5 | 🟢 Complete | 2026-02-11 |
 | 23 | Implement Program.cs composition root (integration) | 4 | 🟢 Complete | 2026-02-11 |
 | 24 | Implement structured audit logging | 5 | 🔴 Not Started | — |
 | 25 | Create GitHub Actions CI pipeline | 6 | 🔴 Not Started | — |
@@ -445,11 +445,7 @@ The system prompt builder with layered assembly has been fully implemented:
 - Integration with `AgentOrchestrator` to build system prompt for each turn
 - DI registration of `SystemPromptBuilder` with proper dependencies
 - Wiring `MemoryFileService.ReadMemoryAsync` as the memory file reader delegate
-
-**Deferred to Issue #22 (Skills system):**
-- `SkillRegistry` implementation of `ISkillRegistry`
-- `SkillLoader` for parsing YAML frontmatter from Markdown skill files
-- Actual skill files and skill activation mechanism
+- Integration with `SkillRegistry` to include skill metadata in system prompt
 
 ### Issue #21 Status (Complete)
 
@@ -529,5 +525,96 @@ The Spectre.Console streaming UI has been fully implemented:
 - Main loop implementation with session management
 - Compaction triggering logic
 - Memory and session information retrieval
+
+### Issue #22 Status (Complete)
+
+The Markdown-based skill system with YAML frontmatter parsing has been fully implemented:
+
+- ✅ **SkillMetadata** record in `Krutaka.Core`:
+  - Extended with `FilePath`, `AllowedTools` (IReadOnlyList<string>?), `Model`, `Version`
+  - Used for progressive disclosure (only name + description in system prompt)
+
+- ✅ **SkillLoader** class in `Krutaka.Skills`:
+  - `LoadSkillAsync(filePath)`: Loads and parses SKILL.md files
+  - YAML frontmatter parsing using YamlDotNet with hyphenated naming convention
+  - Validates required fields: `name`, `description`
+  - Optional fields: `allowed-tools` (comma-separated), `model`, `version`
+  - Returns tuple: `(SkillMetadata, string FullContent)`
+  - Error handling:
+    - Throws `FileNotFoundException` if file doesn't exist
+    - Throws `InvalidOperationException` for missing/malformed frontmatter
+    - Throws `InvalidOperationException` for missing required fields
+  - Internal `SkillFrontmatter` class instantiated via YamlDotNet reflection
+
+- ✅ **SkillRegistry** class in `Krutaka.Skills` implementing `ISkillRegistry`:
+  - Constructor accepts `SkillLoader` and `IEnumerable<string>` directories
+  - `LoadMetadataAsync()`: Scans directories for `SKILL.md` files (recursive)
+  - `GetSkillMetadata()`: Returns `IReadOnlyList<SkillMetadata>` (progressive disclosure)
+  - `LoadFullContentAsync(name)`: Loads full Markdown content on-demand
+  - Silently skips malformed skill files during directory scan
+  - Throws `KeyNotFoundException` if skill not found in `LoadFullContentAsync`
+  - Uses `ConfigureAwait(false)` for all async operations
+
+- ✅ **SkillOptions** class in `Krutaka.Skills`:
+  - `SkillDirectories` property (`IList<string>`) for configuration
+  - `AddDefaultDirectories()`: Adds `./skills/` and `~/.krutaka/skills/`
+  - Read-only property with getter-only collection
+
+- ✅ **ServiceExtensions** in `Krutaka.Skills`:
+  - `AddSkills(services, configure)`: DI registration method
+  - Accepts optional `Action<SkillOptions>` for configuration
+  - Defaults to `AddDefaultDirectories()` if no configuration provided
+  - Registers `SkillLoader` as singleton
+  - Registers `SkillRegistry` as singleton with pre-loaded metadata
+  - Metadata loading happens synchronously during DI registration (acceptable at startup)
+
+- ✅ **Sample Skill**: `skills/code-reviewer/SKILL.md`
+  - Complete example with all frontmatter fields
+  - Demonstrates skill structure and formatting
+  - Includes instructions, output format, allowed tools, model preference
+
+- ✅ **Testing**: 17 unit tests in `Krutaka.Skills.Tests` (all passing)
+  - **SkillLoader tests** (9 tests):
+    - Valid YAML frontmatter parsing with all fields
+    - Minimal frontmatter (only required fields)
+    - Missing required fields (`name`, `description`)
+    - Missing frontmatter delimiters
+    - Malformed frontmatter (unclosed delimiter)
+    - Invalid YAML syntax
+    - Nonexistent file
+    - Allowed-tools splitting with spaces
+  - **SkillRegistry tests** (8 tests):
+    - Load metadata from skill directory
+    - Load multiple skills from same directory
+    - Handle nonexistent directory gracefully
+    - Skip invalid skill files and continue loading
+    - Load full content for registered skill
+    - Throw `KeyNotFoundException` for nonexistent skill
+    - Progressive disclosure (metadata only, not full content)
+    - Clear previous metadata when reloading
+  - Test fixtures use temporary directories with `IDisposable` cleanup
+  - GlobalSuppressions.cs for standard test suppressions (CA1707, CA2007, CA1063, CA1852)
+
+**Implementation Notes:**
+- All code follows project conventions (nullable types, async/await, ConfigureAwait, XML docs)
+- Code analysis warnings resolved with targeted suppressions where appropriate:
+  - CA1031 in `SkillRegistry.LoadMetadataAsync` (need to catch all to skip bad skills)
+  - CA1822 in `SkillLoader.LoadSkillAsync` (instance method for DI/testability)
+  - CA1812 in `SkillFrontmatter` (YamlDotNet reflection instantiation)
+- Progressive disclosure pattern: metadata loaded at startup, full content on-demand
+- Default directory: `./skills/` (local project-relative)
+- No remote skill marketplace (security decision per SECURITY.md)
+- Test project structure mirrors other test projects (`Krutaka.Tools.Tests`)
+
+**Deferred to Issue #23 (Program.cs composition root):**
+- Wiring `Krutaka.Skills.ServiceExtensions.AddSkills` into `Program.cs` DI setup with configured directories
+- Integration with `SystemPromptBuilder` to include skill metadata in system prompt
+- Skill activation/invocation mechanism (if needed)
+
+**Deferred to future enhancements:**
+- ILogger integration for skill loading errors (currently silently skipped with console comment)
+- Background service for async metadata loading instead of blocking at startup
+- Skill hot-reload (watching directories for changes)
+- Compiled C# skill plugins (if needed beyond Markdown)
 
 
