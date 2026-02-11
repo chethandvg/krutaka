@@ -117,8 +117,8 @@ The ToolRegistry and DI registration system has been fully implemented:
 - ✅ Integration tests (5 tests verifying tool definitions serialize to valid JSON matching Claude API format)
 
 **Implementation Notes:**
-- `GetToolDefinitions()` returns anonymous objects instead of Anthropic SDK types to avoid circular dependency (Tools project doesn't reference AI project)
-- The AI layer will convert these objects to `Anthropic.Models.Messages.Tool` types when calling Claude API
+- `GetToolDefinitions()` returns anonymous objects instead of official Anthropic package types to avoid circular dependency (Tools project doesn't reference AI project)
+- The AI layer will convert these objects to `Anthropic.Models.Messages.Tool` types (from official `Anthropic` NuGet package) when calling Claude API
 - All 291 existing tests continue to pass, plus 15 new tests for ToolRegistry
 - Zero warnings or errors in build
 
