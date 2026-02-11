@@ -10,7 +10,7 @@ namespace Krutaka.Tools.Tests;
 /// Integration tests for ToolRegistry with actual tool implementations.
 /// Verifies that tool definitions serialize correctly to Claude API format.
 /// </summary>
-internal sealed class ToolRegistryIntegrationTests : IDisposable
+public sealed class ToolRegistryIntegrationTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly ToolRegistry _registry;

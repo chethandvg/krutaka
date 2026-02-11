@@ -8,7 +8,7 @@ namespace Krutaka.Core.Tests;
 /// <summary>
 /// Unit tests for SystemPromptBuilder layered assembly.
 /// </summary>
-internal sealed class SystemPromptBuilderTests : IDisposable
+public sealed class SystemPromptBuilderTests : IDisposable
 {
     private readonly string _testAgentsPromptPath;
 
@@ -413,13 +413,34 @@ file sealed class MockTool : ITool
 file sealed class MockSkillRegistry : ISkillRegistry
 {
     private readonly List<SkillMetadata> _skills = [];
+    private readonly Dictionary<string, string> _fullContent = [];
 
-    public void AddSkill(string name, string description)
+    public void AddSkill(string name, string description, string? filePath = null, string? fullContent = null)
     {
-        _skills.Add(new SkillMetadata(name, description));
+        _skills.Add(new SkillMetadata(name, description, filePath ?? $"/path/to/{name}.md"));
+        if (fullContent != null)
+        {
+            _fullContent[name] = fullContent;
+        }
+    }
+
+    public Task LoadMetadataAsync(CancellationToken cancellationToken = default)
+    {
+        // Mock implementation - metadata already loaded via AddSkill
+        return Task.CompletedTask;
     }
 
     public IReadOnlyList<SkillMetadata> GetSkillMetadata() => _skills.AsReadOnly();
+
+    public Task<string> LoadFullContentAsync(string name, CancellationToken cancellationToken = default)
+    {
+        if (_fullContent.TryGetValue(name, out var content))
+        {
+            return Task.FromResult(content);
+        }
+
+        throw new KeyNotFoundException($"Skill '{name}' not found.");
+    }
 }
 
 file sealed class MockMemoryService : IMemoryService

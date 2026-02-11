@@ -504,6 +504,65 @@ The `MarkdownRenderer` class converts Markdown to Spectre.Console output using M
 - Actual human-in-the-loop approval handling (currently UI displays approval request but orchestrator doesn't wait)
 - DI registration of `ConsoleUI` and dependencies
 
+### Observability and Audit Logging
+
+**Status:** ✅ Complete (Issue #24 — 2026-02-11)  
+**Path:** `src/Krutaka.Console/Logging/`, `src/Krutaka.Core/` (interfaces and models)
+
+Structured audit logging with correlation IDs for debugging and compliance.
+
+#### Audit Logging Components
+
+| Type | Description | Status |
+|---|---|---|
+| `IAuditLogger` | Interface for structured audit event logging | ✅ Implemented |
+| `AuditLogger` | Serilog-based implementation in Console project | ✅ Implemented |
+| `AuditEvent` | Base class for all audit events | ✅ Implemented |
+| `CorrelationContext` | Tracks SessionId, TurnId, RequestId | ✅ Implemented |
+
+#### Correlation IDs
+
+All audit events include three correlation IDs for request tracing:
+
+- **SessionId** (Guid): Generated once per session, constant throughout
+- **TurnId** (int): Increments each time user provides input
+- **RequestId** (string): Claude API `request-id` response header (when available)
+
+#### Audit Event Types
+
+| Event Type | When Logged | Key Properties |
+|---|---|---|
+| `UserInputEvent` | User provides input | Content (sanitized, truncated at 500 chars), ContentLength |
+| `ClaudeApiRequestEvent` | Request sent to Claude API | Model, TokenCount, ToolCount |
+| `ClaudeApiResponseEvent` | Response received from Claude API | StopReason, InputTokens, OutputTokens, RequestId |
+| `ToolExecutionEvent` | Tool execution completes | ToolName, Approved, AlwaysApprove, DurationMs, ResultLength, Error |
+| `CompactionEvent` | Context compaction occurs | BeforeTokenCount, AfterTokenCount, MessagesRemoved |
+| `SecurityViolationEvent` | Security policy violation | ViolationType, BlockedValue, Context |
+
+#### Log Configuration
+
+- **Audit log path**: `~/.krutaka/logs/audit-{Date}.json`
+- **Format**: Structured JSON (one event per line)
+- **Rotation**: Daily rolling files
+- **Retention**: 30 days (configurable)
+- **Redaction**: API keys and secrets scrubbed via `LogRedactionEnricher`
+
+#### Integration Points
+
+Audit logging is integrated at the following points:
+
+- **User input**: Logged in `Program.cs` main loop
+- **Tool execution**: Logged in `AgentOrchestrator.ExecuteToolAsync` with timing and error tracking
+- **Compaction events**: Supported via `ContextCompactor` (emitted when compaction is invoked with `IAuditLogger`/`CorrelationContext`)
+- **Claude API calls**: Deferred (requires request-id extraction from API client)
+- **Security violations**: Deferred (requires CommandPolicy/SafeFileOperations refactoring for DI support)
+
+#### Testing
+
+- **AuditLogger**: 13 unit tests covering all event types and serialization
+- **CorrelationContext**: 9 unit tests covering session/turn/request tracking
+- All 22 tests passing
+
 ## Project Dependency Graph
 
 ```mermaid

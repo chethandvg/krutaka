@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace Krutaka.Core.Tests;
 
-internal class AgentEventTests
+public class AgentEventTests
 {
     [Fact]
     public void TextDelta_Should_HaveCorrectProperties()

@@ -24,6 +24,7 @@ var logsDir = Path.Combine(krutakaDir, "logs");
 Directory.CreateDirectory(logsDir);
 
 var logPath = Path.Combine(logsDir, "krutaka-.log");
+var auditLogPath = Path.Combine(logsDir, "audit-.json");
 
 // Create Serilog logger with file output and redaction
 Log.Logger = new LoggerConfiguration()
@@ -40,6 +41,15 @@ Log.Logger = new LoggerConfiguration()
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
         retainedFileCountLimit: 30,
         formatProvider: CultureInfo.InvariantCulture)
+    .WriteTo.Logger(lc => lc
+        .Filter.ByIncludingOnly(evt => 
+            evt.Properties.ContainsKey("EventType") && 
+            evt.MessageTemplate.Text.StartsWith("Audit:", StringComparison.Ordinal))
+        .WriteTo.File(
+            new Serilog.Formatting.Json.JsonFormatter(),
+            auditLogPath,
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 30))
     .CreateLogger();
 
 try
@@ -73,8 +83,23 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
+    // Single session identifier for this host run
+    var sessionId = Guid.NewGuid();
+
     // Add Serilog to host
     builder.Services.AddSerilog();
+
+    // Register CorrelationContext (scoped per session)
+    builder.Services.AddSingleton(sp =>
+    {
+        return new CorrelationContext(sessionId);
+    });
+
+    // Register IAuditLogger
+    builder.Services.AddSingleton<IAuditLogger>(sp =>
+    {
+        return new AuditLogger(Log.Logger);
+    });
 
     // Register ISecretsProvider (WindowsSecretsProvider)
     builder.Services.AddSingleton<ISecretsProvider, WindowsSecretsProvider>();
@@ -105,10 +130,9 @@ try
     // Register Skills (placeholder for now)
     builder.Services.AddSkills();
 
-    // Register SessionStore as factory
+    // Register SessionStore as factory (using the same session ID as CorrelationContext)
     builder.Services.AddSingleton(sp =>
     {
-        var sessionId = Guid.NewGuid();
         return new SessionStore(workingDirectory, sessionId);
     });
 
@@ -172,12 +196,16 @@ try
         var claudeClient = sp.GetRequiredService<IClaudeClient>();
         var toolRegistry = sp.GetRequiredService<IToolRegistry>();
         var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+        var auditLogger = sp.GetRequiredService<IAuditLogger>();
+        var correlationContext = sp.GetRequiredService<CorrelationContext>();
 
         return new AgentOrchestrator(
             claudeClient,
             toolRegistry,
             securityPolicy,
-            toolTimeoutSeconds);
+            toolTimeoutSeconds,
+            auditLogger,
+            correlationContext);
     });
 
     // Register ApprovalHandler
@@ -202,6 +230,8 @@ try
     var orchestrator = host.Services.GetRequiredService<AgentOrchestrator>();
     var systemPromptBuilder = host.Services.GetRequiredService<SystemPromptBuilder>();
     var sessionStore = host.Services.GetRequiredService<SessionStore>();
+    var correlationContext = host.Services.GetRequiredService<CorrelationContext>();
+    var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
 
     // Display banner
     ui.DisplayBanner();
@@ -252,6 +282,12 @@ try
 
         try
         {
+            // Increment turn ID for new user input
+            correlationContext.IncrementTurn();
+
+            // Log user input
+            auditLogger.LogUserInput(correlationContext, input);
+
             // Build system prompt
             var systemPrompt = await systemPromptBuilder.BuildAsync(input, ui.ShutdownToken).ConfigureAwait(false);
 

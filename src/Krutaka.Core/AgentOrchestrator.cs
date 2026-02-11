@@ -14,6 +14,8 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly IClaudeClient _claudeClient;
     private readonly IToolRegistry _toolRegistry;
     private readonly ISecurityPolicy _securityPolicy;
+    private readonly IAuditLogger? _auditLogger;
+    private readonly CorrelationContext? _correlationContext;
     private readonly TimeSpan _toolTimeout;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
@@ -27,15 +29,21 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="toolRegistry">The tool registry for executing tools.</param>
     /// <param name="securityPolicy">The security policy for approval checks.</param>
     /// <param name="toolTimeoutSeconds">Timeout for tool execution in seconds (default: 30).</param>
+    /// <param name="auditLogger">Optional audit logger for structured logging.</param>
+    /// <param name="correlationContext">Optional correlation context for request tracing.</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
         ISecurityPolicy securityPolicy,
-        int toolTimeoutSeconds = 30)
+        int toolTimeoutSeconds = 30,
+        IAuditLogger? auditLogger = null,
+        CorrelationContext? correlationContext = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
         _securityPolicy = securityPolicy ?? throw new ArgumentNullException(nameof(securityPolicy));
+        _auditLogger = auditLogger;
+        _correlationContext = correlationContext;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
         _turnLock = new SemaphoreSlim(1, 1);
         _conversationHistory = [];
@@ -171,7 +179,10 @@ public sealed class AgentOrchestrator : IDisposable
             foreach (var toolCall in toolCalls)
             {
                 // Check if approval is required and not already granted for this session
-                if (_securityPolicy.IsApprovalRequired(toolCall.Name) && !_approvalCache.ContainsKey(toolCall.Name))
+                var approvalRequired = _securityPolicy.IsApprovalRequired(toolCall.Name);
+                var alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
+                
+                if (approvalRequired && !alwaysApprove)
                 {
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
                     // Note: The caller must call ApproveTool before continuing
@@ -179,7 +190,7 @@ public sealed class AgentOrchestrator : IDisposable
                 }
 
                 // Execute the tool with timeout
-                var toolResult = await ExecuteToolAsync(toolCall, cancellationToken).ConfigureAwait(false);
+                var toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
 
                 // Yield the appropriate event
                 if (toolResult.IsError)
@@ -305,8 +316,10 @@ public sealed class AgentOrchestrator : IDisposable
     /// Handles timeout and error cases, returning an appropriate result.
     /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Tool execution errors should not crash the agentic loop - errors are returned to Claude as tool results")]
-    private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, CancellationToken cancellationToken)
+    private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, bool approvalRequired, bool alwaysApprove, CancellationToken cancellationToken)
     {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -320,23 +333,82 @@ public sealed class AgentOrchestrator : IDisposable
             catch (JsonException ex)
             {
                 var errorMessage = $"Invalid JSON input for tool {toolCall.Name}: {ex.Message}";
+                stopwatch.Stop();
+                
+                // Log tool execution failure (only if audit logger and correlation context are provided)
+                if (_auditLogger != null && _correlationContext != null)
+                {
+                    _auditLogger.LogToolExecution(
+                        _correlationContext,
+                        toolCall.Name,
+                        false, // not approved (JSON parsing failed)
+                        false,
+                        stopwatch.ElapsedMilliseconds,
+                        errorMessage.Length,
+                        errorMessage);
+                }
+                
                 return new ToolResult(errorMessage, IsError: true);
             }
 
             var result = await _toolRegistry.ExecuteAsync(toolCall.Name, inputElement, timeoutCts.Token).ConfigureAwait(false);
+            stopwatch.Stop();
+            
+            // Log successful tool execution (only if audit logger and correlation context are provided)
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                _auditLogger.LogToolExecution(
+                    _correlationContext,
+                    toolCall.Name,
+                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    alwaysApprove,
+                    stopwatch.ElapsedMilliseconds,
+                    result.Length,
+                    null);
+            }
 
             return new ToolResult(result, IsError: false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // Tool execution timed out
+            stopwatch.Stop();
             var errorMessage = $"Tool execution timed out after {_toolTimeout.TotalSeconds} seconds";
+            
+            // Log timeout (only if audit logger and correlation context are provided)
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                _auditLogger.LogToolExecution(
+                    _correlationContext,
+                    toolCall.Name,
+                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    alwaysApprove,
+                    stopwatch.ElapsedMilliseconds,
+                    0,
+                    errorMessage);
+            }
+            
             return new ToolResult(errorMessage, IsError: true);
         }
         catch (Exception ex)
         {
             // Tool execution failed - don't crash the loop, return error to Claude
+            stopwatch.Stop();
             var errorMessage = $"Tool execution failed: {ex.Message}";
+            
+            // Log execution failure (only if audit logger and correlation context are provided)
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                _auditLogger.LogToolExecution(
+                    _correlationContext,
+                    toolCall.Name,
+                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    alwaysApprove,
+                    stopwatch.ElapsedMilliseconds,
+                    0,
+                    errorMessage);
+            }
+            
             return new ToolResult(errorMessage, IsError: true);
         }
     }

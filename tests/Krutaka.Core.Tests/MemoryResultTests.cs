@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace Krutaka.Core.Tests;
 
-internal class MemoryResultTests
+public class MemoryResultTests
 {
     [Fact]
     public void MemoryResult_Should_HaveCorrectProperties()

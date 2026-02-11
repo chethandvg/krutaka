@@ -9,7 +9,7 @@ namespace Krutaka.Core.Tests;
 /// <summary>
 /// Unit tests for AgentOrchestrator agentic loop implementation.
 /// </summary>
-internal sealed class AgentOrchestratorTests
+public sealed class AgentOrchestratorTests
 {
     [Fact]
     public void Constructor_Should_ThrowArgumentNullException_WhenClaudeClientIsNull()

@@ -8,7 +8,7 @@ namespace Krutaka.AI.Tests;
 /// <summary>
 /// Unit tests for TokenCounter class.
 /// </summary>
-internal sealed class TokenCounterTests
+public sealed class TokenCounterTests
 {
     private readonly IClaudeClient _mockClaudeClient;
     private readonly TokenCounter _tokenCounter;

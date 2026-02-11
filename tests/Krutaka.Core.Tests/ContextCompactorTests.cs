@@ -7,7 +7,7 @@ namespace Krutaka.Core.Tests;
 /// <summary>
 /// Unit tests for ContextCompactor class.
 /// </summary>
-internal sealed class ContextCompactorTests
+public sealed class ContextCompactorTests
 {
     private readonly IClaudeClient _mockClaudeClient;
     private readonly ContextCompactor _compactor;
@@ -244,7 +244,7 @@ internal sealed class ContextCompactorTests
 /// <summary>
 /// Integration tests for ContextCompactor to verify compacted conversations are well-formed.
 /// </summary>
-internal sealed class ContextCompactorIntegrationTests
+public sealed class ContextCompactorIntegrationTests
 {
     [Fact]
     public async Task CompactedConversation_Should_BeWellFormedForClaudeAPI()

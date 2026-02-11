@@ -5,7 +5,7 @@ using Krutaka.Memory;
 
 namespace Krutaka.Memory.Tests;
 
-internal sealed class SessionStoreTests : IDisposable
+public sealed class SessionStoreTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly string _projectPath;
