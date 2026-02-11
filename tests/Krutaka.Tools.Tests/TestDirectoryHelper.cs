@@ -112,13 +112,7 @@ internal static class TestDirectoryHelper
                 // Transient access issues (e.g., file locks, read-only flags) can occur on Windows
                 Thread.Sleep(delayMs);
             }
-            catch (IOException ex)
-            {
-                // Final attempt failed - log so persistent leaks are visible
-                Console.Error.WriteLine(
-                    $"[TestDirectoryHelper] Failed to delete '{path}' after {maxRetries} attempts: {ex.Message}");
-            }
-            catch (UnauthorizedAccessException ex)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // Final attempt failed - log so persistent leaks are visible
                 Console.Error.WriteLine(
