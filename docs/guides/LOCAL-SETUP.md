@@ -1,6 +1,6 @@
 # Krutaka — Local Development Setup
 
-> **Last updated:** 2026-02-10 (Issue #7 — API key setup wizard added)
+> **Last updated:** 2026-02-11 (Issue #23 — Program.cs composition root and DI wiring)
 
 ## Prerequisites
 
@@ -101,9 +101,10 @@ dotnet test --filter "FullyQualifiedName~SecurityPolicy"
 
 ### First-Run Setup Wizard
 
-On first launch, Krutaka will run an interactive setup wizard to configure your Anthropic API key:
+On first launch, Krutaka will automatically detect if an API key is missing and run an interactive setup wizard:
 
 ```bash
+cd krutaka
 dotnet run --project src/Krutaka.Console
 ```
 
@@ -112,6 +113,7 @@ The wizard will:
 2. Prompt you to enter your Anthropic API key (masked input with `*`)
 3. Validate that the key starts with `sk-ant-` (Anthropic's key format)
 4. Store the key securely using DPAPI (Data Protection API) in Windows Credential Manager
+5. Start the application immediately after setup
 
 **API Key Security:**
 - ✅ Encrypted at rest using Windows DPAPI
@@ -145,17 +147,100 @@ After the initial setup, the application will automatically load the API key fro
 
 ```bash
 # Run from source (after setup)
+cd krutaka
 dotnet run --project src/Krutaka.Console
 
 # Run with specific configuration
 dotnet run --project src/Krutaka.Console -c Release
 ```
 
-If the API key is not found, the app will display a clear error:
+### Application Usage
+
+Once running, you can interact with the AI agent:
+
+**Available Commands:**
+- `/help` - Display available commands
+- `/exit` or `/quit` - Exit the application
+- `Ctrl+C` - Graceful shutdown
+
+**Example Session:**
 ```
-API key not found in Windows Credential Manager.
-Please run the setup wizard to configure your Anthropic API key.
-Expected credential name: 'Krutaka_ApiKey'
+  _  __          _        _         
+ | |/ /_ __ _   _| |_ __ _| | ____ _ 
+ | ' /| '__| | | | __/ _` | |/ / _` |
+ | . \| |  | |_| | || (_| |   < (_| |
+ |_|\_\_|   \__,_|\__\__,_|_|\_\__,_|
+                                      
+Version 0.1.0
+OpenClaw-inspired AI agent for Windows
+Type /help for commands
+
+> Tell me about this codebase
+
+[Thinking...]
+This is the Krutaka repository, a C#/.NET 10 console application...
+⚙ Calling list_files...
+✓ list_files complete
+...
+```
+
+### Configuration
+
+Application settings are configured in `src/Krutaka.Console/appsettings.json`:
+
+```json
+{
+  "Claude": {
+    "ModelId": "claude-4-sonnet-20250514",
+    "MaxTokens": 8192,
+    "Temperature": 0.7
+  },
+  "Agent": {
+    "WorkingDirectory": "",
+    "CommandTimeoutSeconds": 30,
+    "ToolTimeoutSeconds": 30,
+    "RequireApprovalForWrites": true
+  }
+}
+```
+
+**Configuration Notes:**
+- `WorkingDirectory`: Defaults to current directory if empty
+- `MaxTokens`: Maximum tokens for Claude response (default: 8192)
+- `Temperature`: Claude temperature setting (0.0 = deterministic, 1.0 = creative, default: 0.7)
+- `CommandTimeoutSeconds`: Reserved for future use. Shell commands currently use a hardcoded 30-second timeout in `run_command` regardless of this setting.
+- `ToolTimeoutSeconds`: Timeout for tool execution (default: 30)
+- `RequireApprovalForWrites`: Reserved for future use. Approval requirements are currently determined by the security policy and enforced in the agentic loop.
+
+### Application Directories
+
+Krutaka creates the following directories in your user profile:
+
+```
+%USERPROFILE%\.krutaka\
+├── logs\                      # Application logs (daily rotation, 30-day retention)
+│   └── krutaka-20260211.log
+├── sessions\                  # Conversation session history (JSONL format)
+│   └── {project-hash}\
+│       └── {session-id}.jsonl
+├── memory.db                  # SQLite database for hybrid memory search
+└── MEMORY.md                  # Human-readable memory file
+```
+
+### Logs
+
+Logs are stored in `~/.krutaka/logs/` with:
+- Daily rotation (`krutaka-YYYYMMDD.log`)
+- 30-day retention
+- API key redaction (all `sk-ant-*` patterns replaced with `***REDACTED***`)
+
+To view logs:
+```bash
+# View today's log
+cat ~/.krutaka/logs/krutaka-$(date +%Y%m%d).log
+
+# Follow logs in real-time (PowerShell)
+Get-Content -Path "$env:USERPROFILE\.krutaka\logs\krutaka-$(Get-Date -Format yyyyMMdd).log" -Wait
 ```
 
 ## Publish Single-File Executable

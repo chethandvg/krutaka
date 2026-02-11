@@ -30,4 +30,13 @@
     <InternalsVisibleTo Include="Krutaka.Console.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\prompts\AGENTS.md" Link="prompts\AGENTS.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
