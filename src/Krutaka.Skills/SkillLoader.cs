@@ -1,4 +1,3 @@
-using System.Text;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using Krutaka.Core;
@@ -14,6 +13,11 @@ public class SkillLoader
         .WithNamingConvention(HyphenatedNamingConvention.Instance)
         .IgnoreUnmatchedProperties()
         .Build();
+
+    /// <summary>
+    /// Maximum allowed skill file size (1 MB) to prevent DoS and memory issues.
+    /// </summary>
+    private const long MaxSkillFileSizeBytes = 1_048_576;
 
     /// <summary>
     /// Loads a skill file and parses its YAML frontmatter.
@@ -32,8 +36,16 @@ public class SkillLoader
             throw new FileNotFoundException($"Skill file not found: {filePath}");
         }
 
+        // Validate file size before reading to prevent DoS and memory issues
+        var fileInfo = new FileInfo(filePath);
+        if (fileInfo.Length > MaxSkillFileSizeBytes)
+        {
+            throw new InvalidOperationException(
+                $"Skill file size ({fileInfo.Length} bytes) exceeds maximum allowed size ({MaxSkillFileSizeBytes} bytes): '{filePath}'");
+        }
+
         var content = await File.ReadAllTextAsync(filePath, cancellationToken).ConfigureAwait(false);
-        var (frontmatter, body) = ParseYamlFrontmatter(content);
+        var (frontmatter, _) = ParseYamlFrontmatter(content);
 
         var metadata = new SkillMetadata(
             Name: frontmatter.Name ?? throw new InvalidOperationException($"Skill file {filePath} is missing required 'name' field in frontmatter"),

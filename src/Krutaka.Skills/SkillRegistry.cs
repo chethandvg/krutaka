@@ -23,6 +23,11 @@ public class SkillRegistry : ISkillRegistry
     }
 
     /// <summary>
+    /// Maximum allowed skill file size (1 MB) to prevent DoS and memory issues.
+    /// </summary>
+    private const long MaxSkillFileSizeBytes = 1_048_576;
+
+    /// <summary>
     /// Loads skill metadata from all configured directories.
     /// Scans for SKILL.md files recursively.
     /// </summary>
@@ -38,7 +43,26 @@ public class SkillRegistry : ISkillRegistry
                 continue; // Skip non-existent directories
             }
 
-            var skillFiles = Directory.GetFiles(directory, "SKILL.md", SearchOption.AllDirectories);
+            string[] skillFiles;
+            try
+            {
+                skillFiles = Directory.GetFiles(directory, "SKILL.md", SearchOption.AllDirectories);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Skip directories we don't have permission to access
+                continue;
+            }
+            catch (PathTooLongException)
+            {
+                // Skip directories with paths that are too long
+                continue;
+            }
+            catch (IOException)
+            {
+                // Skip directories with I/O errors
+                continue;
+            }
 
             foreach (var file in skillFiles)
             {
@@ -46,6 +70,14 @@ public class SkillRegistry : ISkillRegistry
                 try
                 {
                     var (metadata, _) = await _loader.LoadSkillAsync(file, cancellationToken).ConfigureAwait(false);
+                    
+                    // Detect duplicate skill names
+                    if (_metadataCache.ContainsKey(metadata.Name))
+                    {
+                        // Skip duplicate - keep the first one loaded (deterministic behavior)
+                        continue;
+                    }
+                    
                     _metadataCache[metadata.Name] = metadata;
                 }
                 catch (Exception)
@@ -79,6 +111,14 @@ public class SkillRegistry : ISkillRegistry
         if (!_metadataCache.TryGetValue(name, out var metadata))
         {
             throw new KeyNotFoundException($"Skill not found: {name}");
+        }
+
+        // Validate file size before reading
+        var fileInfo = new FileInfo(metadata.FilePath);
+        if (fileInfo.Length > MaxSkillFileSizeBytes)
+        {
+            throw new InvalidOperationException(
+                $"Skill file size ({fileInfo.Length} bytes) exceeds maximum allowed size ({MaxSkillFileSizeBytes} bytes): '{metadata.FilePath}'");
         }
 
         return await File.ReadAllTextAsync(metadata.FilePath, cancellationToken).ConfigureAwait(false);

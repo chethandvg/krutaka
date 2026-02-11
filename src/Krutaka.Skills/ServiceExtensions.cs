@@ -20,21 +20,20 @@ public static class ServiceExtensions
     {
         // Configure options
         var options = new SkillOptions();
-        if (configure != null)
+        
+        // Always start with default directories so callers can extend/override them
+        options.AddDefaultDirectories();
+
+        if (configure is not null)
         {
             configure(options);
-        }
-        else
-        {
-            // Use default directories if no configuration provided
-            options.AddDefaultDirectories();
         }
 
         // Register SkillLoader as singleton
         services.AddSingleton<SkillLoader>();
 
         // Register SkillRegistry as singleton with configured directories
-        services.AddSingleton<ISkillRegistry>(sp =>
+        services.AddSingleton<SkillRegistry>(sp =>
         {
             var loader = sp.GetRequiredService<SkillLoader>();
             var registry = new SkillRegistry(loader, options.SkillDirectories);
@@ -45,6 +44,9 @@ public static class ServiceExtensions
             
             return registry;
         });
+
+        // Expose the same singleton instance via ISkillRegistry
+        services.AddSingleton<ISkillRegistry>(sp => sp.GetRequiredService<SkillRegistry>());
 
         return services;
     }

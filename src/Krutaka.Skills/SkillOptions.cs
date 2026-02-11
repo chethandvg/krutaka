@@ -7,7 +7,7 @@ public class SkillOptions
 {
     /// <summary>
     /// Gets the directories to scan for skills.
-    /// Default directories are ./skills/ and ~/.krutaka/skills/.
+    /// Default directory is ./skills/.
     /// </summary>
     public IList<string> SkillDirectories { get; } = new List<string>();
 
@@ -16,22 +16,11 @@ public class SkillOptions
     /// </summary>
     public void AddDefaultDirectories()
     {
-        // Local skills directory
+        // Local skills directory (project-relative)
         var localSkillsDir = Path.Combine(Directory.GetCurrentDirectory(), "skills");
         if (!SkillDirectories.Contains(localSkillsDir))
         {
             SkillDirectories.Add(localSkillsDir);
-        }
-
-        // User-level skills directory
-        var userSkillsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".krutaka",
-            "skills"
-        );
-        if (!SkillDirectories.Contains(userSkillsDir))
-        {
-            SkillDirectories.Add(userSkillsDir);
         }
     }
 }

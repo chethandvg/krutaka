@@ -408,7 +408,7 @@ Markdown-based skill system with YAML frontmatter parsing and progressive disclo
 | `SkillRegistry` | Metadata loading + full content on demand | ✅ Implemented |
 | `SkillLoader` | YAML frontmatter parser (name, description, allowed-tools, model, version) | ✅ Implemented |
 | `SkillMetadata` | Record with Name, Description, FilePath, AllowedTools, Model, Version | ✅ Implemented |
-| `SkillOptions` | Configuration for skill directories (./skills/, ~/.krutaka/skills/) | ✅ Implemented |
+| `SkillOptions` | Configuration for skill directories (./skills/) | ✅ Implemented |
 | `ServiceExtensions` | `AddSkills(services, configure)` DI registration | ✅ Implemented |
 
 **Implementation Details:**
@@ -416,7 +416,7 @@ Markdown-based skill system with YAML frontmatter parsing and progressive disclo
 - Full content loaded on-demand via `LoadFullContentAsync(name)`
 - YAML frontmatter validation: required fields (name, description), optional (allowed-tools, model, version)
 - Malformed skill files are silently skipped during directory scan
-- Default directories: `./skills/` and `~/.krutaka/skills/`
+- Default directory: `./skills/` (project-relative)
 - Sample skill: `skills/code-reviewer/SKILL.md`
 - Test coverage: 17 tests (YAML parsing, progressive disclosure, error handling)
 

@@ -602,12 +602,12 @@ The Markdown-based skill system with YAML frontmatter parsing has been fully imp
   - CA1822 in `SkillLoader.LoadSkillAsync` (instance method for DI/testability)
   - CA1812 in `SkillFrontmatter` (YamlDotNet reflection instantiation)
 - Progressive disclosure pattern: metadata loaded at startup, full content on-demand
-- Default directories: `./skills/` (local) and `~/.krutaka/skills/` (user-level)
+- Default directory: `./skills/` (local project-relative)
 - No remote skill marketplace (security decision per SECURITY.md)
 - Test project structure mirrors other test projects (`Krutaka.Tools.Tests`)
 
 **Deferred to Issue #23 (Program.cs composition root):**
-- DI registration of `SkillRegistry` with configured directories
+- Wiring `Krutaka.Skills.ServiceExtensions.AddSkills` into `Program.cs` DI setup with configured directories
 - Integration with `SystemPromptBuilder` to include skill metadata in system prompt
 - Skill activation/invocation mechanism (if needed)
 
