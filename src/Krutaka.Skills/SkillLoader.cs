@@ -17,7 +17,7 @@ public class SkillLoader
     /// <summary>
     /// Maximum allowed skill file size (1 MB) to prevent DoS and memory issues.
     /// </summary>
-    private const long MaxSkillFileSizeBytes = 1_048_576;
+    internal const long MaxSkillFileSizeBytes = 1_048_576;
 
     /// <summary>
     /// Loads a skill file and parses its YAML frontmatter.

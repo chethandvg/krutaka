@@ -263,30 +263,6 @@ public class EditFileTool : ToolBase
     }
 
     /// <summary>
-    /// Creates a backup copy of the specified file in a temporary directory.
-    /// </summary>
-    /// <param name="filePath">The file to backup.</param>
-    /// <returns>The path to the backup file.</returns>
-    private static string CreateBackup(string filePath)
-    {
-        ArgumentNullException.ThrowIfNull(filePath);
-
-        var fileName = Path.GetFileName(filePath);
-        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        var backupFileName = $"{fileName}.{timestamp}.bak";
-        var backupPath = Path.Combine(Path.GetTempPath(), "krutaka-backups", backupFileName);
-
-        var backupDir = Path.GetDirectoryName(backupPath);
-        if (!string.IsNullOrEmpty(backupDir))
-        {
-            Directory.CreateDirectory(backupDir);
-        }
-
-        File.Copy(filePath, backupPath, overwrite: true);
-        return backupPath;
-    }
-
-    /// <summary>
     /// Generates a unified diff showing the changes made to the file.
     /// </summary>
     /// <param name="oldLines">Original file lines.</param>

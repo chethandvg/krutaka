@@ -23,11 +23,6 @@ public class SkillRegistry : ISkillRegistry
     }
 
     /// <summary>
-    /// Maximum allowed skill file size (1 MB) to prevent DoS and memory issues.
-    /// </summary>
-    private const long MaxSkillFileSizeBytes = 1_048_576;
-
-    /// <summary>
     /// Loads skill metadata from all configured directories.
     /// Scans for SKILL.md files recursively.
     /// </summary>
@@ -115,10 +110,10 @@ public class SkillRegistry : ISkillRegistry
 
         // Validate file size before reading
         var fileInfo = new FileInfo(metadata.FilePath);
-        if (fileInfo.Length > MaxSkillFileSizeBytes)
+        if (fileInfo.Length > SkillLoader.MaxSkillFileSizeBytes)
         {
             throw new InvalidOperationException(
-                $"Skill file size ({fileInfo.Length} bytes) exceeds maximum allowed size ({MaxSkillFileSizeBytes} bytes): '{metadata.FilePath}'");
+                $"Skill file size ({fileInfo.Length} bytes) exceeds maximum allowed size ({SkillLoader.MaxSkillFileSizeBytes} bytes): '{metadata.FilePath}'");
         }
 
         return await File.ReadAllTextAsync(metadata.FilePath, cancellationToken).ConfigureAwait(false);
