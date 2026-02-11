@@ -8,7 +8,7 @@ public static class EnvironmentScrubber
 {
     private static readonly string[] SensitiveSuffixes =
     [
-        "_KEY", "_SECRET", "_TOKEN", "_PASSWORD"
+        "_KEY", "_SECRET", "_TOKEN", "_PASSWORD", "_CREDENTIAL", "_CREDENTIALS"
     ];
 
     private static readonly string[] SensitivePrefixes =
@@ -17,7 +17,11 @@ public static class EnvironmentScrubber
         "AWS_",
         "AZURE_",
         "GCP_",
-        "GOOGLE_"
+        "GOOGLE_",
+        "GITHUB_",
+        "GITLAB_",
+        "OPENAI_",
+        "HUGGINGFACE_"
     ];
 
     /// <summary>
