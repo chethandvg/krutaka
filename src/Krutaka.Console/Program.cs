@@ -41,12 +41,15 @@ Log.Logger = new LoggerConfiguration()
         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
         retainedFileCountLimit: 30,
         formatProvider: CultureInfo.InvariantCulture)
-    .WriteTo.File(
-        new Serilog.Formatting.Json.JsonFormatter(),
-        auditLogPath,
-        rollingInterval: RollingInterval.Day,
-        retainedFileCountLimit: 30,
-        restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
+    .WriteTo.Logger(lc => lc
+        .Filter.ByIncludingOnly(evt => 
+            evt.Properties.ContainsKey("EventType") && 
+            evt.MessageTemplate.Text.StartsWith("Audit:", StringComparison.Ordinal))
+        .WriteTo.File(
+            new Serilog.Formatting.Json.JsonFormatter(),
+            auditLogPath,
+            rollingInterval: RollingInterval.Day,
+            retainedFileCountLimit: 30))
     .CreateLogger();
 
 try
@@ -80,13 +83,15 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
+    // Single session identifier for this host run
+    var sessionId = Guid.NewGuid();
+
     // Add Serilog to host
     builder.Services.AddSerilog();
 
     // Register CorrelationContext (scoped per session)
     builder.Services.AddSingleton(sp =>
     {
-        var sessionId = Guid.NewGuid();
         return new CorrelationContext(sessionId);
     });
 
@@ -125,10 +130,9 @@ try
     // Register Skills (placeholder for now)
     builder.Services.AddSkills();
 
-    // Register SessionStore as factory
+    // Register SessionStore as factory (using the same session ID as CorrelationContext)
     builder.Services.AddSingleton(sp =>
     {
-        var sessionId = Guid.NewGuid();
         return new SessionStore(workingDirectory, sessionId);
     });
 

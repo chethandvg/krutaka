@@ -674,17 +674,19 @@ The structured audit logging system has been fully implemented with correlation 
 - JSON structured logging to daily rolling files
 - User input logging with sanitization
 - Tool execution logging with timing and error capture
+- Compaction event logging (supported via ContextCompactor when invoked with IAuditLogger/CorrelationContext)
 - DI registration and wiring in Program.cs
 
 **Deferred (Future Enhancements):**
-- Request-id extraction from Claude API responses (requires ClaudeClientWrapper changes)
-- Claude API request/response event logging (requires token count and model info from client)
-- Compaction event logging (requires ContextCompactor integration)
-- Security violation logging (requires CommandPolicy/SafeFileOperations refactoring for DI)
+- Request-id extraction from Claude API responses (requires ClaudeClientWrapper changes to expose response headers)
+- Claude API request/response event logging (requires SDK support for streaming token counts)
+- Compaction event logging in agent loop (requires wiring ContextCompactor into AgentOrchestrator/turn pipeline)
+- Security violation logging (requires CommandPolicy/SafeFileOperations refactoring for DI support)
 - Log rotation verification (requires manual testing or E2E tests)
 
 **Notes:**
 - `AgentOrchestrator` accepts audit logger and correlation context as optional parameters for backward compatibility
-- Null-conditional operators used (`?.`) to avoid NullReferenceException when audit logger not provided
-- JSON serialization uses runtime type to capture derived class properties
+- Null-safety ensured by checking both logger and context are non-null before logging
+- Structured logging uses Serilog destructuring (`{@AuditEvent}`) for proper JSON output
 - Log redaction still applies to audit events via existing `LogRedactionEnricher`
+- SessionId is now shared between CorrelationContext and SessionStore for proper correlation

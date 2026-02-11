@@ -553,9 +553,9 @@ Audit logging is integrated at the following points:
 
 - **User input**: Logged in `Program.cs` main loop
 - **Tool execution**: Logged in `AgentOrchestrator.ExecuteToolAsync` with timing and error tracking
+- **Compaction events**: Supported via `ContextCompactor` (emitted when compaction is invoked with `IAuditLogger`/`CorrelationContext`)
 - **Claude API calls**: Deferred (requires request-id extraction from API client)
-- **Compaction events**: Deferred (requires ContextCompactor integration)
-- **Security violations**: Deferred (requires CommandPolicy/SafeFileOperations refactoring)
+- **Security violations**: Deferred (requires CommandPolicy/SafeFileOperations refactoring for DI support)
 
 #### Testing
 

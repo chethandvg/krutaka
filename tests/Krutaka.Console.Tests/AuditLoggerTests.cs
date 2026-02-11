@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Krutaka.Console.Logging;
 using Krutaka.Core;
-using NSubstitute;
 using Serilog;
 using Serilog.Events;
 

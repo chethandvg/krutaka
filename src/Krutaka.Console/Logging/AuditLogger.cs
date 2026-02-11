@@ -1,7 +1,6 @@
 using Krutaka.Core;
 using Serilog;
 using Serilog.Events;
-using System.Text.Json;
 
 namespace Krutaka.Console.Logging;
 
@@ -12,11 +11,6 @@ namespace Krutaka.Console.Logging;
 internal sealed class AuditLogger : IAuditLogger
 {
     private readonly ILogger _logger;
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
-    };
 
     /// <summary>
     /// Initializes a new instance of the <see cref="AuditLogger"/> class.
@@ -33,19 +27,18 @@ internal sealed class AuditLogger : IAuditLogger
     {
         ArgumentNullException.ThrowIfNull(auditEvent);
 
-        // Serialize the entire event as a structured property
-        // Use GetType() to ensure derived type properties are serialized
+        // Log the entire event as a structured property
+        // Use GetType() to ensure derived type properties are captured
         var eventType = auditEvent.GetType();
-        var eventJson = JsonSerializer.Serialize(auditEvent, eventType, JsonOptions);
 
         _logger.Write(
             LogEventLevel.Information,
-            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
-            auditEvent.GetType().Name,
+            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {@AuditEvent}",
+            eventType.Name,
             auditEvent.SessionId,
             auditEvent.TurnId,
             auditEvent.RequestId ?? "N/A",
-            eventJson);
+            auditEvent);
     }
 
     /// <inheritdoc />

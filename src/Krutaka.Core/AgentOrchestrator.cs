@@ -179,7 +179,10 @@ public sealed class AgentOrchestrator : IDisposable
             foreach (var toolCall in toolCalls)
             {
                 // Check if approval is required and not already granted for this session
-                if (_securityPolicy.IsApprovalRequired(toolCall.Name) && !_approvalCache.ContainsKey(toolCall.Name))
+                var approvalRequired = _securityPolicy.IsApprovalRequired(toolCall.Name);
+                var alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
+                
+                if (approvalRequired && !alwaysApprove)
                 {
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
                     // Note: The caller must call ApproveTool before continuing
@@ -187,7 +190,7 @@ public sealed class AgentOrchestrator : IDisposable
                 }
 
                 // Execute the tool with timeout
-                var toolResult = await ExecuteToolAsync(toolCall, cancellationToken).ConfigureAwait(false);
+                var toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
 
                 // Yield the appropriate event
                 if (toolResult.IsError)
@@ -313,7 +316,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// Handles timeout and error cases, returning an appropriate result.
     /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Tool execution errors should not crash the agentic loop - errors are returned to Claude as tool results")]
-    private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, CancellationToken cancellationToken)
+    private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, bool approvalRequired, bool alwaysApprove, CancellationToken cancellationToken)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
@@ -357,8 +360,8 @@ public sealed class AgentOrchestrator : IDisposable
                 _auditLogger.LogToolExecution(
                     _correlationContext,
                     toolCall.Name,
-                    true, // approved (execution succeeded)
-                    _approvalCache.ContainsKey(toolCall.Name),
+                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    alwaysApprove,
                     stopwatch.ElapsedMilliseconds,
                     result.Length,
                     null);
@@ -378,8 +381,8 @@ public sealed class AgentOrchestrator : IDisposable
                 _auditLogger.LogToolExecution(
                     _correlationContext,
                     toolCall.Name,
-                    true, // approved but timed out
-                    _approvalCache.ContainsKey(toolCall.Name),
+                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    alwaysApprove,
                     stopwatch.ElapsedMilliseconds,
                     0,
                     errorMessage);
@@ -399,8 +402,8 @@ public sealed class AgentOrchestrator : IDisposable
                 _auditLogger.LogToolExecution(
                     _correlationContext,
                     toolCall.Name,
-                    true, // approved but failed
-                    _approvalCache.ContainsKey(toolCall.Name),
+                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    alwaysApprove,
                     stopwatch.ElapsedMilliseconds,
                     0,
                     errorMessage);
