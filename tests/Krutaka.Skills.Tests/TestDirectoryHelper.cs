@@ -43,7 +43,8 @@ internal static class TestDirectoryHelper
     /// </summary>
     /// <param name="path">The directory path to delete.</param>
     /// <param name="maxRetries">Maximum number of retry attempts.</param>
-    public static void TryDeleteDirectory(string path, int maxRetries = 3)
+    /// <param name="delayMs">Delay in milliseconds between retries.</param>
+    public static void TryDeleteDirectory(string path, int maxRetries = 3, int delayMs = 200)
     {
         if (!Directory.Exists(path))
         {
@@ -60,7 +61,7 @@ internal static class TestDirectoryHelper
             catch (IOException) when (i < maxRetries - 1)
             {
                 // Wait a bit before retrying to allow file handles to be released
-                Thread.Sleep(100);
+                Thread.Sleep(delayMs);
             }
             catch (IOException)
             {
