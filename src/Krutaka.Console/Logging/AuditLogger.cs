@@ -34,8 +34,9 @@ internal sealed class AuditLogger : IAuditLogger
         ArgumentNullException.ThrowIfNull(auditEvent);
 
         // Serialize the entire event as a structured property
-        // This ensures all properties are captured in the JSON log
-        var eventJson = JsonSerializer.Serialize(auditEvent, JsonOptions);
+        // Use GetType() to ensure derived type properties are serialized
+        var eventType = auditEvent.GetType();
+        var eventJson = JsonSerializer.Serialize(auditEvent, eventType, JsonOptions);
 
         _logger.Write(
             LogEventLevel.Information,
