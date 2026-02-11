@@ -113,13 +113,11 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                     textContent.Append(textDelta.Text);
                     yield return new Core.TextDelta(textDelta.Text);
                 }
-                else if (contentBlockDelta.Delta.TryPickInputJson(out var inputJsonDelta))
+                else if (contentBlockDelta.Delta.TryPickInputJson(out var inputJsonDelta)
+                    && toolUseBuilders.TryGetValue(contentBlockDelta.Index, out var builder))
                 {
                     // Tool input JSON delta - accumulate partial JSON for this content block
-                    if (toolUseBuilders.TryGetValue(contentBlockDelta.Index, out var builder))
-                    {
-                        builder.JsonInput.Append(inputJsonDelta.PartialJson);
-                    }
+                    builder.JsonInput.Append(inputJsonDelta.PartialJson);
                 }
             }
             else if (chunk.TryPickContentBlockStop(out var contentBlockStop))

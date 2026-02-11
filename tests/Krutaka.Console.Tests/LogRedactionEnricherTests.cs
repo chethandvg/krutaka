@@ -176,9 +176,9 @@ public class LogRedactionEnricherTests
         var testApiKey = "sk-ant-" + new string('t', 95);
         var output = CaptureLogWithRedaction($"Using key {testApiKey} for init");
 
-        // Assert - the RedactedMessage property should contain the redacted version
-        output.Should().Contain("***REDACTED***");
-        output.Should().Contain("RedactedMessage");
+        // Assert - the rendered message should not contain the raw key
+        output.Should().NotContain(testApiKey);
+        output.Should().Contain("Using key ***REDACTED*** for init");
     }
 
     private static string CaptureLogWithRedaction(

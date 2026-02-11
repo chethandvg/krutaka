@@ -327,7 +327,19 @@ try
 
             // Run agent orchestrator and display streaming response
             var events = orchestrator.RunAsync(input, systemPrompt, ui.ShutdownToken);
-            await ui.DisplayStreamingResponseAsync(events, ui.ShutdownToken).ConfigureAwait(false);
+            await ui.DisplayStreamingResponseAsync(events,
+                onApprovalDecision: (toolUseId, approved, alwaysApprove) =>
+                {
+                    if (approved)
+                    {
+                        orchestrator.ApproveTool(toolUseId, alwaysApprove);
+                    }
+                    else
+                    {
+                        orchestrator.DenyTool(toolUseId);
+                    }
+                },
+                cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
 
             AnsiConsole.WriteLine();
             AnsiConsole.WriteLine();

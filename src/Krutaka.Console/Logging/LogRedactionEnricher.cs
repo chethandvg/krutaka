@@ -1,16 +1,19 @@
 using System.Text.RegularExpressions;
 using Serilog.Core;
 using Serilog.Events;
+using Serilog.Parsing;
 
 namespace Krutaka.Console.Logging;
 
 /// <summary>
 /// Serilog enricher that redacts sensitive information from log events.
-/// Scrubs API keys, secrets, and tokens to prevent credential leakage.
+/// Scrubs API keys, secrets, and tokens to prevent credential leakage
+/// in both structured properties and message template text.
 /// </summary>
 public sealed partial class LogRedactionEnricher : ILogEventEnricher
 {
     private const string RedactedPlaceholder = "***REDACTED***";
+    private static readonly MessageTemplateParser TemplateParser = new();
 
     // Regex patterns for sensitive data
     [GeneratedRegex(@"sk-ant-[a-zA-Z0-9_-]{95,}")]
@@ -35,15 +38,18 @@ public sealed partial class LogRedactionEnricher : ILogEventEnricher
             }
         }
 
-        // Also check the message template text itself for sensitive data.
-        // This prevents leaking secrets that are accidentally embedded directly
-        // in the message template string (e.g., Log.Information("key is sk-ant-...")).
+        // Check the message template text itself for sensitive data.
+        // If found, replace the MessageTemplate by setting the backing field directly,
+        // ensuring all sinks (console, file, JSON) render the redacted version.
         var templateText = logEvent.MessageTemplate.Text;
         var redactedTemplate = RedactSensitiveData(templateText);
         if (templateText != redactedTemplate)
         {
-            logEvent.AddOrUpdateProperty(
-                propertyFactory.CreateProperty("RedactedMessage", redactedTemplate));
+            var parsedTemplate = TemplateParser.Parse(redactedTemplate);
+            var backingField = typeof(LogEvent).GetField(
+                "<MessageTemplate>k__BackingField",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            backingField?.SetValue(logEvent, parsedTemplate);
         }
     }
 

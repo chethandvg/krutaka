@@ -261,7 +261,7 @@ public sealed class AgentOrchestratorTests
             events.Add(evt);
             if (evt is HumanApprovalRequired approval)
             {
-                orchestrator.ApproveTool(approval.ToolName);
+                orchestrator.ApproveTool(approval.ToolUseId);
             }
         }
 
