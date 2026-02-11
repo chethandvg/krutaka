@@ -250,18 +250,62 @@ Get-Content -Path "$env:USERPROFILE\.krutaka\logs\krutaka-$(Get-Date -Format yyy
 
 ## Publish Single-File Executable
 
+The `Krutaka.Console.csproj` is pre-configured for self-contained single-file publishing with the following properties:
+- `<RuntimeIdentifier>win-x64</RuntimeIdentifier>` - Windows x64 target
+- `<PublishSingleFile>true</PublishSingleFile>` - Bundle into single .exe
+- `<SelfContained>true</SelfContained>` - Include .NET runtime
+- `<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>` - Include SQLite native libraries
+
+### Publish Command
+
 ```bash
-# Self-contained single-file Windows executable
-dotnet publish src/Krutaka.Console \
-  -c Release \
-  -r win-x64 \
-  --self-contained \
-  -p:PublishSingleFile=true \
-  -p:IncludeNativeLibrariesForSelfExtract=true
+# Simple publish command (all settings in .csproj)
+dotnet publish src/Krutaka.Console -c Release
 
 # Output location:
 # src/Krutaka.Console/bin/Release/net10.0-windows/win-x64/publish/Krutaka.Console.exe
+
+# Custom output directory
+dotnet publish src/Krutaka.Console -c Release --output ./publish
 ```
+
+### Published File Size
+
+The self-contained single-file executable is approximately **82 MB**, which includes:
+- .NET 10 runtime (embedded)
+- All application dependencies (official Anthropic package, Spectre.Console, Serilog, SQLite, etc.)
+- Application code and assemblies
+- Native libraries (SQLite, etc.)
+
+### Running the Published Binary
+
+```powershell
+# Navigate to publish directory
+cd src/Krutaka.Console/bin/Release/net10.0-windows/win-x64/publish
+
+# Run the executable (Windows only)
+.\Krutaka.Console.exe
+
+# Or with custom output directory
+cd publish
+.\Krutaka.Console.exe
+```
+
+**Requirements for running the published binary:**
+- Windows 10 22H2+ or Windows 11 (x64)
+- No .NET SDK required (runtime is embedded)
+- No other dependencies (self-contained)
+
+**Files included in publish directory:**
+- `Krutaka.Console.exe` - Main executable (82 MB)
+- `appsettings.json` - Configuration file
+- `prompts/AGENTS.md` - Agent instructions
+- `*.pdb` files - Debug symbols (optional, can be deleted)
+
+**First-run behavior:**
+1. Executable will create `%USERPROFILE%\.krutaka\` directory structure
+2. If no API key is stored, the setup wizard will run automatically
+3. After setup, the application starts normally
 
 ## Code Style Enforcement
 
