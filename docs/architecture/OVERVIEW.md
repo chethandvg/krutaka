@@ -54,7 +54,7 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync (static on SessionStore: FindMostRecentSession, ListSessions) |
 | `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
-| `IAccessPolicyEngine` | **[v0.2.0]** Directory access policy evaluation | EvaluateAsync(DirectoryAccessRequest) → AccessDecision |
+| `IAccessPolicyEngine` | **[v0.2.0]** Directory access policy evaluation | EvaluateAsync(DirectoryAccessRequest, CancellationToken) → Task<AccessDecision> |
 
 #### Model Types
 

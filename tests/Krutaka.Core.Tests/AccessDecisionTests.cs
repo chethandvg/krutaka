@@ -15,6 +15,7 @@ public class AccessDecisionTests
         );
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Granted);
         decision.Granted.Should().BeTrue();
         decision.ScopedPath.Should().Be("/home/user/project");
         decision.GrantedLevel.Should().Be(AccessLevel.ReadWrite);
@@ -32,6 +33,7 @@ public class AccessDecisionTests
         );
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Granted);
         decision.Granted.Should().BeTrue();
         decision.ExpiresAfter.Should().BeNull();
     }
@@ -43,6 +45,7 @@ public class AccessDecisionTests
         var decision = AccessDecision.Deny("Path is blocked", "System directory access not allowed");
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
         decision.ScopedPath.Should().BeNull();
         decision.GrantedLevel.Should().BeNull();
@@ -59,6 +62,7 @@ public class AccessDecisionTests
         var decision = AccessDecision.Deny("Access denied");
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
         decision.DeniedReasons.Should().HaveCount(1);
         decision.DeniedReasons.Should().Contain("Access denied");
@@ -71,6 +75,7 @@ public class AccessDecisionTests
         var decision = AccessDecision.Deny("Reason 1", "Reason 2", "Reason 3");
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
         decision.DeniedReasons.Should().HaveCount(3);
     }
@@ -82,7 +87,23 @@ public class AccessDecisionTests
         var decision = AccessDecision.Deny();
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
+        decision.DeniedReasons.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void AccessDecision_RequireApproval_Should_CreateRequiresApprovalDecision()
+    {
+        // Arrange & Act
+        var decision = AccessDecision.RequireApproval("/home/user/newproject");
+
+        // Assert
+        decision.Outcome.Should().Be(AccessOutcome.RequiresApproval);
+        decision.Granted.Should().BeFalse();
+        decision.ScopedPath.Should().Be("/home/user/newproject");
+        decision.GrantedLevel.Should().BeNull();
+        decision.ExpiresAfter.Should().BeNull();
         decision.DeniedReasons.Should().BeEmpty();
     }
 
@@ -108,6 +129,7 @@ public class AccessDecisionTests
         var decision3 = AccessDecision.Deny("Reason C");
 
         // Assert - Check properties individually since record equality doesn't deep-compare collections
+        decision1.Outcome.Should().Be(decision2.Outcome);
         decision1.Granted.Should().Be(decision2.Granted);
         decision1.ScopedPath.Should().Be(decision2.ScopedPath);
         decision1.GrantedLevel.Should().Be(decision2.GrantedLevel);
@@ -124,6 +146,7 @@ public class AccessDecisionTests
         var decision = AccessDecision.Grant("/path", AccessLevel.ReadOnly);
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Granted);
         decision.Granted.Should().BeTrue();
         decision.GrantedLevel.Should().Be(AccessLevel.ReadOnly);
     }
@@ -135,6 +158,7 @@ public class AccessDecisionTests
         var decision = AccessDecision.Grant("/path", AccessLevel.ReadWrite);
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Granted);
         decision.Granted.Should().BeTrue();
         decision.GrantedLevel.Should().Be(AccessLevel.ReadWrite);
     }
@@ -146,28 +170,9 @@ public class AccessDecisionTests
         var decision = AccessDecision.Grant("/path", AccessLevel.Execute);
 
         // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Granted);
         decision.Granted.Should().BeTrue();
         decision.GrantedLevel.Should().Be(AccessLevel.Execute);
-    }
-
-    [Fact]
-    public void AccessDecision_ManualConstruction_Should_Work()
-    {
-        // Arrange & Act
-        var decision = new AccessDecision(
-            Granted: true,
-            ScopedPath: "/custom/path",
-            GrantedLevel: AccessLevel.ReadWrite,
-            ExpiresAfter: TimeSpan.FromHours(1),
-            DeniedReasons: new List<string> { "Not actually denied" }
-        );
-
-        // Assert
-        decision.Granted.Should().BeTrue();
-        decision.ScopedPath.Should().Be("/custom/path");
-        decision.GrantedLevel.Should().Be(AccessLevel.ReadWrite);
-        decision.ExpiresAfter.Should().Be(TimeSpan.FromHours(1));
-        decision.DeniedReasons.Should().HaveCount(1);
     }
 
     [Fact]
@@ -209,5 +214,25 @@ public class AccessDecisionTests
 
         // Assert
         decision.ExpiresAfter.Should().BeNull();
+    }
+
+    [Fact]
+    public void AccessDecision_DeniedReasons_Should_BeImmutable()
+    {
+        // Arrange
+        var decision = AccessDecision.Deny("Reason 1", "Reason 2");
+
+        // Act & Assert - Verify we cannot cast to mutable list
+        decision.DeniedReasons.Should().BeAssignableTo<IReadOnlyList<string>>();
+        decision.DeniedReasons.Should().NotBeAssignableTo<List<string>>();
+    }
+
+    [Fact]
+    public void AccessDecision_Outcome_Should_DetermineGranted()
+    {
+        // Assert
+        AccessDecision.Grant("/path", AccessLevel.ReadOnly).Granted.Should().BeTrue();
+        AccessDecision.Deny("Reason").Granted.Should().BeFalse();
+        AccessDecision.RequireApproval("/path").Granted.Should().BeFalse();
     }
 }

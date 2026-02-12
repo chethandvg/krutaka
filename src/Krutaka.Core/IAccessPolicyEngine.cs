@@ -23,7 +23,7 @@ public interface IAccessPolicyEngine
     /// 4. Heuristic Checks - Cross-volume detection, path depth analysis, suspicious patterns
     /// 
     /// A denial at Layer 1 cannot be overridden by auto-grant or session approval.
-    /// The decision may indicate that human approval is required (needs interactive prompt).
+    /// The decision outcome can be Granted, Denied, or RequiresApproval (needs interactive prompt).
     /// </remarks>
     Task<AccessDecision> EvaluateAsync(DirectoryAccessRequest request, CancellationToken cancellationToken);
 }

@@ -13,15 +13,6 @@ public class AccessLevelTests
         ((int)AccessLevel.Execute).Should().Be(2);
     }
 
-    [Fact]
-    public void AccessLevel_Should_BeComparable()
-    {
-        // Assert - verify ordering
-        (AccessLevel.ReadOnly < AccessLevel.ReadWrite).Should().BeTrue();
-        (AccessLevel.ReadWrite < AccessLevel.Execute).Should().BeTrue();
-        (AccessLevel.ReadOnly < AccessLevel.Execute).Should().BeTrue();
-    }
-
     [Theory]
     [InlineData(AccessLevel.ReadOnly)]
     [InlineData(AccessLevel.ReadWrite)]

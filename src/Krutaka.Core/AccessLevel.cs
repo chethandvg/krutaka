@@ -2,7 +2,8 @@ namespace Krutaka.Core;
 
 /// <summary>
 /// Defines the level of access requested for directory operations.
-/// Each level implies specific permissions that must be validated by the access policy engine.
+/// These are distinct permission types, not a hierarchy. A request for one level does not imply another.
+/// Use explicit permission checking logic rather than numeric comparisons.
 /// </summary>
 public enum AccessLevel
 {
@@ -20,7 +21,7 @@ public enum AccessLevel
 
     /// <summary>
     /// Execute access for running commands with the directory as working directory.
-    /// Implies ReadOnly access but not ReadWrite (commands may read but not modify files unless separately granted).
+    /// Does not imply ReadWrite access (commands can read but cannot modify files unless ReadWrite is also granted).
     /// </summary>
     Execute = 2
 }
