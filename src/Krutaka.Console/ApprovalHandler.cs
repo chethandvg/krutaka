@@ -112,7 +112,7 @@ internal sealed class ApprovalHandler
     /// <param name="justification">The agent's justification for the request.</param>
     /// <returns>A directory access approval result with the user's decision.</returns>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Method kept as instance method for consistency with other approval methods and potential future use of instance state.")]
-    public DirectoryAccessApproval HandleDirectoryAccessAsync(string path, AccessLevel requestedLevel, string justification)
+    public DirectoryAccessApproval HandleDirectoryAccess(string path, AccessLevel requestedLevel, string justification)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(justification);

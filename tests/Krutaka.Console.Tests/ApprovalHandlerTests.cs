@@ -116,57 +116,57 @@ public class ApprovalHandlerTests
     }
 
     [Fact]
-    public void HandleDirectoryAccessAsync_WithNullPath_ThrowsArgumentNullException()
+    public void HandleDirectoryAccess_WithNullPath_ThrowsArgumentNullException()
     {
         // Arrange
         var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act & Assert
-        var act = () => handler.HandleDirectoryAccessAsync(null!, AccessLevel.ReadOnly, "Test justification");
+        var act = () => handler.HandleDirectoryAccess(null!, AccessLevel.ReadOnly, "Test justification");
         act.Should().ThrowExactly<ArgumentNullException>();
     }
 
     [Fact]
-    public void HandleDirectoryAccessAsync_WithEmptyPath_ThrowsArgumentException()
+    public void HandleDirectoryAccess_WithEmptyPath_ThrowsArgumentException()
     {
         // Arrange
         var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act & Assert
-        var act = () => handler.HandleDirectoryAccessAsync("", AccessLevel.ReadOnly, "Test justification");
+        var act = () => handler.HandleDirectoryAccess("", AccessLevel.ReadOnly, "Test justification");
         act.Should().ThrowExactly<ArgumentException>();
     }
 
     [Fact]
-    public void HandleDirectoryAccessAsync_WithWhitespacePath_ThrowsArgumentException()
+    public void HandleDirectoryAccess_WithWhitespacePath_ThrowsArgumentException()
     {
         // Arrange
         var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act & Assert
-        var act = () => handler.HandleDirectoryAccessAsync("   ", AccessLevel.ReadOnly, "Test justification");
+        var act = () => handler.HandleDirectoryAccess("   ", AccessLevel.ReadOnly, "Test justification");
         act.Should().ThrowExactly<ArgumentException>();
     }
 
     [Fact]
-    public void HandleDirectoryAccessAsync_WithNullJustification_ThrowsArgumentNullException()
+    public void HandleDirectoryAccess_WithNullJustification_ThrowsArgumentNullException()
     {
         // Arrange
         var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act & Assert
-        var act = () => handler.HandleDirectoryAccessAsync(@"C:\test", AccessLevel.ReadOnly, null!);
+        var act = () => handler.HandleDirectoryAccess(@"C:\test", AccessLevel.ReadOnly, null!);
         act.Should().ThrowExactly<ArgumentNullException>();
     }
 
     [Fact]
-    public void HandleDirectoryAccessAsync_WithEmptyJustification_ThrowsArgumentException()
+    public void HandleDirectoryAccess_WithEmptyJustification_ThrowsArgumentException()
     {
         // Arrange
         var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
 
         // Act & Assert
-        var act = () => handler.HandleDirectoryAccessAsync(@"C:\test", AccessLevel.ReadOnly, "");
+        var act = () => handler.HandleDirectoryAccess(@"C:\test", AccessLevel.ReadOnly, "");
         act.Should().ThrowExactly<ArgumentException>();
     }
 
