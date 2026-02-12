@@ -8,6 +8,7 @@
     <PackageReference Include="CliWrap" />
     <PackageReference Include="Meziantou.Framework.Win32.Jobs" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
   </ItemGroup>
 
   <PropertyGroup>
