@@ -55,6 +55,7 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
 | `IAccessPolicyEngine` | **[v0.2.0]** Directory access policy evaluation | EvaluateAsync(DirectoryAccessRequest, CancellationToken) → Task<AccessDecision> |
+| `ISessionAccessStore` | **[v0.2.0]** Session-scoped directory access grants with TTL | IsGrantedAsync, GrantAccessAsync, RevokeAccessAsync, GetActiveGrantsAsync, PruneExpiredAsync |
 
 #### Model Types
 
@@ -70,6 +71,8 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `AccessLevel` | Enum | **[v0.2.0]** Access level for directory operations: ReadOnly, ReadWrite, Execute |
 | `DirectoryAccessRequest` | Record | **[v0.2.0]** Request to access a directory: Path, Level, Justification |
 | `AccessDecision` | Record | **[v0.2.0]** Result of access evaluation: Granted, ScopedPath, GrantedLevel, ExpiresAfter, DeniedReasons |
+| `SessionAccessGrant` | Record | **[v0.2.0]** Session-scoped directory grant: Path, AccessLevel, GrantedAt, ExpiresAt, Justification, GrantedBy |
+| `GrantSource` | Enum | **[v0.2.0]** Source of directory grant: User, AutoGrant, Policy |
 
 
 #### Core Classes
@@ -254,6 +257,7 @@ Tool implementations with security policy enforcement.
 | `SafeFileOperations` | — | Path canonicalization + jail | ✅ Implemented |
 | `PathResolver` | — | **[v0.2.0]** Symlink/junction resolution, ADS/device name blocking | ✅ Implemented |
 | `LayeredAccessPolicyEngine` | — | **[v0.2.0]** Four-layer directory access policy (Hard Deny → Allow → Session → Heuristic) | ✅ Implemented |
+| `InMemorySessionAccessStore` | — | **[v0.2.0]** Session-scoped directory access grant storage with TTL enforcement | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
 | `ToolRegistry` | — | Collection + dispatch | ✅ Implemented |
 | `ToolOptions` | — | Configuration for tool execution (v0.2.0: ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
@@ -284,6 +288,14 @@ Tool implementations with security policy enforcement.
   - **Decision caching**: Caches decisions for the same canonical path within a single evaluation to avoid redundant checks.
   - **Test coverage**: 24 comprehensive tests covering all layers, layering behavior, edge cases, and error handling.
 - **PathResolver** (v0.2.0-3): Segment-by-segment symlink/junction resolution with circular link detection, ADS blocking, device name blocking, and device path prefix blocking. Ensures intermediate directory symlinks are resolved before validation.
+- **InMemorySessionAccessStore** (v0.2.0-6): Thread-safe in-memory implementation of `ISessionAccessStore`:
+  - **Thread-safety**: Uses `ConcurrentDictionary<string, SessionAccessGrant>` with case-insensitive path comparison and `SemaphoreSlim` for atomic operations
+  - **TTL enforcement**: Throttled automatic pruning (max once per second) to avoid performance overhead on frequent reads
+  - **Max concurrent grants**: Configurable limit (default: 10) enforced atomically during grant with prune-check-add inside lock to prevent race conditions
+  - **Access level validation**: ReadWrite grants cover ReadOnly requests; Execute grants are independent
+  - **Grant operations**: GrantAccessAsync, RevokeAccessAsync, IsGrantedAsync, GetActiveGrantsAsync, PruneExpiredAsync
+  - **Lifecycle**: Registered as singleton (application-wide lifetime), implements IDisposable for SemaphoreSlim cleanup
+  - **Test coverage**: 25 comprehensive tests covering grant/revoke, TTL expiry, max limits, thread-safety, and access level validation
 
 **Tool Registry & DI:**
 - **ToolRegistry**: Centralized collection of all tools with:
@@ -302,6 +314,7 @@ Tool implementations with security policy enforcement.
 - **ServiceExtensions.AddAgentTools()**: DI registration method that:
   - Registers `ToolOptions` as singleton
   - Registers `CommandPolicy` as `ISecurityPolicy` singleton
+  - **[v0.2.0]** Registers `InMemorySessionAccessStore` as `ISessionAccessStore` singleton (application-wide lifetime)
   - **[v0.2.0]** Registers `LayeredAccessPolicyEngine` as `IAccessPolicyEngine` singleton
   - Registers `ToolRegistry` as `IToolRegistry` singleton
   - Instantiates and registers all 6 tool implementations

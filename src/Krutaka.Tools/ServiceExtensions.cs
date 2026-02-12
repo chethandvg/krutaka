@@ -42,6 +42,14 @@ public static class ServiceExtensions
             return new CommandPolicy(fileOperations, auditLogger);
         });
 
+        // Register session access store (singleton - application-wide lifetime)
+        // Note: Although conceptually "per-session", the application doesn't create service scopes,
+        // so this is functionally singleton. The store persists for the application lifetime.
+        services.AddSingleton<ISessionAccessStore>(sp =>
+        {
+            return new InMemorySessionAccessStore(options.MaxConcurrentGrants);
+        });
+
         // Register access policy engine (singleton - v0.2.0 dynamic directory scoping)
         services.AddSingleton<IAccessPolicyEngine>(sp =>
         {
