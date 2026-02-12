@@ -65,7 +65,7 @@ public sealed record SessionAccessGrant(
         }
 
         // ReadWrite grant covers ReadOnly requests
-        if (AccessLevel == Core.AccessLevel.ReadWrite && requestedLevel == Core.AccessLevel.ReadOnly)
+        if (AccessLevel == AccessLevel.ReadWrite && requestedLevel == AccessLevel.ReadOnly)
         {
             return true;
         }

@@ -13,6 +13,8 @@ public sealed class InMemorySessionAccessStore : ISessionAccessStore, IDisposabl
     private readonly SemaphoreSlim _pruneLock;
     private readonly int _maxConcurrentGrants;
     private bool _disposed;
+    private DateTimeOffset _lastPruneTime = DateTimeOffset.MinValue;
+    private static readonly TimeSpan PruneThrottleInterval = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="InMemorySessionAccessStore"/> class.
@@ -36,14 +38,18 @@ public sealed class InMemorySessionAccessStore : ISessionAccessStore, IDisposabl
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        // Automatically prune expired grants before checking
-        await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
+        // Throttle automatic pruning to avoid performance overhead on every read
+        var now = DateTimeOffset.UtcNow;
+        if (now - _lastPruneTime > PruneThrottleInterval)
+        {
+            await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         // Check if we have a matching grant
         if (_grants.TryGetValue(path, out var grant))
         {
             // Verify the grant hasn't expired (double-check after pruning)
-            if (grant.IsExpired(DateTimeOffset.UtcNow))
+            if (grant.IsExpired(now))
             {
                 return false;
             }
@@ -68,15 +74,15 @@ public sealed class InMemorySessionAccessStore : ISessionAccessStore, IDisposabl
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(justification);
 
-        // Prune expired grants first to free up space
-        await PruneExpiredAsync(cancellationToken).ConfigureAwait(false);
-
         // Check if we've reached the maximum number of grants
-        // Use _pruneLock to ensure atomic check-and-add
+        // Use _pruneLock to ensure atomic prune + check + add operation
         await _pruneLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Check again after acquiring lock (another thread might have added)
+            // Prune expired grants first to free up space (inside lock for atomicity)
+            PruneExpiredInternal();
+
+            // Check again after pruning (we're still holding the lock)
             if (_grants.Count >= _maxConcurrentGrants && !_grants.ContainsKey(path))
             {
                 throw new InvalidOperationException(
@@ -137,32 +143,40 @@ public sealed class InMemorySessionAccessStore : ISessionAccessStore, IDisposabl
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var prunedCount = 0;
-
-        // Use semaphore to prevent concurrent pruning (defensive - not strictly required)
         await _pruneLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var now = DateTimeOffset.UtcNow;
-
-            // Find all expired grants
-            var expiredPaths = _grants
-                .Where(kvp => kvp.Value.IsExpired(now))
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            // Remove expired grants
-            foreach (var path in expiredPaths)
-            {
-                if (_grants.TryRemove(path, out _))
-                {
-                    prunedCount++;
-                }
-            }
+            var prunedCount = PruneExpiredInternal();
+            _lastPruneTime = DateTimeOffset.UtcNow;
+            return prunedCount;
         }
         finally
         {
             _pruneLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Internal pruning method that assumes the lock is already held.
+    /// </summary>
+    private int PruneExpiredInternal()
+    {
+        var prunedCount = 0;
+        var now = DateTimeOffset.UtcNow;
+
+        // Find all expired grants using explicit filtering
+        var expiredPaths = _grants
+            .Where(kvp => kvp.Value.IsExpired(now))
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        // Remove expired grants
+        foreach (var path in expiredPaths)
+        {
+            if (_grants.TryRemove(path, out _))
+            {
+                prunedCount++;
+            }
         }
 
         return prunedCount;
