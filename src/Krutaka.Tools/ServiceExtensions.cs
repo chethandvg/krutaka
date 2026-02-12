@@ -42,6 +42,12 @@ public static class ServiceExtensions
             return new CommandPolicy(fileOperations, auditLogger);
         });
 
+        // Register session access store (scoped - per session lifetime)
+        services.AddScoped<ISessionAccessStore>(sp =>
+        {
+            return new InMemorySessionAccessStore(options.MaxConcurrentGrants);
+        });
+
         // Register access policy engine (singleton - v0.2.0 dynamic directory scoping)
         services.AddSingleton<IAccessPolicyEngine>(sp =>
         {
