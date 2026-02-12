@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Krutaka.Core;
 using Krutaka.Tools;
 using Xunit;
 
@@ -112,6 +113,107 @@ public class ApprovalHandlerTests
         // Assert - records have value equality
         decision1.Should().Be(decision2);
         decision1.Should().NotBe(decision3);
+    }
+
+    [Fact]
+    public void HandleDirectoryAccess_WithNullPath_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+
+        // Act & Assert
+        var act = () => handler.HandleDirectoryAccess(null!, AccessLevel.ReadOnly, "Test justification");
+        act.Should().ThrowExactly<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void HandleDirectoryAccess_WithEmptyPath_ThrowsArgumentException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+
+        // Act & Assert
+        var act = () => handler.HandleDirectoryAccess("", AccessLevel.ReadOnly, "Test justification");
+        act.Should().ThrowExactly<ArgumentException>();
+    }
+
+    [Fact]
+    public void HandleDirectoryAccess_WithWhitespacePath_ThrowsArgumentException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+
+        // Act & Assert
+        var act = () => handler.HandleDirectoryAccess("   ", AccessLevel.ReadOnly, "Test justification");
+        act.Should().ThrowExactly<ArgumentException>();
+    }
+
+    [Fact]
+    public void HandleDirectoryAccess_WithNullJustification_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+
+        // Act & Assert
+        var act = () => handler.HandleDirectoryAccess(@"C:\test", AccessLevel.ReadOnly, null!);
+        act.Should().ThrowExactly<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void HandleDirectoryAccess_WithEmptyJustification_ThrowsArgumentException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+
+        // Act & Assert
+        var act = () => handler.HandleDirectoryAccess(@"C:\test", AccessLevel.ReadOnly, "");
+        act.Should().ThrowExactly<ArgumentException>();
+    }
+
+    [Fact]
+    public void DirectoryAccessApproval_HasCorrectProperties()
+    {
+        // Arrange & Act
+        var approved = new DirectoryAccessApproval(true, AccessLevel.ReadWrite, false);
+        var denied = new DirectoryAccessApproval(false, null, false);
+        var session = new DirectoryAccessApproval(true, AccessLevel.ReadOnly, true);
+
+        // Assert
+        approved.Approved.Should().BeTrue();
+        approved.GrantedLevel.Should().Be(AccessLevel.ReadWrite);
+        approved.SessionGrant.Should().BeFalse();
+
+        denied.Approved.Should().BeFalse();
+        denied.GrantedLevel.Should().BeNull();
+        denied.SessionGrant.Should().BeFalse();
+
+        session.Approved.Should().BeTrue();
+        session.GrantedLevel.Should().Be(AccessLevel.ReadOnly);
+        session.SessionGrant.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DirectoryAccessApproval_IsRecord()
+    {
+        // Arrange
+        var approval1 = new DirectoryAccessApproval(true, AccessLevel.ReadOnly, false);
+        var approval2 = new DirectoryAccessApproval(true, AccessLevel.ReadOnly, false);
+        var approval3 = new DirectoryAccessApproval(false, null, true);
+
+        // Assert - records have value equality
+        approval1.Should().Be(approval2);
+        approval1.Should().NotBe(approval3);
+    }
+
+    [Fact]
+    public void CreateDirectoryAccessDenialMessage_ReturnsCorrectMessage()
+    {
+        // Arrange & Act
+        var message = ApprovalHandler.CreateDirectoryAccessDenialMessage(@"C:\projects\test");
+
+        // Assert
+        message.Should().Contain(@"C:\projects\test");
+        message.Should().Contain("denied access");
     }
 
     // Note: Interactive tests that require user input are not included here.

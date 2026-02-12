@@ -63,3 +63,11 @@ public sealed record HumanApprovalRequired(string ToolName, string ToolUseId, st
 /// </summary>
 /// <param name="RequestId">The request ID from the Claude API response header.</param>
 public sealed record RequestIdCaptured(string RequestId) : AgentEvent;
+
+/// <summary>
+/// Represents a request for human approval before granting directory access.
+/// </summary>
+/// <param name="Path">The directory path being requested.</param>
+/// <param name="AccessLevel">The level of access being requested (ReadOnly, ReadWrite, or Execute).</param>
+/// <param name="Justification">The agent's justification for requesting access to this directory.</param>
+public sealed record DirectoryAccessRequested(string Path, AccessLevel AccessLevel, string Justification) : AgentEvent;

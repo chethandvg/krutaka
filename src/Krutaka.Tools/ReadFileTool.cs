@@ -85,7 +85,9 @@ public class ReadFileTool : ToolBase
 
                 if (decision.Outcome == AccessOutcome.RequiresApproval)
                 {
-                    return $"Error: Access to directory '{fileDirectory}' requires approval. This functionality will be available in v0.2.0-9.";
+                    // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                    // Use canonical scoped path so orchestrator grant matches session store lookup
+                    throw new DirectoryAccessRequiredException(decision.ScopedPath!, AccessLevel.ReadOnly, $"Reading file: {path}");
                 }
 
                 // Use the granted scoped path as the validation root

@@ -14,15 +14,17 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly IClaudeClient _claudeClient;
     private readonly IToolRegistry _toolRegistry;
     private readonly ISecurityPolicy _securityPolicy;
+    private readonly ISessionAccessStore? _sessionAccessStore;
     private readonly IAuditLogger? _auditLogger;
     private readonly CorrelationContext? _correlationContext;
     private readonly TimeSpan _toolTimeout;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
     private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
-    private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision
+    private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
     private string? _pendingToolName; // Tracks the tool name of the pending approval request
+    private TaskCompletionSource<DirectoryAccessApprovalResult>? _pendingDirectoryApproval; // Blocks until directory access approval/denial
     private bool _disposed;
 
     /// <summary>
@@ -32,6 +34,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="toolRegistry">The tool registry for executing tools.</param>
     /// <param name="securityPolicy">The security policy for approval checks.</param>
     /// <param name="toolTimeoutSeconds">Timeout for tool execution in seconds (default: 30).</param>
+    /// <param name="sessionAccessStore">Optional session access store for directory access grants (v0.2.0).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
     public AgentOrchestrator(
@@ -39,12 +42,14 @@ public sealed class AgentOrchestrator : IDisposable
         IToolRegistry toolRegistry,
         ISecurityPolicy securityPolicy,
         int toolTimeoutSeconds = 30,
+        ISessionAccessStore? sessionAccessStore = null,
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
         _securityPolicy = securityPolicy ?? throw new ArgumentNullException(nameof(securityPolicy));
+        _sessionAccessStore = sessionAccessStore;
         _auditLogger = auditLogger;
         _correlationContext = correlationContext;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
@@ -200,6 +205,28 @@ public sealed class AgentOrchestrator : IDisposable
     }
 
     /// <summary>
+    /// Approves a pending directory access request. This should be called in response to DirectoryAccessRequested events.
+    /// Unblocks the orchestrator to retry tool execution with the granted access.
+    /// </summary>
+    /// <param name="grantedLevel">The access level to grant (may be downgraded from requested).</param>
+    /// <param name="createSessionGrant">Whether to create a session-wide grant for this path.</param>
+    public void ApproveDirectoryAccess(AccessLevel grantedLevel, bool createSessionGrant = false)
+    {
+        // Signal the pending directory approval to proceed
+        _pendingDirectoryApproval?.TrySetResult(new DirectoryAccessApprovalResult(true, grantedLevel, createSessionGrant));
+    }
+
+    /// <summary>
+    /// Denies a pending directory access request. This should be called in response to DirectoryAccessRequested events.
+    /// The tool will fail with a denial message.
+    /// </summary>
+    public void DenyDirectoryAccess()
+    {
+        // Signal the pending directory approval as denied
+        _pendingDirectoryApproval?.TrySetResult(new DirectoryAccessApprovalResult(false, null, false));
+    }
+
+    /// <summary>
     /// Internal agentic loop that processes tool calls until a final response is received.
     /// </summary>
     private async IAsyncEnumerable<AgentEvent> RunAgenticLoopAsync(
@@ -308,8 +335,96 @@ public sealed class AgentOrchestrator : IDisposable
                     alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
                 }
 
-                // Execute the tool with timeout
-                var toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                // Execute the tool with timeout - may throw DirectoryAccessRequiredException
+                ToolResult toolResult;
+                DirectoryAccessRequiredException? dirAccessException = null;
+                
+                try
+                {
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                }
+                catch (DirectoryAccessRequiredException ex)
+                {
+                    dirAccessException = ex;
+                    // Set a placeholder result - will be replaced after approval handling
+                    toolResult = new ToolResult(string.Empty, IsError: true);
+                }
+
+                // Handle directory access approval if needed
+                if (dirAccessException != null)
+                {
+                    // Directory access requires approval - check if session access store is available
+                    if (_sessionAccessStore == null)
+                    {
+                        // No session store available - fail with error
+                        var errorMsg = $"Directory access to '{dirAccessException.Path}' requires approval, but session access store is not configured.";
+                        yield return new ToolCallFailed(toolCall.Name, toolCall.Id, errorMsg);
+                        toolResults.Add(CreateToolResult(toolCall.Id, errorMsg, true));
+                        continue;
+                    }
+
+                    // Create a TaskCompletionSource to block until the caller approves or denies
+                    _pendingDirectoryApproval = new TaskCompletionSource<DirectoryAccessApprovalResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                    // Yield DirectoryAccessRequested event
+                    yield return new DirectoryAccessRequested(dirAccessException.Path, dirAccessException.RequestedLevel, dirAccessException.Justification);
+
+                    // Block until ApproveDirectoryAccess or DenyDirectoryAccess is called
+                    DirectoryAccessApprovalResult approvalResult;
+                    try
+                    {
+                        approvalResult = await _pendingDirectoryApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        _pendingDirectoryApproval = null;
+                    }
+
+                    if (!approvalResult.Approved || approvalResult.GrantedLevel == null)
+                    {
+                        // Directory access was denied
+                        var denialMsg = $"Access to directory '{dirAccessException.Path}' was denied by the user.";
+                        yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMsg);
+                        toolResults.Add(CreateToolResult(toolCall.Id, denialMsg, true));
+                        continue;
+                    }
+
+                    // Access was approved - grant it via session store
+                    try
+                    {
+                        // Create a temporary grant for the retry
+                        // For session grants, use 1-hour TTL; for single operations, use short TTL and revoke after
+                        TimeSpan ttl = approvalResult.CreateSessionGrant ? TimeSpan.FromHours(1) : TimeSpan.FromSeconds(30);
+                        await _sessionAccessStore.GrantAccessAsync(
+                            dirAccessException.Path,
+                            approvalResult.GrantedLevel.Value,
+                            ttl,
+                            dirAccessException.Justification,
+                            GrantSource.User,
+                            cancellationToken).ConfigureAwait(false);
+
+                        try
+                        {
+                            // Retry the tool execution now that access is granted
+                            toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            // If this was a single-operation approval, revoke the grant immediately after execution
+                            if (!approvalResult.CreateSessionGrant)
+                            {
+                                await _sessionAccessStore.RevokeAccessAsync(dirAccessException.Path, cancellationToken).ConfigureAwait(false);
+                            }
+                        }
+                    }
+#pragma warning disable CA1031 // Catching Exception is appropriate here to handle any grant or retry failure
+                    catch (Exception grantEx)
+#pragma warning restore CA1031
+                    {
+                        // Failed to grant access or retry execution - set error result
+                        toolResult = new ToolResult($"Failed to grant directory access: {grantEx.Message}", IsError: true);
+                    }
+                }
 
                 // Yield the appropriate event
                 if (toolResult.IsError)
@@ -509,6 +624,11 @@ public sealed class AgentOrchestrator : IDisposable
             
             return new ToolResult(errorMessage, IsError: true);
         }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Directory access requires approval - rethrow to let the agentic loop handle it
+            throw;
+        }
         catch (Exception ex)
         {
             // Tool execution failed - don't crash the loop, return error to Claude
@@ -541,4 +661,13 @@ public sealed class AgentOrchestrator : IDisposable
     /// Represents the result of a tool execution.
     /// </summary>
     private sealed record ToolResult(string Content, bool IsError);
+
+    /// <summary>
+    /// Represents the result of a directory access approval request.
+    /// </summary>
+    private sealed record DirectoryAccessApprovalResult(
+        bool Approved,
+        AccessLevel? GrantedLevel,
+        bool CreateSessionGrant
+    );
 }
