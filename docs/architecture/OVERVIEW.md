@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-11 (Issue #21 complete — ConsoleUI and MarkdownRenderer with streaming support)
+> **Last updated:** 2026-02-12 (Issue v0.2.0-4 complete — Core abstractions for access policy engine)
 
 ## System Architecture
 
@@ -54,6 +54,7 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync (static on SessionStore: FindMostRecentSession, ListSessions) |
 | `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
+| `IAccessPolicyEngine` | **[v0.2.0]** Directory access policy evaluation | EvaluateAsync(DirectoryAccessRequest) → AccessDecision |
 
 #### Model Types
 
@@ -66,6 +67,10 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `MemoryResult` | Record | Search result: Id, Content, Source, CreatedAt, Score |
 | `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
 | `CompactionResult` | Record | Context compaction result: message counts, token counts, summary, compacted messages |
+| `AccessLevel` | Enum | **[v0.2.0]** Access level for directory operations: ReadOnly, ReadWrite, Execute |
+| `DirectoryAccessRequest` | Record | **[v0.2.0]** Request to access a directory: Path, Level, Justification |
+| `AccessDecision` | Record | **[v0.2.0]** Result of access evaluation: Granted, ScopedPath, GrantedLevel, ExpiresAfter, DeniedReasons |
+
 
 #### Core Classes
 
