@@ -222,12 +222,14 @@ try
         var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
         var auditLogger = sp.GetRequiredService<IAuditLogger>();
         var correlationContext = sp.GetRequiredService<CorrelationContext>();
+        var sessionAccessStore = sp.GetService<ISessionAccessStore>(); // Optional in v0.2.0
 
         return new AgentOrchestrator(
             claudeClient,
             toolRegistry,
             securityPolicy,
             toolTimeoutSeconds,
+            sessionAccessStore,
             auditLogger,
             correlationContext);
     });
