@@ -178,7 +178,12 @@ public sealed class SqliteMemoryStore : IMemoryService, IDisposable
                 var rank = reader.GetDouble(4);
 
                 // Parse SQLite datetime to DateTimeOffset
-                var createdAt = DateTimeOffset.Parse(createdAtText, System.Globalization.CultureInfo.InvariantCulture);
+                // SQLite datetime('now') returns UTC without a timezone indicator,
+                // so we must specify AssumeUniversal to avoid local-time misinterpretation.
+                var createdAt = DateTimeOffset.Parse(
+                    createdAtText,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal);
 
                 // Convert FTS5 rank (negative) to positive score
                 // Lower rank (more negative) = better match, so negate it

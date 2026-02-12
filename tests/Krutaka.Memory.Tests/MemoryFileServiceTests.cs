@@ -91,7 +91,7 @@ public sealed class MemoryFileServiceTests : IDisposable
         // Assert
         wasAdded.Should().BeFalse();
         var content = await File.ReadAllTextAsync(_memoryFilePath);
-        var occurrences = System.Text.RegularExpressions.Regex.Matches(content, "Max line length: 120").Count;
+        var occurrences = System.Text.RegularExpressions.Regex.Count(content, "Max line length: 120");
         occurrences.Should().Be(1);
     }
 
