@@ -9,6 +9,7 @@
     <PackageReference Include="Meziantou.Framework.Win32.Jobs" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <PropertyGroup>

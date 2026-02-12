@@ -611,7 +611,8 @@
           "Krutaka.Core": "[1.0.0, )",
           "Meziantou.Framework.Win32.Jobs": "[3.4.10, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
-          "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )"
+          "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.2, )"
         }
       },
       "Anthropic": {
