@@ -186,6 +186,15 @@ public static class PathResolver
                 throw new IOException($"Circular symlink detected: '{fullPath}'");
             }
 
+            // If this is the last segment, we need to recursively resolve the target
+            // to catch circular symlinks (e.g., link1 -> link2 -> link1)
+            if (isLastSegment)
+            {
+                // Recursively resolve the link target to detect circular references
+                var resolvedTarget = ResolvePathSegmentBySegment(targetFullPath, visitedPaths);
+                return resolvedTarget ?? targetFullPath;
+            }
+
             // Replace the current accumulated path with the link target
             // Any remaining segments will be appended to this target
             resolvedPath = targetFullPath.TrimEnd(separators);
