@@ -56,17 +56,9 @@ public static class PathResolver
             throw new SecurityException($"Alternate Data Streams (ADS) are not permitted: '{path}'");
         }
 
-        // Check for reserved device names
-        var fileName = Path.GetFileName(canonicalPath);
-        if (!string.IsNullOrEmpty(fileName))
-        {
-            // Remove extension for device name check (e.g., CON.txt is also blocked)
-            var nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
-            if (ReservedDeviceNames.Contains(nameWithoutExtension, StringComparer.OrdinalIgnoreCase))
-            {
-                throw new SecurityException($"Reserved device names are not permitted: '{fileName}'");
-            }
-        }
+        // Check for reserved device names in ALL path segments
+        // On Windows, reserved device names are invalid in any path component
+        CheckForReservedDeviceNames(canonicalPath, path);
 
         // Resolve symlinks and junctions
         return ResolveSymlinksAndJunctions(canonicalPath);
@@ -209,5 +201,47 @@ public static class PathResolver
 
         // Any colon at position > 1 or position 0 is an ADS indicator
         return firstColonIndex >= 0;
+    }
+
+    /// <summary>
+    /// Checks all path segments for reserved Windows device names.
+    /// Reserved device names are invalid in ANY path component on Windows.
+    /// </summary>
+    /// <param name="canonicalPath">The canonical (full) path to check.</param>
+    /// <param name="originalPath">The original path for error messages.</param>
+    /// <remarks>
+    /// Windows treats reserved device names as special in any path segment, and also
+    /// with trailing dots/spaces (e.g., "CON.", "CON "). This method validates all
+    /// segments and normalizes them before checking against the reserved list.
+    /// 
+    /// Examples of blocked paths:
+    /// - C:\CON\file.txt (CON in path segment)
+    /// - C:\safe\NUL\data.bin (NUL in path segment)
+    /// - C:\path\COM1.txt (COM1 as filename)
+    /// - C:\path\PRN. (PRN with trailing dot)
+    /// </remarks>
+    private static void CheckForReservedDeviceNames(string canonicalPath, string originalPath)
+    {
+        // Split path into segments
+        var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+        var segments = canonicalPath.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            // Normalize segment: trim trailing dots and spaces (Windows treats these as equivalent)
+            var normalizedSegment = segment.TrimEnd('.', ' ');
+            
+            if (string.IsNullOrEmpty(normalizedSegment))
+            {
+                continue;
+            }
+
+            // Check if the segment (without extension) is a reserved device name
+            var nameWithoutExtension = Path.GetFileNameWithoutExtension(normalizedSegment);
+            if (ReservedDeviceNames.Contains(nameWithoutExtension, StringComparer.OrdinalIgnoreCase))
+            {
+                throw new SecurityException($"Reserved device names are not permitted in any path segment: '{segment}' in path '{originalPath}'");
+            }
+        }
     }
 }

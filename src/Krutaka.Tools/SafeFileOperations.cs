@@ -105,11 +105,16 @@ public class SafeFileOperations : IFileOperations
         {
             canonicalPath = PathResolver.ResolveToFinalTarget(combinedPath);
         }
-        catch (SecurityException)
+        catch (SecurityException ex)
         {
             // PathResolver throws SecurityException for ADS, device names, device prefixes
-            // Re-throw as-is (already has descriptive message)
-            throw;
+            // Log and re-throw to ensure audit trail
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                ex.Message,
+                correlationContext);
+            throw; // Unreachable, but satisfies compiler
         }
         catch (Exception ex)
         {

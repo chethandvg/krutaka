@@ -10,35 +10,13 @@ public sealed class PathResolverTests : IDisposable
 
     public PathResolverTests()
     {
-        var uniqueId = Guid.NewGuid().ToString("N")[..8];
-        
-        if (OperatingSystem.IsWindows())
-        {
-            _testRoot = Path.Combine(@"C:\temp", $"krutaka-pathresolver-test-{uniqueId}");
-        }
-        else
-        {
-            _testRoot = Path.Combine("/tmp", $"krutaka-pathresolver-test-{uniqueId}");
-        }
-        
+        _testRoot = TestDirectoryHelper.GetTestDirectory("pathresolver");
         Directory.CreateDirectory(_testRoot);
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(_testRoot))
-        {
-#pragma warning disable CA1031 // Do not catch general exception types - best effort cleanup
-            try
-            {
-                Directory.Delete(_testRoot, recursive: true);
-            }
-            catch
-            {
-                // Best effort cleanup
-            }
-#pragma warning restore CA1031
-        }
+        TestDirectoryHelper.TryDeleteDirectory(_testRoot);
     }
 
     #region Normal Path Tests
@@ -61,7 +39,6 @@ public sealed class PathResolverTests : IDisposable
     public void Should_ResolveRelativePath_ToAbsolute()
     {
         // Arrange
-        var currentDir = Directory.GetCurrentDirectory();
         var relativePath = Path.Combine(".", "test.txt");
         
         // Act
