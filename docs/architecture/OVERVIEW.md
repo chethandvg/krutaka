@@ -486,7 +486,7 @@ Entry point and console UI with streaming display and Markdown rendering.
 | `Program` | Composition root, DI wiring, main loop | Placeholder |
 | `ConsoleUI` | Streaming display, input prompt, tool indicators | ✅ Implemented |
 | `MarkdownRenderer` | Markdig AST → Spectre.Console markup | ✅ Implemented |
-| `ApprovalHandler` | Human-in-the-loop approval prompts | ✅ Implemented |
+| `ApprovalHandler` | Human-in-the-loop approval prompts (tools + directories) | ✅ Implemented |
 | `SetupWizard` | First-run API key configuration | ✅ Implemented |
 | `SecretsProvider` | Windows Credential Manager read/write | ✅ Implemented |
 
@@ -519,7 +519,8 @@ The `ConsoleUI` class provides the main console interface with the following fea
 - **Event stream processing**: Handles `IAsyncEnumerable<AgentEvent>` from `AgentOrchestrator`:
   - `TextDelta`: Raw console write for streaming
   - `ToolCallStarted/Completed/Failed`: Status indicators
-  - `HumanApprovalRequired`: Triggers approval handler (integration pending)
+  - `HumanApprovalRequired`: Triggers approval handler (Issue #15)
+  - `DirectoryAccessRequested`: Triggers directory access approval handler (v0.2.0-9)
   - `FinalResponse`: Re-renders content with Markdown formatting
 
 **MarkdownRenderer Implementation Details:**
