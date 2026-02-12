@@ -50,13 +50,8 @@ public static class PathResolver
             throw new SecurityException($"Invalid path: '{path}'. {ex.Message}", ex);
         }
 
-        // Check for Alternate Data Streams (ADS) - colon after drive letter position
-        // Valid: C:\path\file.txt
-        // Invalid: C:\path\file.txt:hidden
-#pragma warning disable CA1865 // Use char overload (char overload doesn't support StringComparison)
-        var colonIndex = canonicalPath.IndexOf(":", StringComparison.Ordinal);
-        if (colonIndex > 1 || (colonIndex == 1 && canonicalPath.Length > 2 && canonicalPath.IndexOf(":", 2, StringComparison.Ordinal) >= 0))
-#pragma warning restore CA1865
+        // Check for Alternate Data Streams (ADS)
+        if (ContainsAlternateDataStream(canonicalPath))
         {
             throw new SecurityException($"Alternate Data Streams (ADS) are not permitted: '{path}'");
         }
@@ -140,6 +135,10 @@ public static class PathResolver
 
             try
             {
+                // Note: We use returnFinalTarget: false and manually follow the chain in a loop
+                // to enable circular link detection. Using returnFinalTarget: true would resolve
+                // the entire chain at once but wouldn't allow us to detect cycles, potentially
+                // causing infinite loops or exceptions in the .NET runtime.
                 if (File.Exists(currentPath))
                 {
                     var fileInfo = new FileInfo(currentPath);
@@ -173,5 +172,42 @@ public static class PathResolver
         }
 
         return currentPath;
+    }
+
+    /// <summary>
+    /// Checks if a path contains an Alternate Data Stream (ADS) indicator.
+    /// ADS paths contain a colon (:) after the drive letter position.
+    /// </summary>
+    /// <param name="canonicalPath">The canonical (full) path to check.</param>
+    /// <returns>True if the path contains ADS syntax, false otherwise.</returns>
+    /// <remarks>
+    /// Valid paths:
+    /// - C:\path\file.txt (drive letter colon at position 1 is allowed)
+    /// - /path/file.txt (Unix paths have no colons)
+    /// 
+    /// Invalid paths (ADS):
+    /// - C:\path\file.txt:hidden (colon after the filename)
+    /// - C:\path\file.txt:stream:$DATA (multiple ADS components)
+    /// - file.txt:ads (relative path with ADS)
+    /// </remarks>
+    private static bool ContainsAlternateDataStream(string canonicalPath)
+    {
+        // Find the first colon in the path
+#pragma warning disable CA1865 // Use char overload (char overload doesn't support StringComparison)
+        var firstColonIndex = canonicalPath.IndexOf(":", StringComparison.Ordinal);
+#pragma warning restore CA1865
+
+        // If colon is at position 1, it's a drive letter (e.g., "C:")
+        // Check if there's another colon after that
+        if (firstColonIndex == 1)
+        {
+            // Drive letter colon is valid - check if there's another colon after it
+#pragma warning disable CA1865 // Use char overload (char overload doesn't support StringComparison)
+            return canonicalPath.Length > 2 && canonicalPath.IndexOf(":", 2, StringComparison.Ordinal) >= 0;
+#pragma warning restore CA1865
+        }
+
+        // Any colon at position > 1 or position 0 is an ADS indicator
+        return firstColonIndex >= 0;
     }
 }
