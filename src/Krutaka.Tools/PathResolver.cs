@@ -66,104 +66,178 @@ public static class PathResolver
 
     /// <summary>
     /// Resolves all symlinks and junctions in the path to their final target.
-    /// If the path doesn't exist, validates the parent directory chain instead.
+    /// Walks each path segment from root to leaf, resolving any reparse points encountered.
+    /// If the path doesn't exist, validates all existing ancestor directories.
     /// </summary>
     private static string ResolveSymlinksAndJunctions(string path)
     {
         var visitedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var currentPath = path;
-
-        // Try to resolve the full path
-        var resolvedPath = ResolvePathWithCircularDetection(currentPath, visitedPaths);
-        if (resolvedPath != null)
+        
+        // Normalize to full path
+        var fullPath = Path.GetFullPath(path);
+        
+        // Try segment-by-segment resolution for existing paths
+        var resolved = ResolvePathSegmentBySegment(fullPath, visitedPaths);
+        if (resolved != null)
         {
-            return resolvedPath;
+            return resolved;
         }
 
-        // Path doesn't exist - validate parent directory chain
-        var directory = Path.GetDirectoryName(currentPath);
-        if (string.IsNullOrEmpty(directory))
-        {
-            // No parent directory (e.g., root or relative path without parent)
-            return currentPath;
-        }
-
-        // Recursively resolve parent directories
-        visitedPaths.Clear();
-        var resolvedParent = ResolvePathWithCircularDetection(directory, visitedPaths);
-        if (resolvedParent != null)
-        {
-            // Reconstruct path with resolved parent and original filename
-            var fileName = Path.GetFileName(currentPath);
-            return Path.Combine(resolvedParent, fileName);
-        }
-
-        // Parent doesn't exist either - return canonical path as-is
-        return currentPath;
+        // Path doesn't exist - walk up to find nearest existing ancestor,
+        // resolve it, then append remaining non-existent segments
+        return ResolveNonExistentPath(fullPath, visitedPaths);
     }
 
     /// <summary>
-    /// Resolves a single path, following symlinks and junctions with circular link detection.
+    /// Resolves a path by walking each segment from root to leaf.
     /// Returns null if the path doesn't exist.
     /// </summary>
-    private static string? ResolvePathWithCircularDetection(string path, HashSet<string> visitedPaths)
+    private static string? ResolvePathSegmentBySegment(string fullPath, HashSet<string> visitedPaths)
     {
-        if (!File.Exists(path) && !Directory.Exists(path))
-        {
-            return null;
-        }
+        var root = Path.GetPathRoot(fullPath) ?? string.Empty;
+        var remaining = fullPath[root.Length..];
 
-        var currentPath = path;
+        var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+        var segments = remaining.Split(separators, StringSplitOptions.RemoveEmptyEntries);
 
-        while (true)
+        // Start from the root (e.g., "C:\")
+        var resolvedPath = root.TrimEnd(separators);
+
+        for (var i = 0; i < segments.Length; i++)
         {
-            // Check for circular links
-            if (!visitedPaths.Add(currentPath))
+            var segment = segments[i];
+
+            // Build the path up to this segment
+            resolvedPath = string.IsNullOrEmpty(resolvedPath)
+                ? segment
+                : Path.Combine(resolvedPath, segment);
+
+            var currentSegmentPath = resolvedPath;
+
+            // Check if this segment exists
+            var existsAsFile = File.Exists(currentSegmentPath);
+            var existsAsDir = Directory.Exists(currentSegmentPath);
+            
+            if (!existsAsFile && !existsAsDir)
             {
-                throw new IOException($"Circular symlink detected: '{path}'");
+                // A component along the path does not exist
+                return null;
+            }
+
+            // Check for circular links on this segment path
+            if (!visitedPaths.Add(currentSegmentPath))
+            {
+                throw new IOException($"Circular symlink detected: '{fullPath}'");
             }
 
             FileSystemInfo? linkTarget = null;
+            
+            // Decide whether this segment should be treated as a file or directory
+            // For the final segment, prefer file if it exists; otherwise treat as directory
+            var isLastSegment = i == segments.Length - 1;
 
             try
             {
-                // Note: We use returnFinalTarget: false and manually follow the chain in a loop
-                // to enable circular link detection. Using returnFinalTarget: true would resolve
-                // the entire chain at once but wouldn't allow us to detect cycles, potentially
-                // causing infinite loops or exceptions in the .NET runtime.
-                if (File.Exists(currentPath))
+                if (isLastSegment && existsAsFile)
                 {
-                    var fileInfo = new FileInfo(currentPath);
+                    var fileInfo = new FileInfo(currentSegmentPath);
                     linkTarget = fileInfo.ResolveLinkTarget(returnFinalTarget: false);
                 }
-                else if (Directory.Exists(currentPath))
+                else if (existsAsDir)
                 {
-                    var dirInfo = new DirectoryInfo(currentPath);
+                    var dirInfo = new DirectoryInfo(currentSegmentPath);
                     linkTarget = dirInfo.ResolveLinkTarget(returnFinalTarget: false);
+                }
+                else if (existsAsFile)
+                {
+                    // Non-final file segment (unusual but possible)
+                    var fileInfo = new FileInfo(currentSegmentPath);
+                    linkTarget = fileInfo.ResolveLinkTarget(returnFinalTarget: false);
                 }
             }
             catch (IOException)
             {
                 // If ResolveLinkTarget fails (e.g., not a link, I/O error), treat as non-link
-                break;
+                linkTarget = null;
             }
             catch (UnauthorizedAccessException)
             {
                 // If we don't have permission to resolve the link, treat as non-link
-                break;
+                linkTarget = null;
             }
 
-            // Not a link or couldn't resolve - we're done
+            // Not a link or couldn't resolve - continue with remaining segments
             if (linkTarget == null)
             {
-                break;
+                continue;
             }
 
-            // Follow the link
-            currentPath = linkTarget.FullName;
+            // Follow the link target
+            var targetFullPath = Path.GetFullPath(linkTarget.FullName);
+
+            // Circular detection on the resolved target as well
+            if (!visitedPaths.Add(targetFullPath))
+            {
+                throw new IOException($"Circular symlink detected: '{fullPath}'");
+            }
+
+            // Replace the current accumulated path with the link target
+            // Any remaining segments will be appended to this target
+            resolvedPath = targetFullPath.TrimEnd(separators);
         }
 
-        return currentPath;
+        return resolvedPath;
+    }
+
+    /// <summary>
+    /// Resolves a non-existent path by finding the nearest existing ancestor,
+    /// resolving that ancestor, then appending the remaining non-existent segments.
+    /// </summary>
+    private static string ResolveNonExistentPath(string fullPath, HashSet<string> visitedPaths)
+    {
+        var remainingSegments = new List<string>();
+        var currentPath = fullPath;
+
+        while (true)
+        {
+            // If we've reached an existing file or directory, resolve it
+            if (File.Exists(currentPath) || Directory.Exists(currentPath))
+            {
+                visitedPaths.Clear();
+                var resolvedAncestor = ResolvePathSegmentBySegment(currentPath, visitedPaths);
+                if (resolvedAncestor == null)
+                {
+                    // Defensive fallback: if resolution unexpectedly fails,
+                    // return the original path unchanged
+                    return fullPath;
+                }
+
+                // Append remaining non-existent segments
+                var finalPath = resolvedAncestor;
+                foreach (var segment in remainingSegments)
+                {
+                    finalPath = Path.Combine(finalPath, segment);
+                }
+
+                return finalPath;
+            }
+
+            var parent = Path.GetDirectoryName(currentPath);
+            if (string.IsNullOrEmpty(parent))
+            {
+                // No existing ancestor found - return original path
+                return fullPath;
+            }
+
+            var segmentName = Path.GetFileName(currentPath);
+            if (!string.IsNullOrEmpty(segmentName))
+            {
+                // Prepend so segments remain in correct order
+                remainingSegments.Insert(0, segmentName);
+            }
+
+            currentPath = parent;
+        }
     }
 
     /// <summary>
