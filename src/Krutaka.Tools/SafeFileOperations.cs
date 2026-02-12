@@ -114,8 +114,10 @@ public class SafeFileOperations : IFileOperations
                 path,
                 ex.Message,
                 correlationContext);
-            throw; // Unreachable, but satisfies compiler
+            // Note: LogAndThrowSecurityViolation always throws, but throw is needed to satisfy compiler flow analysis
+            throw;
         }
+#pragma warning disable CA1031 // Do not catch general exception types - LogAndThrowSecurityViolation always throws
         catch (Exception ex)
         {
             LogAndThrowSecurityViolation(
@@ -123,8 +125,10 @@ public class SafeFileOperations : IFileOperations
                 path,
                 $"Invalid path: '{path}'. {ex.Message}",
                 correlationContext);
-            throw; // Unreachable, but satisfies compiler
+            // Note: LogAndThrowSecurityViolation always throws, but throw is needed to satisfy compiler flow analysis
+            throw;
         }
+#pragma warning restore CA1031
 
         // Verify the path is within the allowed root (prevents path traversal and sibling directory access)
         // The canonicalRoot has a trailing separator, so we check:

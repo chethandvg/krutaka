@@ -100,17 +100,22 @@ public static class PathResolver
         var separators = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
         var segments = remaining.Split(separators, StringSplitOptions.RemoveEmptyEntries);
 
-        // Start from the root (e.g., "C:\")
+        // Start from the root (e.g., "C:\" on Windows, "/" on Unix)
         var resolvedPath = root.TrimEnd(separators);
+        
+        // On Unix, root is "/" which becomes empty after TrimEnd
+        // Ensure we maintain the root separator for absolute paths
+        if (string.IsNullOrEmpty(resolvedPath) && !string.IsNullOrEmpty(root))
+        {
+            resolvedPath = root;
+        }
 
         for (var i = 0; i < segments.Length; i++)
         {
             var segment = segments[i];
 
             // Build the path up to this segment
-            resolvedPath = string.IsNullOrEmpty(resolvedPath)
-                ? segment
-                : Path.Combine(resolvedPath, segment);
+            resolvedPath = Path.Combine(resolvedPath, segment);
 
             var currentSegmentPath = resolvedPath;
 
@@ -193,7 +198,12 @@ public static class PathResolver
     /// Resolves a non-existent path by finding the nearest existing ancestor,
     /// resolving that ancestor, then appending the remaining non-existent segments.
     /// </summary>
+    /// <param name="fullPath">The full path to resolve.</param>
+    /// <param name="visitedPaths">The set of visited paths (unused - kept for signature consistency).</param>
+    /// <returns>The resolved path with non-existent segments appended.</returns>
+#pragma warning disable IDE0060 // Remove unused parameter - kept for method signature consistency
     private static string ResolveNonExistentPath(string fullPath, HashSet<string> visitedPaths)
+#pragma warning restore IDE0060
     {
         var remainingSegments = new List<string>();
         var currentPath = fullPath;
@@ -203,8 +213,10 @@ public static class PathResolver
             // If we've reached an existing file or directory, resolve it
             if (File.Exists(currentPath) || Directory.Exists(currentPath))
             {
-                visitedPaths.Clear();
-                var resolvedAncestor = ResolvePathSegmentBySegment(currentPath, visitedPaths);
+                // Create a new visitedPaths set for the ancestor resolution
+                // This avoids false circular-link detection from the failed initial resolution attempt
+                var ancestorVisitedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var resolvedAncestor = ResolvePathSegmentBySegment(currentPath, ancestorVisitedPaths);
                 if (resolvedAncestor == null)
                 {
                     // Defensive fallback: if resolution unexpectedly fails,
