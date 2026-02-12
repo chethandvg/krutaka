@@ -112,12 +112,14 @@ Any command or argument containing these characters must be rejected:
 
 ### Canonicalization and Symlink Resolution (v0.2.0-3 Enhancement)
 1. **Path canonicalization**: `Path.GetFullPath(Path.Combine(projectRoot, relativePath))`
-2. **Symlink resolution**: `PathResolver.ResolveToFinalTarget()` resolves all symlinks, junctions, and reparse points to their final target using `FileSystemInfo.ResolveLinkTarget(returnFinalTarget: true)`
+2. **Symlink resolution**: `PathResolver.ResolveToFinalTarget()` resolves all symlinks, junctions, and reparse points to their final target using `FileSystemInfo.ResolveLinkTarget(returnFinalTarget: false)` in a loop with circular detection
 3. **Non-existent path handling**: For paths that don't exist yet (e.g., new file creation), validates the parent directory chain by resolving parent directories
-4. **Circular symlink detection**: Tracks visited paths to detect and reject circular symlink chains
+4. **Circular symlink detection**: Tracks visited paths in a `HashSet<string>` to detect and reject circular symlink chains, preventing infinite loops
 5. **Containment check**: Verify resolved path starts with `projectRoot` (catches `../` traversal and symlink escapes)
 
 **Security Enhancement**: In v0.1.0, a symlink at `C:\Projects\MyApp\link → C:\Windows\System32` would pass validation because `GetFullPath` only canonicalizes the link path itself, not the target. In v0.2.0, `PathResolver` resolves the symlink to `C:\Windows\System32` BEFORE the containment check, causing it to be correctly blocked.
+
+**Implementation Note**: The resolver uses `returnFinalTarget: false` with a manual loop rather than `returnFinalTarget: true` to enable circular link detection. Using `returnFinalTarget: true` would resolve the entire chain at once but wouldn't allow detecting cycles, potentially causing exceptions or infinite loops in the .NET runtime.
 
 ### Blocked Path Patterns (v0.2.0-3 Enhancement)
 
