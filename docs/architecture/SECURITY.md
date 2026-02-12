@@ -101,15 +101,42 @@ Any command or argument containing these characters must be rejected:
 ## Path Validation Rules
 
 ### Implementation Status
-✅ **Complete** (Issue #9 — 2026-02-10)
+✅ **Complete** (Issue #9 — 2026-02-10, Enhanced with Issue v0.2.0-3 — 2026-02-12)
 - ✅ `SafeFileOperations` class implemented in `src/Krutaka.Tools/SafeFileOperations.cs`
+- ✅ `PathResolver` class implemented in `src/Krutaka.Tools/PathResolver.cs` (v0.2.0-3)
 - ✅ Comprehensive tests in `tests/Krutaka.Tools.Tests/SecurityPolicyTests.cs` (40 path validation tests)
+- ✅ Comprehensive tests in `tests/Krutaka.Tools.Tests/PathResolverTests.cs` (34 path hardening tests)
 - ✅ Path traversal attack vectors tested (10+ test cases)
+- ✅ Symlink escape attack vectors tested (v0.2.0-3)
 - ✅ Used by `CommandPolicy.ValidatePath()` via `ISecurityPolicy`
 
-### Canonicalization
-1. Resolve to absolute: `Path.GetFullPath(Path.Combine(projectRoot, relativePath))`
-2. Verify result starts with `projectRoot` (catches `../` traversal and symlink escapes)
+### Canonicalization and Symlink Resolution (v0.2.0-3 Enhancement)
+1. **Path canonicalization**: `Path.GetFullPath(Path.Combine(projectRoot, relativePath))`
+2. **Symlink resolution**: `PathResolver.ResolveToFinalTarget()` resolves all symlinks, junctions, and reparse points to their final target using `FileSystemInfo.ResolveLinkTarget(returnFinalTarget: true)`
+3. **Non-existent path handling**: For paths that don't exist yet (e.g., new file creation), validates the parent directory chain by resolving parent directories
+4. **Circular symlink detection**: Tracks visited paths to detect and reject circular symlink chains
+5. **Containment check**: Verify resolved path starts with `projectRoot` (catches `../` traversal and symlink escapes)
+
+**Security Enhancement**: In v0.1.0, a symlink at `C:\Projects\MyApp\link → C:\Windows\System32` would pass validation because `GetFullPath` only canonicalizes the link path itself, not the target. In v0.2.0, `PathResolver` resolves the symlink to `C:\Windows\System32` BEFORE the containment check, causing it to be correctly blocked.
+
+### Blocked Path Patterns (v0.2.0-3 Enhancement)
+
+#### Alternate Data Streams (ADS)
+- Paths containing `:` after the drive letter position are blocked
+- Examples: `file.txt:hidden`, `document.doc:stream:$DATA`
+- Valid: `C:\path\file.txt` (drive letter colon is allowed)
+
+#### Reserved Device Names
+- Windows reserved device names are blocked (case-insensitive)
+- Device names: `CON`, `PRN`, `AUX`, `NUL`
+- Serial ports: `COM1` through `COM9`
+- Parallel ports: `LPT1` through `LPT9`
+- Also blocked with extensions: `CON.txt`, `NUL.dat`, etc.
+
+#### Device Path Prefixes
+- `\\.\` prefix (device namespace) is blocked
+- `\\?\` prefix (verbatim path) is blocked
+- Examples: `\\.\PhysicalDrive0`, `\\?\Volume{...}`
 
 ### Blocked Directories
 ```
@@ -137,10 +164,11 @@ known_hosts, authorized_keys
 - Oversize files return an error message, not the content
 
 ### Enforcement
-- `SafeFileOperations.ValidatePath()` validates BEFORE any file access
+- `SafeFileOperations.ValidatePath()` calls `PathResolver.ResolveToFinalTarget()` BEFORE containment check
+- Symlinks, junctions, and reparse points are resolved to their final target
 - Both read and write operations are validated
 - UNC paths (`\\server\share\...`) are blocked
-- Implemented in `Krutaka.Tools/SafeFileOperations.cs`
+- Implemented in `Krutaka.Tools/SafeFileOperations.cs` and `Krutaka.Tools/PathResolver.cs`
 
 ## Human-in-the-Loop Approval Matrix
 
