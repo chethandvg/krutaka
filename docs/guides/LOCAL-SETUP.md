@@ -178,7 +178,7 @@ Krutaka automatically manages conversation sessions:
 - **Persistent History**: Conversations are saved to `~/.krutaka/sessions/`
 - **Session Files**: Each session is stored as `{session-id}.jsonl`
 - **Multi-Session**: Use `/sessions` to view and browse past conversations
-- **Fresh Start**: Use `/new` to clear history and start fresh (keeps same session file)
+- **Fresh Start**: Use `/new` to clear history and start a new session
 
 **Example Session:**
 ```

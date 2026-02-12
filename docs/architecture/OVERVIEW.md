@@ -51,7 +51,7 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `IToolRegistry` | Tool collection and dispatch | Register, GetToolDefinitions, ExecuteAsync |
 | `IClaudeClient` | Claude API abstraction | SendMessageAsync (streaming), CountTokensAsync |
 | `IMemoryService` | Hybrid search and storage | HybridSearchAsync, StoreAsync, ChunkAndIndexAsync |
-| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync, FindMostRecentSession (static), ListSessions (static) |
+| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync (static on SessionStore: FindMostRecentSession, ListSessions) |
 | `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
 

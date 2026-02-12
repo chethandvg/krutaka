@@ -40,18 +40,22 @@ public sealed class SessionStoreDiscoveryTests : IDisposable
         var session2 = Guid.NewGuid();
         var session3 = Guid.NewGuid();
 
+        var encodedPath = SessionStore.EncodeProjectPath(_projectPath);
+        var sessionDir = Path.Combine(_testRoot, "sessions", encodedPath);
+
         using var store1 = new SessionStore(_projectPath, session1, _testRoot);
         await store1.AppendAsync(new SessionEvent("user", "user", "First session", DateTimeOffset.UtcNow));
-
-        await Task.Delay(100); // Ensure different timestamps
+        var file1 = Path.Combine(sessionDir, $"{session1}.jsonl");
+        File.SetLastWriteTimeUtc(file1, DateTime.UtcNow.AddMinutes(-2));
 
         using var store2 = new SessionStore(_projectPath, session2, _testRoot);
         await store2.AppendAsync(new SessionEvent("user", "user", "Second session", DateTimeOffset.UtcNow));
-
-        await Task.Delay(100);
+        var file2 = Path.Combine(sessionDir, $"{session2}.jsonl");
+        File.SetLastWriteTimeUtc(file2, DateTime.UtcNow.AddMinutes(-1));
 
         using var store3 = new SessionStore(_projectPath, session3, _testRoot);
         await store3.AppendAsync(new SessionEvent("user", "user", "Third session (most recent)", DateTimeOffset.UtcNow));
+        // file3 has the most recent timestamp (current time)
 
         // Act
         var result = SessionStore.FindMostRecentSession(_projectPath, _testRoot);
@@ -85,13 +89,17 @@ public sealed class SessionStoreDiscoveryTests : IDisposable
         var session1 = Guid.NewGuid();
         var session2 = Guid.NewGuid();
 
+        var encodedPath = SessionStore.EncodeProjectPath(_projectPath);
+        var sessionDir = Path.Combine(_testRoot, "sessions", encodedPath);
+
         using var store1 = new SessionStore(_projectPath, session1, _testRoot);
         await store1.AppendAsync(new SessionEvent("user", "user", "Older session", DateTimeOffset.UtcNow));
-
-        await Task.Delay(100);
+        var file1 = Path.Combine(sessionDir, $"{session1}.jsonl");
+        File.SetLastWriteTimeUtc(file1, DateTime.UtcNow.AddMinutes(-1));
 
         using var store2 = new SessionStore(_projectPath, session2, _testRoot);
         await store2.AppendAsync(new SessionEvent("user", "user", "Newer session", DateTimeOffset.UtcNow));
+        // file2 has the most recent timestamp (current time)
 
         // Act
         var sessions = SessionStore.ListSessions(_projectPath, storageRoot: _testRoot);
@@ -105,12 +113,19 @@ public sealed class SessionStoreDiscoveryTests : IDisposable
     [Fact]
     public async Task ListSessions_Should_RespectLimitParameter()
     {
-        // Arrange - create 5 sessions
+        // Arrange - create 5 sessions with explicit timestamps
+        var encodedPath = SessionStore.EncodeProjectPath(_projectPath);
+        var sessionDir = Path.Combine(_testRoot, "sessions", encodedPath);
+
         for (int i = 0; i < 5; i++)
         {
-            using var store = new SessionStore(_projectPath, Guid.NewGuid(), _testRoot);
+            var sessionId = Guid.NewGuid();
+            using var store = new SessionStore(_projectPath, sessionId, _testRoot);
             await store.AppendAsync(new SessionEvent("user", "user", $"Session {i}", DateTimeOffset.UtcNow));
-            await Task.Delay(50);
+            
+            // Set explicit timestamp to ensure ordering
+            var file = Path.Combine(sessionDir, $"{sessionId}.jsonl");
+            File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(-5 + i));
         }
 
         // Act

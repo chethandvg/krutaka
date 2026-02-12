@@ -121,7 +121,7 @@ Once running, Krutaka provides the following commands:
 - Krutaka automatically resumes your most recent session on startup
 - Conversations are saved to `~/.krutaka/sessions/`
 - Use `/sessions` to view past conversations
-- Use `/new` to start fresh while keeping the same session file
+- Use `/new` to start a new session with cleared conversation history
 
 ## Documentation
 

@@ -117,7 +117,15 @@ try
     }
 
     // Find or create session identifier (now that we have workingDirectory)
-    var existingSessionId = SessionStore.FindMostRecentSession(workingDirectory);
+    Guid? existingSessionId = null;
+    try
+    {
+        existingSessionId = SessionStore.FindMostRecentSession(workingDirectory);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        Log.Warning(ex, "Failed to discover existing sessions, will create new session");
+    }
 
     if (existingSessionId.HasValue)
     {
@@ -354,9 +362,14 @@ try
             }
             else if (command == "/NEW")
             {
+                // Dispose the previous session store to avoid resource leaks
+                sessionStore.Dispose();
+
                 // Create new session
+                // Note: CorrelationContext.SessionId remains unchanged (set at startup)
+                // This means audit logs will still reference the original session ID
                 sessionId = Guid.NewGuid();
-#pragma warning disable CA2000 // SessionStore will be disposed when host shuts down
+#pragma warning disable CA2000 // New SessionStore will be disposed when app exits or on next /new
                 sessionStore = new SessionStore(workingDirectory, sessionId);
 #pragma warning restore CA2000
                 orchestrator.ClearConversationHistory();

@@ -250,21 +250,51 @@ public sealed class SessionStore : ISessionStore, IDisposable
             return null;
         }
 
-        var sessionFiles = Directory.GetFiles(sessionDir, "*.jsonl")
-            .Select(f => new FileInfo(f))
-            .Where(fi => fi.Length > 0) // Ignore empty files
-            .OrderByDescending(fi => fi.LastWriteTimeUtc)
-            .FirstOrDefault();
-
-        if (sessionFiles == null)
+        IEnumerable<FileInfo> sessionFiles;
+        try
         {
+            sessionFiles = Directory.GetFiles(sessionDir, "*.jsonl")
+                .Select(f => new FileInfo(f))
+                .Where(fi => fi.Length > 0) // Ignore empty files
+                .OrderByDescending(fi => fi.LastWriteTimeUtc);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Directory enumeration failed - return null to allow fallback to new session
             return null;
         }
 
-        var fileName = Path.GetFileNameWithoutExtension(sessionFiles.Name);
-        if (Guid.TryParse(fileName, out var sessionId))
+        // Iterate through files to find the first valid session
+        foreach (var sessionFile in sessionFiles)
         {
-            return sessionId;
+            var fileName = Path.GetFileNameWithoutExtension(sessionFile.Name);
+            if (!Guid.TryParse(fileName, out var sessionId))
+            {
+                // Skip files with non-GUID names
+                continue;
+            }
+
+            // Validate that the file contains parseable JSONL
+            try
+            {
+                foreach (var line in File.ReadLines(sessionFile.FullName))
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    // Probe the first non-empty line to ensure it is valid JSON
+                    using var _ = JsonDocument.Parse(line);
+                    // File is valid, return this session ID
+                    return sessionId;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                // Corrupted or unreadable file - skip and try next candidate
+                continue;
+            }
         }
 
         return null;
@@ -296,11 +326,21 @@ public sealed class SessionStore : ISessionStore, IDisposable
             return [];
         }
 
-        return Directory.GetFiles(sessionDir, "*.jsonl")
-            .Select(f => new FileInfo(f))
-            .Where(fi => fi.Length > 0) // Ignore empty files
-            .OrderByDescending(fi => fi.LastWriteTimeUtc)
-            .Take(limit)
+        IEnumerable<FileInfo> sessionFiles;
+        try
+        {
+            sessionFiles = Directory.GetFiles(sessionDir, "*.jsonl")
+                .Select(f => new FileInfo(f))
+                .Where(fi => fi.Length > 0) // Ignore empty files
+                .OrderByDescending(fi => fi.LastWriteTimeUtc);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Directory enumeration failed - return empty list
+            return [];
+        }
+
+        return sessionFiles
             .Select(fi =>
             {
                 var fileName = Path.GetFileNameWithoutExtension(fi.Name);
@@ -315,8 +355,8 @@ public sealed class SessionStore : ISessionStore, IDisposable
 
                 try
                 {
-                    var lines = File.ReadAllLines(fi.FullName);
-                    foreach (var line in lines)
+                    // Use streaming to avoid loading entire file into memory
+                    foreach (var line in File.ReadLines(fi.FullName))
                     {
                         if (string.IsNullOrWhiteSpace(line))
                         {
@@ -352,6 +392,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
             })
             .Where(s => s != null)
             .Select(s => s!)
+            .Take(limit) // Apply limit after filtering to ensure we get requested number of valid sessions
             .ToList()
             .AsReadOnly();
     }
