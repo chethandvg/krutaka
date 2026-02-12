@@ -572,4 +572,32 @@ public sealed class AgentOrchestratorTests
             return new Dictionary<string, string?>(environment);
         }
     }
+
+    [Fact]
+    public async Task ClearConversationHistory_Should_ClearMessages()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddTextDelta("Response to hello");
+        claudeClient.AddFinalResponse("", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            new MockToolRegistry(),
+            new MockSecurityPolicy());
+
+        // Run a conversation to add messages
+        await foreach (var _ in orchestrator.RunAsync("Hello", "system"))
+        {
+            // Process events
+        }
+
+        orchestrator.ConversationHistory.Should().NotBeEmpty();
+
+        // Act
+        orchestrator.ClearConversationHistory();
+
+        // Assert
+        orchestrator.ConversationHistory.Should().BeEmpty();
+    }
 }

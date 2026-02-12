@@ -51,7 +51,7 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `IToolRegistry` | Tool collection and dispatch | Register, GetToolDefinitions, ExecuteAsync |
 | `IClaudeClient` | Claude API abstraction | SendMessageAsync (streaming), CountTokensAsync |
 | `IMemoryService` | Hybrid search and storage | HybridSearchAsync, StoreAsync, ChunkAndIndexAsync |
-| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync |
+| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync (static on SessionStore: FindMostRecentSession, ListSessions) |
 | `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
 
@@ -62,6 +62,7 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ToolBase` | Abstract Class | Base class with BuildSchema helper for JSON Schema generation |
 | `AgentEvent` | Abstract Record | Base for event hierarchy (TextDelta, ToolCallStarted/Completed/Failed, HumanApprovalRequired, FinalResponse) |
 | `SessionEvent` | Record | JSONL event: Type, Role, Content, Timestamp, ToolName, ToolUseId, IsMeta |
+| `SessionInfo` | Record | Session metadata: SessionId, FilePath, LastModified, MessageCount, FirstUserMessage |
 | `MemoryResult` | Record | Search result: Id, Content, Source, CreatedAt, Score |
 | `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
 | `CompactionResult` | Record | Context compaction result: message counts, token counts, summary, compacted messages |
@@ -96,6 +97,8 @@ The `AgentOrchestrator` implements the core agentic loop with the following feat
 **Key Methods:**
 - `RunAsync(userPrompt, systemPrompt, cancellationToken)`: Main entry point for agentic loop
 - `ApproveTool(toolUseId, alwaysApprove)`: Approves pending tool execution
+- `RestoreConversationHistory(messages)`: Restores conversation from previous session
+- `ClearConversationHistory()`: Clears conversation history for fresh start
 - `ConversationHistory`: Read-only access to conversation state
 
 #### ContextCompactor Implementation
@@ -313,13 +316,19 @@ Persistence layer for sessions, memory search, and daily logs.
 - **Session persistence**: All event types are persisted during the agentic loop via `WrapWithSessionPersistence()` in the composition root:
   - Accumulated assistant text is flushed before tool_use events to preserve content block ordering
   - Tool errors use `tool_error` type so `ReconstructMessagesAsync` reconstructs `is_error=true` for Claude
+- **Session discovery** (added in smart session management):
+  - `FindMostRecentSession(projectPath)`: Static method to find the most recently modified non-empty session
+  - `ListSessions(projectPath, limit)`: Static method to get session metadata (SessionId, LastModified, MessageCount, FirstUserMessage preview)
+  - Ignores empty session files (Length == 0) to reduce clutter
+  - Handles corrupted files gracefully by skipping them
+- **Auto-resume behavior**: Application startup automatically finds and loads the most recent session for the current project
 - **Key methods**:
   - `AppendAsync(SessionEvent)`: Appends events to JSONL file immediately
   - `LoadAsync()`: Returns `IAsyncEnumerable<SessionEvent>` from JSONL file
   - `ReconstructMessagesAsync()`: Rebuilds message list from events for Claude API (handles `tool_error` → `is_error=true`)
   - `SaveMetadataAsync(projectPath, modelId)`: Writes session metadata
 - **Resource management**: Implements `IDisposable` for `SemaphoreSlim` cleanup
-- **Testing**: 18 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, and concurrent access
+- **Testing**: 29 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, concurrent access, and session discovery
 
 **SqliteMemoryStore Implementation Details (v1 — FTS5 only):**
 - **Database path**: `~/.krutaka/memory.db` (configurable via `MemoryOptions`)

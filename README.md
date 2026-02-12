@@ -5,7 +5,7 @@
 
 An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened console agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations.
 
-> **Status:** ✅ v0.1.0 — Fully implemented and tested. 576 tests passing, ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
+> **Status:** ✅ v0.1.1 — Smart session management with auto-resume. 603 tests passing, ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
 
 ## Why Krutaka?
 
@@ -103,6 +103,25 @@ dotnet test
 # Publish self-contained binary
 dotnet publish src/Krutaka.Console -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
+
+## Available Commands
+
+Once running, Krutaka provides the following commands:
+
+| Command | Description |
+|---|---|
+| `/help` | Display available commands |
+| `/sessions` | List recent sessions for this project (last 10) |
+| `/new` | Start a fresh session (clears conversation history) |
+| `/resume` | Reload current session from disk |
+| `/exit` or `/quit` | Exit the application |
+| `Ctrl+C` | Graceful shutdown |
+
+**Session Management:**
+- Krutaka automatically resumes your most recent session on startup
+- Conversations are saved to `~/.krutaka/sessions/`
+- Use `/sessions` to view past conversations
+- Use `/new` to start a new session with cleared conversation history
 
 ## Documentation
 

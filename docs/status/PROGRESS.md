@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-12 (v0.2.0 planning started)
+> **Last updated:** 2026-02-12 (Smart session management implemented - Issue #29)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -47,6 +47,22 @@
 | 26 | Self-contained single-file publishing | 6 | 🟢 Complete | 2026-02-11 |
 | 27 | End-to-end integration testing | 6 | 🟢 Complete | 2026-02-11 |
 | 28 | Final documentation polish | 6 | 🟢 Complete | 2026-02-11 |
+
+---
+
+## v0.1.1 — Bug Fixes and Enhancements
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| 29 | Smart Session Management - Auto-Resume and Session Discovery | Enhancement | 🟢 Complete | 2026-02-12 |
+
+**Issue #29 Details:**
+- **Problem:** Users experienced data loss between app restarts, `/resume` command was broken
+- **Solution:** Auto-resume on startup, session discovery (`FindMostRecentSession`, `ListSessions`), new `/sessions` and `/new` commands
+- **Testing:** Added 12 new tests (11 for session discovery, 1 for ClearConversationHistory), all 603 tests passing
+- **Security:** CodeQL scan passed with 0 alerts
 
 ---
 

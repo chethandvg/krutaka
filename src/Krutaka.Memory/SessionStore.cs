@@ -229,6 +229,175 @@ public sealed class SessionStore : ISessionStore, IDisposable
     }
 
     /// <summary>
+    /// Finds the most recently modified session for the given project.
+    /// </summary>
+    /// <param name="projectPath">The project directory path.</param>
+    /// <param name="storageRoot">Optional storage root (defaults to ~/.krutaka).</param>
+    /// <returns>The session ID of the most recent session, or null if none exist.</returns>
+    public static Guid? FindMostRecentSession(string projectPath, string? storageRoot = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath, nameof(projectPath));
+
+        var encodedPath = EncodeProjectPath(projectPath);
+        var baseDir = storageRoot ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".krutaka");
+
+        var sessionDir = Path.Combine(baseDir, "sessions", encodedPath);
+
+        if (!Directory.Exists(sessionDir))
+        {
+            return null;
+        }
+
+        IEnumerable<FileInfo> sessionFiles;
+        try
+        {
+            sessionFiles = Directory.GetFiles(sessionDir, "*.jsonl")
+                .Select(f => new FileInfo(f))
+                .Where(fi => fi.Length > 0) // Ignore empty files
+                .OrderByDescending(fi => fi.LastWriteTimeUtc);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Directory enumeration failed - return null to allow fallback to new session
+            return null;
+        }
+
+        // Iterate through files to find the first valid session
+        foreach (var sessionFile in sessionFiles)
+        {
+            var fileName = Path.GetFileNameWithoutExtension(sessionFile.Name);
+            if (!Guid.TryParse(fileName, out var sessionId))
+            {
+                // Skip files with non-GUID names
+                continue;
+            }
+
+            // Validate that the file contains parseable JSONL
+            try
+            {
+                foreach (var line in File.ReadLines(sessionFile.FullName))
+                {
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        continue;
+                    }
+
+                    // Probe the first non-empty line to ensure it is valid JSON
+                    using var _ = JsonDocument.Parse(line);
+                    // File is valid, return this session ID
+                    return sessionId;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                // Corrupted or unreadable file - skip and try next candidate
+                continue;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets all sessions for a project, ordered by last modification time (newest first).
+    /// </summary>
+    /// <param name="projectPath">The project directory path.</param>
+    /// <param name="limit">Maximum number of sessions to return (default: 10).</param>
+    /// <param name="storageRoot">Optional storage root (defaults to ~/.krutaka).</param>
+    /// <returns>List of session metadata.</returns>
+    public static IReadOnlyList<SessionInfo> ListSessions(
+        string projectPath,
+        int limit = 10,
+        string? storageRoot = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projectPath, nameof(projectPath));
+
+        var encodedPath = EncodeProjectPath(projectPath);
+        var baseDir = storageRoot ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".krutaka");
+
+        var sessionDir = Path.Combine(baseDir, "sessions", encodedPath);
+
+        if (!Directory.Exists(sessionDir))
+        {
+            return [];
+        }
+
+        IEnumerable<FileInfo> sessionFiles;
+        try
+        {
+            sessionFiles = Directory.GetFiles(sessionDir, "*.jsonl")
+                .Select(f => new FileInfo(f))
+                .Where(fi => fi.Length > 0) // Ignore empty files
+                .OrderByDescending(fi => fi.LastWriteTimeUtc);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Directory enumeration failed - return empty list
+            return [];
+        }
+
+        return sessionFiles
+            .Select(fi =>
+            {
+                var fileName = Path.GetFileNameWithoutExtension(fi.Name);
+                if (!Guid.TryParse(fileName, out var sessionId))
+                {
+                    return null;
+                }
+
+                // Count messages and get first user message
+                int messageCount = 0;
+                string? firstUserMessage = null;
+
+                try
+                {
+                    // Use streaming to avoid loading entire file into memory
+                    foreach (var line in File.ReadLines(fi.FullName))
+                    {
+                        if (string.IsNullOrWhiteSpace(line))
+                        {
+                            continue;
+                        }
+
+                        var evt = JsonSerializer.Deserialize<SessionEvent>(line);
+                        if (evt != null && !evt.IsMeta)
+                        {
+                            messageCount++;
+                            if (firstUserMessage == null && evt.Type == "user")
+                            {
+                                firstUserMessage = evt.Content?.Length > 50
+                                    ? string.Concat(evt.Content.AsSpan(0, 50), "...")
+                                    : evt.Content;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+                {
+                    // Corrupted file or access denied - skip
+                    return null;
+                }
+
+                return new SessionInfo(
+                    sessionId,
+                    fi.FullName,
+                    new DateTimeOffset(fi.LastWriteTimeUtc),
+                    messageCount,
+                    firstUserMessage
+                );
+            })
+            .Where(s => s != null)
+            .Select(s => s!)
+            .Take(limit) // Apply limit after filtering to ensure we get requested number of valid sessions
+            .ToList()
+            .AsReadOnly();
+    }
+
+    /// <summary>
     /// Encodes a project path for safe file system storage.
     /// Replaces directory separators and colons with dashes, trims leading dashes.
     /// </summary>

@@ -19,7 +19,7 @@ jobs:
         dotnet-version: '10.0.103'
     
     - name: Restore dependencies
-      run: dotnet restore --locked-mode
+      run: dotnet restore
     
     - name: Build
       run: dotnet build --no-restore --configuration Release /p:TreatWarningsAsErrors=true

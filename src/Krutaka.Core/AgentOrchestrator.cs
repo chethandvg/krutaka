@@ -82,6 +82,26 @@ public sealed class AgentOrchestrator : IDisposable
     }
 
     /// <summary>
+    /// Clears the conversation history.
+    /// Used by the /new command to start a fresh session.
+    /// </summary>
+    public void ClearConversationHistory()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        _turnLock.Wait();
+        try
+        {
+            _conversationHistory.Clear();
+            _approvalCache.Clear();
+        }
+        finally
+        {
+            _turnLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Runs the agentic loop for a single user turn.
     /// Sends the user prompt to Claude, processes tool calls, and yields events.
     /// </summary>
