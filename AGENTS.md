@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents (GitHub Copilot, etc.) work
 
 Krutaka is an OpenClaw-inspired AI agent built in C#/.NET 10 for Windows. It is a console application that uses the Claude API to perform agentic tasks (read/write files, execute commands, search code) with human-in-the-loop approval for destructive operations.
 
-**Implementation Status:** ✅ **v0.1.0 Core Features Complete** — All core features implemented and tested (576 tests passing, 1 skipped). The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for remaining work items (Issue #7 - Secrets Management marked as partially complete).
+**Implementation Status:** ✅ **v0.1.1 Smart Session Management** — All core features implemented and tested (603 tests passing, 1 skipped). Auto-resume on startup, session discovery, and new commands implemented. The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for details.
 
 **Important:** We use the official `Anthropic` NuGet package (v12.4.0), NOT the community `Anthropic.SDK` package. Always refer to it as the "official Anthropic package" or "Anthropic NuGet package" to avoid confusion. See ADR-003 in `docs/architecture/DECISIONS.md` for details.
 

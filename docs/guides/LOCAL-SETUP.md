@@ -165,8 +165,20 @@ Once running, you can interact with the AI agent:
 
 **Available Commands:**
 - `/help` - Display available commands
+- `/sessions` - List recent sessions for this project (last 10)
+- `/new` - Start a fresh session (clears conversation history)
+- `/resume` - Reload current session from disk
 - `/exit` or `/quit` - Exit the application
 - `Ctrl+C` - Graceful shutdown
+
+**Session Management:**
+
+Krutaka automatically manages conversation sessions:
+- **Auto-Resume**: On startup, automatically finds and loads your most recent session
+- **Persistent History**: Conversations are saved to `~/.krutaka/sessions/`
+- **Session Files**: Each session is stored as `{session-id}.jsonl`
+- **Multi-Session**: Use `/sessions` to view and browse past conversations
+- **Fresh Start**: Use `/new` to clear history and start fresh (keeps same session file)
 
 **Example Session:**
 ```

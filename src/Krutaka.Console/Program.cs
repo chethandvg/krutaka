@@ -86,10 +86,10 @@ try
     // Add Serilog to host
     builder.Services.AddSerilog();
 
-    // Register CorrelationContext (will be set after session discovery)
-    Guid sessionId = Guid.Empty; // Temporary, will be set below
+    // Session ID will be determined after we know the working directory
+    // Initialize with empty value - will be properly set below
+    Guid sessionId = Guid.Empty;
     bool isResumingSession = false;
-    builder.Services.AddSerilog();
 
     // Register CorrelationContext (scoped per session)
     builder.Services.AddSingleton(sp =>
@@ -333,7 +333,7 @@ try
                     {
                         var session = sessions[i];
                         var isCurrent = session.SessionId == sessionId ? "[green]►[/] " : "";
-                        var shortId = session.SessionId.ToString().Substring(0, 8);
+                        var shortId = session.SessionId.ToString("N")[..8]; // N format is 32 chars without hyphens
                         var preview = session.FirstUserMessage ?? "(empty)";
 
                         table.AddRow(
