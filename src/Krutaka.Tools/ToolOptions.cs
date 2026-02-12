@@ -6,10 +6,11 @@ namespace Krutaka.Tools;
 public sealed class ToolOptions
 {
     /// <summary>
-    /// Gets or sets the working directory for command execution and file operations.
-    /// This is the root directory that tools are restricted to operate within.
+    /// Gets or sets the default working directory for command execution and file operations.
+    /// In v0.2.0, this serves as the default directory when no specific directory is requested.
+    /// With dynamic directory scoping, tools can request access to multiple directories at runtime.
     /// </summary>
-    public string WorkingDirectory { get; set; } = Environment.CurrentDirectory;
+    public string DefaultWorkingDirectory { get; set; } = Environment.CurrentDirectory;
 
     /// <summary>
     /// Gets or sets the command timeout in seconds.
