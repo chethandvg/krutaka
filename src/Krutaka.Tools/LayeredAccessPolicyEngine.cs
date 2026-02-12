@@ -15,9 +15,6 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
     private readonly string[] _autoGrantPatterns;
     private readonly ISessionAccessStore? _sessionStore;
 
-    // Cache for decisions within a single evaluation cycle (cleared between requests)
-    private readonly Dictionary<string, AccessDecision> _decisionCache = new(StringComparer.OrdinalIgnoreCase);
-
     // Blocked directories from SafeFileOperations (Layer 1 hard deny)
     private static readonly string[] HardDenyDirectories =
     [
@@ -52,8 +49,8 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // Clear decision cache for this evaluation cycle
-        _decisionCache.Clear();
+        // Decision cache - local to this evaluation (thread-safe)
+        var decisionCache = new Dictionary<string, AccessDecision>(StringComparer.OrdinalIgnoreCase);
 
         // Canonicalize and resolve the requested path
         string canonicalPath;
@@ -73,7 +70,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
 #pragma warning restore CA1031
 
         // Check decision cache
-        if (_decisionCache.TryGetValue(canonicalPath, out var cachedDecision))
+        if (decisionCache.TryGetValue(canonicalPath, out var cachedDecision))
         {
             return cachedDecision;
         }
@@ -82,7 +79,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
         var layer1Result = EvaluateLayer1HardDeny(canonicalPath);
         if (layer1Result != null)
         {
-            _decisionCache[canonicalPath] = layer1Result;
+            decisionCache[canonicalPath] = layer1Result;
             return layer1Result;
         }
 
@@ -90,7 +87,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
         var layer2Result = EvaluateLayer2ConfigurableAllow(canonicalPath, request.Level);
         if (layer2Result != null)
         {
-            _decisionCache[canonicalPath] = layer2Result;
+            decisionCache[canonicalPath] = layer2Result;
             return layer2Result;
         }
 
@@ -98,13 +95,13 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
         var layer3Result = await EvaluateLayer3SessionGrantsAsync(canonicalPath, request.Level, cancellationToken).ConfigureAwait(false);
         if (layer3Result != null)
         {
-            _decisionCache[canonicalPath] = layer3Result;
+            decisionCache[canonicalPath] = layer3Result;
             return layer3Result;
         }
 
         // Layer 4: Heuristic Checks (cross-volume detection, path depth)
         var layer4Result = EvaluateLayer4Heuristics(canonicalPath, request.Level);
-        _decisionCache[canonicalPath] = layer4Result;
+        decisionCache[canonicalPath] = layer4Result;
         return layer4Result;
     }
 
@@ -120,12 +117,33 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
             return AccessDecision.Deny("UNC paths are not permitted.");
         }
 
-        // Check blocked system directories
-        foreach (var blockedDir in HardDenyDirectories)
+        // Check blocked system directories using component-boundary matching (like SafeFileOperations)
+        foreach (var blockedDir in HardDenyDirectories.Where(d => !string.IsNullOrWhiteSpace(d)))
         {
-            if (IsPathUnderDirectory(canonicalPath, blockedDir))
+            var index = canonicalPath.IndexOf(blockedDir, StringComparison.OrdinalIgnoreCase);
+            while (index >= 0)
             {
-                return AccessDecision.Deny($"Access to '{blockedDir}' is not permitted.");
+                // Ensure the match starts at a directory boundary (or at the very start)
+                var isAtComponentStart = index == 0 ||
+                    canonicalPath[index - 1] == Path.DirectorySeparatorChar ||
+                    canonicalPath[index - 1] == Path.AltDirectorySeparatorChar;
+
+                if (isAtComponentStart)
+                {
+                    var afterBlocked = index + blockedDir.Length;
+                    // Ensure the match ends at a directory boundary (or at the very end)
+                    var isAtComponentEnd = afterBlocked >= canonicalPath.Length ||
+                        canonicalPath[afterBlocked] == Path.DirectorySeparatorChar ||
+                        canonicalPath[afterBlocked] == Path.AltDirectorySeparatorChar;
+
+                    if (isAtComponentEnd)
+                    {
+                        return AccessDecision.Deny($"Access to '{blockedDir}' is not permitted.");
+                    }
+                }
+
+                // Look for any additional occurrences of the blocked directory name
+                index = canonicalPath.IndexOf(blockedDir, index + blockedDir.Length, StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -150,11 +168,21 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
             return AccessDecision.Deny("Access to Krutaka configuration directory is not permitted.");
         }
 
-        // Check ceiling directory enforcement (cannot access above ceiling)
+        // Check ceiling directory enforcement (cannot access above ceiling on same volume)
+        // Cross-volume requests are deferred to Layer 4 for RequiresApproval
         var canonicalCeiling = Path.GetFullPath(_ceilingDirectory);
-        if (!IsPathUnderDirectory(canonicalPath, canonicalCeiling))
+        var ceilingRoot = Path.GetPathRoot(canonicalCeiling);
+        var pathRoot = Path.GetPathRoot(canonicalPath);
+
+        if (!string.IsNullOrEmpty(ceilingRoot)
+            && !string.IsNullOrEmpty(pathRoot)
+            && string.Equals(ceilingRoot, pathRoot, StringComparison.OrdinalIgnoreCase))
         {
-            return AccessDecision.Deny($"Access above ceiling directory '{canonicalCeiling}' is not permitted.");
+            // Same volume - enforce ceiling containment
+            if (!IsPathUnderDirectory(canonicalPath, canonicalCeiling))
+            {
+                return AccessDecision.Deny($"Access above ceiling directory '{canonicalCeiling}' is not permitted.");
+            }
         }
 
         // All hard deny checks passed
@@ -202,8 +230,20 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
         if (normalizedPattern.EndsWith("/**", StringComparison.Ordinal))
         {
             var basePattern = normalizedPattern[..^3]; // Remove /**
-            return normalizedPath.StartsWith(basePattern, StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(normalizedPath, basePattern, StringComparison.OrdinalIgnoreCase);
+
+            // Allow match on the base directory itself, with or without trailing slash
+            if (string.Equals(normalizedPath, basePattern, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(normalizedPath, basePattern + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // For descendants, enforce a directory boundary after the base pattern
+            var prefix = basePattern.EndsWith('/')
+                ? basePattern
+                : basePattern + "/";
+
+            return normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
         }
 
         // Exact match

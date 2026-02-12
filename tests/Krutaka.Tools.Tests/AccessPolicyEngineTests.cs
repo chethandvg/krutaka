@@ -216,6 +216,27 @@ public sealed class AccessPolicyEngineTests : IDisposable
         decision.Outcome.Should().Be(AccessOutcome.RequiresApproval);
     }
 
+    [Fact]
+    public async Task Should_NotMatchSiblingPaths_WithGlobPattern()
+    {
+        // Arrange - Test that "Proj/**" doesn't match "Proj2/..."
+        var testProj = Path.Combine(_testRoot, "Proj");
+        var testProj2 = Path.Combine(_testRoot, "Proj2");
+        Directory.CreateDirectory(testProj);
+        Directory.CreateDirectory(testProj2);
+        
+        var globPattern = Path.Combine(_testRoot, "Proj", "**");
+        var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [globPattern], null);
+        var request = new DirectoryAccessRequest(testProj2, AccessLevel.ReadOnly, "test");
+
+        // Act
+        var decision = await engine.EvaluateAsync(request, CancellationToken.None);
+
+        // Assert
+        // Should NOT match because Proj2 is a sibling, not a descendant of Proj
+        decision.Outcome.Should().Be(AccessOutcome.RequiresApproval);
+    }
+
     #endregion
 
     #region Layer 3: Session Grants Tests
