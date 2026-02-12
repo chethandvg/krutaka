@@ -252,9 +252,11 @@ Tool implementations with security policy enforcement.
 | `MemorySearchTool` | Low | Auto-approve | ✅ Implemented |
 | `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
 | `SafeFileOperations` | — | Path canonicalization + jail | ✅ Implemented |
+| `PathResolver` | — | **[v0.2.0]** Symlink/junction resolution, ADS/device name blocking | ✅ Implemented |
+| `LayeredAccessPolicyEngine` | — | **[v0.2.0]** Four-layer directory access policy (Hard Deny → Allow → Session → Heuristic) | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
 | `ToolRegistry` | — | Collection + dispatch | ✅ Implemented |
-| `ToolOptions` | — | Configuration for tool execution | ✅ Implemented |
+| `ToolOptions` | — | Configuration for tool execution (v0.2.0: ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
 | `ServiceExtensions` | — | DI registration via `AddAgentTools()` | ✅ Implemented |
 
 **Implemented Tools Details:**
@@ -273,6 +275,16 @@ Tool implementations with security policy enforcement.
   - **Requires human approval** for every invocation (no "Always allow" option)
   - Captures stdout/stderr with clear labeling and exit codes
 
+**Security Components (v0.2.0):**
+- **LayeredAccessPolicyEngine**: Four-layer directory access policy engine implementing `IAccessPolicyEngine`:
+  - **Layer 1 - Hard Deny (immutable)**: Blocks system directories (C:\Windows, Program Files, etc.), AppData, ~/.krutaka, UNC paths, paths above ceiling, and paths with ADS/device names. Uses `PathResolver` for symlink/junction resolution before evaluation. Denials at this layer cannot be overridden by any other layer.
+  - **Layer 2 - Configurable Allow**: Matches glob patterns (e.g., `C:\Users\me\Projects\**`) from `ToolOptions.AutoGrantPatterns` for auto-approved access without prompting. Supports `**` for recursive directory matching.
+  - **Layer 3 - Session Grants**: Checks `ISessionAccessStore` (optional, from Issue v0.2.0-6) for previously approved directory access within the session. Respects access level (ReadOnly grant ≠ ReadWrite access) and TTL expiry.
+  - **Layer 4 - Heuristic Checks**: Flags suspicious patterns for human review - cross-volume access (different drive than ceiling), very deep nesting (>10 levels). Default outcome: RequiresApproval.
+  - **Decision caching**: Caches decisions for the same canonical path within a single evaluation to avoid redundant checks.
+  - **Test coverage**: 24 comprehensive tests covering all layers, layering behavior, edge cases, and error handling.
+- **PathResolver** (v0.2.0-3): Segment-by-segment symlink/junction resolution with circular link detection, ADS blocking, device name blocking, and device path prefix blocking. Ensures intermediate directory symlinks are resolved before validation.
+
 **Tool Registry & DI:**
 - **ToolRegistry**: Centralized collection of all tools with:
   - `Register(ITool tool)`: Adds tools to the registry (case-insensitive lookup)
@@ -283,9 +295,14 @@ Tool implementations with security policy enforcement.
   - `WorkingDirectory`: Root directory for file/command operations (defaults to current directory)
   - `CommandTimeoutSeconds`: Timeout for command execution (defaults to 30 seconds)
   - `RequireApprovalForWrites`: Whether write operations require human approval (defaults to true)
+  - **[v0.2.0]** `CeilingDirectory`: Maximum ancestor directory the agent can access (defaults to user profile)
+  - **[v0.2.0]** `AutoGrantPatterns`: Glob patterns for auto-approved directory access (Layer 2), e.g., `["C:\\Users\\me\\Projects\\**"]`
+  - **[v0.2.0]** `MaxConcurrentGrants`: Maximum simultaneous directory access grants per session (defaults to 10)
+  - **[v0.2.0]** `DefaultGrantTtlMinutes`: Default TTL for session grants (null = session lifetime)
 - **ServiceExtensions.AddAgentTools()**: DI registration method that:
   - Registers `ToolOptions` as singleton
   - Registers `CommandPolicy` as `ISecurityPolicy` singleton
+  - **[v0.2.0]** Registers `LayeredAccessPolicyEngine` as `IAccessPolicyEngine` singleton
   - Registers `ToolRegistry` as `IToolRegistry` singleton
   - Instantiates and registers all 6 tool implementations
   - Automatically adds all tools to the registry

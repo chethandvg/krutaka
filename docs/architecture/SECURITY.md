@@ -312,12 +312,27 @@ This enables:
 
 ## Dynamic Directory Access Policy (v0.2.0)
 
-> **Status:** 🟡 Planned (v0.2.0)  
+> **Status:** 🟡 Partially Implemented (Issue v0.2.0-5 complete — LayeredAccessPolicyEngine)  
 > **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design and implementation details.
 
 ### Overview
 
 v0.2.0 introduces a **four-layer access policy engine** that evaluates directory access requests at runtime. This replaces the static, single-directory `WorkingDirectory` configuration from v0.1.0 while preserving all existing security guarantees.
+
+**Implementation Status (Issue v0.2.0-5 — 2026-02-12):**
+- ✅ `ISessionAccessStore` placeholder interface in `Krutaka.Core` (full implementation in Issue v0.2.0-6)
+- ✅ `LayeredAccessPolicyEngine` class in `Krutaka.Tools` implementing `IAccessPolicyEngine`
+- ✅ All four policy layers implemented:
+  - **Layer 1 (Hard Deny):** Reuses `SafeFileOperations` blocked directories, AppData, `~/.krutaka`, UNC paths, ceiling enforcement
+  - **Layer 2 (Configurable Allow):** Glob pattern matching with `**` support for auto-grant
+  - **Layer 3 (Session Grants):** Checks `ISessionAccessStore` (optional, placeholder until Issue v0.2.0-6)
+  - **Layer 4 (Heuristic Checks):** Cross-volume detection, path depth heuristics
+- ✅ Deny short-circuiting: denials at Layer 1 cannot be overridden by Layer 2 or Layer 3
+- ✅ Decision caching: same canonical path returns cached decision within a single evaluation
+- ✅ Constructor: `IFileOperations`, ceiling directory, glob patterns, optional `ISessionAccessStore`
+- ✅ DI registration in `ServiceExtensions.AddAgentTools()`
+- ✅ Comprehensive test coverage: 24 tests in `AccessPolicyEngineTests.cs`
+- ✅ ToolOptions configuration: `CeilingDirectory`, `AutoGrantPatterns`, `MaxConcurrentGrants`, `DefaultGrantTtlMinutes`
 
 ### Threat Model
 

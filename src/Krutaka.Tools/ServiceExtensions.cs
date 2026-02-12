@@ -42,6 +42,18 @@ public static class ServiceExtensions
             return new CommandPolicy(fileOperations, auditLogger);
         });
 
+        // Register access policy engine (singleton - v0.2.0 dynamic directory scoping)
+        services.AddSingleton<IAccessPolicyEngine>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var sessionStore = sp.GetService<ISessionAccessStore>();
+            return new LayeredAccessPolicyEngine(
+                fileOperations,
+                options.CeilingDirectory,
+                options.AutoGrantPatterns,
+                sessionStore);
+        });
+
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
 

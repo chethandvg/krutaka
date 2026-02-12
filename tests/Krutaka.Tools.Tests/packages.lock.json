@@ -187,7 +187,8 @@
           "CliWrap": "[3.6.7, )",
           "Krutaka.Core": "[1.0.0, )",
           "Meziantou.Framework.Win32.Jobs": "[3.4.10, )",
-          "Microsoft.Extensions.DependencyInjection": "[10.0.2, )"
+          "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
+          "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )"
         }
       },
       "CliWrap": {
@@ -210,6 +211,12 @@
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.2"
         }
+      },
+      "Microsoft.Extensions.FileSystemGlobbing": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.2, )",
+        "resolved": "10.0.2",
+        "contentHash": "XozoMaWcFIv1tv0LDF+YMeZYjiNiNIewpNdZ3TEoVGf8ROrp0hVoEdUyUBsI8oYGM5U3Z5hiNEv0j2Z5COnMgg=="
       }
     }
   }
