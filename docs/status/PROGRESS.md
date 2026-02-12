@@ -83,7 +83,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 | v0.2.0-2 | CI/CD branch targets for feature/v0.2.0/** branches | CI | 🟢 Complete | 2026-02-12 |
 | v0.2.0-3 | Path hardening (PathResolver with symlink/ADS/device name handling) | Security | 🟢 Complete | 2026-02-12 |
 | v0.2.0-4 | Core abstractions (IAccessPolicyEngine, AccessLevel, models in Core) | Architecture | 🟢 Complete | 2026-02-12 |
-| v0.2.0-5 | Layered policy engine (LayeredAccessPolicyEngine with 4 layers in Tools) | Security | 🔴 Not Started | — |
+| v0.2.0-5 | Layered policy engine (LayeredAccessPolicyEngine with 4 layers in Tools) | Security | 🟢 Complete | 2026-02-12 |
 | v0.2.0-6 | Session access store (InMemorySessionAccessStore with TTL and thread safety) | Architecture | 🔴 Not Started | — |
 | v0.2.0-7 | Glob auto-grant (GlobPatternValidator with startup validation) | Configuration | 🔴 Not Started | — |
 | v0.2.0-8 | Tool refactoring (All 6 tools use IAccessPolicyEngine instead of static root) | Refactor | 🔴 Not Started | — |
