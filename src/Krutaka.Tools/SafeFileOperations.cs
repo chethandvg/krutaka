@@ -98,11 +98,18 @@ public class SafeFileOperations : IFileOperations
             ? path
             : Path.Combine(canonicalRoot, path);
 
-        // Canonicalize the combined path
+        // Resolve symlinks, junctions, and validate against ADS/device names/device prefixes
+        // This must happen BEFORE the containment check to prevent symlink escapes
         string canonicalPath;
         try
         {
-            canonicalPath = Path.GetFullPath(combinedPath);
+            canonicalPath = PathResolver.ResolveToFinalTarget(combinedPath);
+        }
+        catch (SecurityException)
+        {
+            // PathResolver throws SecurityException for ADS, device names, device prefixes
+            // Re-throw as-is (already has descriptive message)
+            throw;
         }
         catch (Exception ex)
         {
