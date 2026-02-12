@@ -131,7 +131,7 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 | **Human Approval** | Blocking approval for write/execute operations | ✅ Complete |
 | **Environment Scrubbing** | Remove API keys/secrets from child processes | ✅ Complete |
 | **Log Redaction** | Automatic API key scrubbing from all log output | ✅ Complete |
-| **Prompt Injection Defense** | Untrusted content wrapped in XML tags | 📋 Documented (implementation pending) |
+| **Prompt Injection Defense** | Untrusted content wrapped in XML tags | ✅ Complete |
 | **Audit Logging** | Structured JSON logs with correlation IDs | ✅ Complete |
 
 ### Security Test Coverage
