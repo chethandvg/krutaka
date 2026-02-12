@@ -39,6 +39,8 @@ flowchart LR
 **Path:** `src/Krutaka.Core/`  
 **Dependencies:** None (zero NuGet packages)
 
+> **v0.2.0 Note:** This project will receive new interfaces for dynamic directory access control: `IAccessPolicyEngine`, `ISessionAccessStore`, and new model types (`DirectoryAccessRequest`, `AccessDecision`, `AccessLevel` enum, `SessionAccessGrant`). See `docs/versions/v0.2.0.md` for details.
+
 The shared contract layer. Defines all interfaces that other projects implement, all model types used across the solution, the core agentic loop orchestrator, context window management, and system prompt assembly.
 
 #### Core Interfaces
@@ -225,6 +227,8 @@ Claude API integration layer with token counting and context management.
 **Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
+
+> **v0.2.0 Note:** This project will be enhanced with dynamic directory access control components: `LayeredAccessPolicyEngine`, `InMemorySessionAccessStore`, `PathResolver`, and `GlobPatternValidator`. See `docs/versions/v0.2.0.md` for details.
 
 Tool implementations with security policy enforcement.
 

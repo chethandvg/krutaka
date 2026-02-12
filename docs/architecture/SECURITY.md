@@ -271,3 +271,191 @@ This enables:
 - Debugging failed API calls
 - Anthropic support ticket correlation
 - Audit trail for tool execution chains
+
+---
+
+## Dynamic Directory Access Policy (v0.2.0)
+
+> **Status:** 🟡 Planned (v0.2.0)  
+> **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design and implementation details.
+
+### Overview
+
+v0.2.0 introduces a **four-layer access policy engine** that evaluates directory access requests at runtime. This replaces the static, single-directory `WorkingDirectory` configuration from v0.1.0 while preserving all existing security guarantees.
+
+### Threat Model
+
+| # | Threat | Severity | Attack Vector | Mitigation | Layer |
+|---|--------|----------|---------------|------------|-------|
+| T1 | Agent social engineering | High | Agent crafts persuasive justification to access system dirs | Hard deny list is non-negotiable — no justification overrides Layer 1 | L1 |
+| T2 | Symlink escape | Critical | Create symlink in allowed dir pointing to blocked dir | `PathResolver` resolves all symlinks to final target before evaluation | L1 |
+| T3 | TOCTOU race | Medium | Path changes between validation and access | Resolve path at validation AND re-validate at access time | L1+Tool |
+| T4 | Session scope accumulation | Medium | Gradually request access to broad dirs over many turns | Max concurrent grants (10), TTL expiry, ceiling enforcement | L3 |
+| T5 | Path traversal via request | Critical | Request path with `..` segments to escape ceiling | `Path.GetFullPath()` canonicalization + ceiling check on resolved path | L1 |
+| T6 | Glob pattern abuse | High | Configure `C:\**` as auto-grant pattern | Startup validation rejects patterns < 3 segments, containing blocked dirs | L2 |
+| T7 | Cross-volume bypass | Medium | Request access to D: drive when ceiling is C: | Cross-volume detection in Layer 4, requires explicit approval | L4 |
+| T8 | ADS hidden data | Medium | Access `file.txt:hidden` alternate data stream | Block `:` after drive letter position in all paths | L1 |
+| T9 | Device name abuse | Medium | Access `CON`, `NUL`, `COM1` as file paths | Block all reserved Windows device names | L1 |
+| T10 | Unicode confusable | Low | Use Unicode characters that look like path separators | Normalize and validate after canonicalization | L1 |
+| T11 | Null byte injection | Critical | Embed `\0` in path string to truncate validation | Reject any path containing null bytes | L1 |
+| T12 | Junction point escape | Critical | Create NTFS junction in allowed dir pointing to system dir | `PathResolver` resolves junctions via `ResolveLinkTarget` | L1 |
+| T13 | Max-length path | Low | Submit path > 260 chars to trigger edge cases | Handle gracefully (use long path APIs or return clear error) | L1 |
+| T14 | Rapid-fire accumulation | Medium | Request many dirs quickly to accumulate broad scope | Max 10 concurrent grants, TTL enforcement | L3 |
+| T15 | AccessLevel escalation | Medium | Granted ReadOnly, attempt ReadWrite operation | Strict level checking: granted level must be ≥ requested level | L3 |
+
+### Immutable Security Boundaries
+
+These properties are **guaranteed in v0.1.0 and remain guaranteed in v0.2.0**. They are not configurable.
+
+1. **System directory blocking** — `C:\Windows`, `C:\Program Files`, `System32`, etc. are ALWAYS blocked
+2. **Path traversal protection** — `..` segments are resolved before evaluation, never trusted
+3. **UNC path blocking** — `\\server\share\...` is ALWAYS blocked
+4. **Secret redaction in logs** — `sk-ant-*` and credential patterns are ALWAYS redacted
+5. **Untrusted content tagging** — File/command output is ALWAYS wrapped in XML tags
+6. **Command injection prevention** — CliWrap argument arrays are ALWAYS used, metacharacters ALWAYS blocked
+7. **CancellationToken on everything** — All async operations respect cancellation
+8. **Sensitive file pattern blocking** — `.env`, `.key`, `.pem`, etc. are ALWAYS blocked
+9. **Agent config self-protection** — `~/.krutaka/` is ALWAYS blocked from agent access
+10. **Human approval for run_command** — ALWAYS required, no "Always" option, no bypass
+
+### Four-Layer Policy Evaluation
+
+Every directory access request is evaluated through four ordered layers. **A deny at any layer is final — no later layer can override it.**
+
+#### Layer 1: Hard Deny List (Immutable)
+
+**Purpose:** Block access to system directories, special paths, and invalid path patterns unconditionally.
+
+**Blocked items:**
+- `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`, `System32`, `SysWOW64`
+- `%APPDATA%`, `%LOCALAPPDATA%`
+- `%USERPROFILE%\.krutaka` (agent's own config)
+- UNC paths (`\\server\share\...`)
+- Paths above ceiling directory
+- Paths with ADS (`:` after drive letter)
+- Device names (`CON`, `NUL`, `COM1`, `LPT1`, etc.)
+- Device prefixes (`\\.\`, `\\?\`)
+- Null bytes in path string
+- Unicode confusables (normalized before check)
+
+**Result:** `AccessDecision(Granted: false, Reason: "System directory blocked")` or continue to Layer 2.
+
+#### Layer 2: Configurable Allow List (Glob patterns)
+
+**Purpose:** Auto-approve trusted paths via glob patterns from `appsettings.json`.
+
+**Configuration:** `ToolOptions.AutoGrantPatterns` (e.g., `["C:\\Users\\username\\Projects\\**"]`)
+
+**Validation at startup:**
+- Pattern must have ≥ 3 path segments (e.g., `C:\Users\name\...`)
+- Pattern must not contain any blocked directory from Layer 1
+- Pattern must be under the configured ceiling directory
+- Empty, null, or whitespace patterns are rejected
+
+**Result:** `AccessDecision(Granted: true, Source: AutoGrant)` or continue to Layer 3.
+
+#### Layer 3: Session Grants (Previously approved)
+
+**Purpose:** Check if this directory was previously approved in this session.
+
+**Grant properties:**
+- `Path`: Canonical, resolved path
+- `AccessLevel`: ReadOnly | ReadWrite | Execute
+- `GrantedAt`: Timestamp
+- `ExpiresAt`: Optional TTL (null = session lifetime)
+- `Justification`: Why access was requested
+- `GrantedBy`: User | AutoGrant | Policy
+
+**Enforcement:**
+- Max concurrent grants: 10 (configurable)
+- Automatic pruning of expired grants before each check
+- Strict level checking: granted level must be ≥ requested level (ReadOnly grant ≠ ReadWrite access)
+- Thread-safe `ConcurrentDictionary` implementation
+
+**Result:** `AccessDecision(Granted: true, Source: SessionGrant)` or continue to Layer 4.
+
+#### Layer 4: Heuristic Checks + User Prompt
+
+**Purpose:** Detect suspicious patterns and require human approval.
+
+**Heuristic checks:**
+- Cross-volume detection (different drive letter than ceiling)
+- Path depth heuristics (very deep nesting, e.g., > 10 levels)
+- Suspicious patterns (rapid requests, unusual directory names)
+
+**Result:** `AccessDecision(NeedsApproval)` → triggers `DirectoryAccessRequested` event → human approval prompt.
+
+If approved, grant is added to Layer 3 (session store) with appropriate TTL.  
+If denied, agent receives descriptive message (not error) to try a different approach.
+
+### New Attack Vectors and Mitigations
+
+#### T2: Symlink Escape (CRITICAL — closing v0.1.0 gap)
+
+**Attack:** Attacker creates `C:\Projects\MyApp\link` → `C:\Windows\System32`
+
+**v0.1.0 behavior:** `Path.GetFullPath("link\cmd.exe")` returns `C:\Projects\MyApp\link\cmd.exe` which passes `StartsWith(projectRoot)` check. The actual file accessed is `C:\Windows\System32\cmd.exe`.
+
+**v0.2.0 mitigation:**
+1. `PathResolver.ResolveToFinalTarget(path)` uses `FileSystemInfo.ResolveLinkTarget(returnFinalTarget: true)`
+2. Resolution happens BEFORE the `StartsWith(root)` containment check
+3. Resolved target `C:\Windows\System32\cmd.exe` fails Layer 1 hard deny
+4. For non-existent paths (e.g., new file creation), validate the parent directory chain
+
+#### T3: TOCTOU (Time-of-Check-to-Time-of-Use)
+
+**Attack:** Path is valid symlink at validation time, then changed to point to system dir before the tool reads it.
+
+**Mitigation:**
+- Re-resolve at access time (SafeFileOperations calls PathResolver on every operation, not just the first)
+- The window is very small (milliseconds between resolve and File.Read), and requires the attacker to have filesystem write access to the allowed directory — which means they already have the access they're trying to gain
+- Defense-in-depth: Even if TOCTOU succeeds, Job Object sandboxing limits damage for command execution
+
+#### T6: Glob Pattern Abuse
+
+**Attack:** User (or compromised config file) sets `AutoGrantPatterns: ["C:\\**"]`
+
+**Mitigation (startup validation in `GlobPatternValidator`):**
+- Pattern must have ≥ 3 path segments (e.g., `C:\Users\name\...` — not `C:\**`)
+- Pattern must not contain any blocked directory from `SafeFileOperations`
+- Pattern must be under the configured ceiling directory
+- Overly-broad patterns (< 4 segments) generate a log warning even if allowed
+- Empty, null, or whitespace patterns are rejected
+
+### Session Scope Accumulation Defense
+
+| Defense | Mechanism | Configurable |
+|---------|-----------|-------------|
+| Max concurrent grants | Default 10, reject new if full | Yes (appsettings) |
+| TTL expiry | Default: session lifetime, configurable per-grant | Yes |
+| Automatic pruning | Expired grants removed before each `IsGrantedAsync` | No (always on) |
+| Ceiling enforcement | All grants must be under ceiling directory | Yes (appsettings) |
+| AccessLevel strictness | ReadOnly grant ≠ ReadWrite access | No (always strict) |
+| Session clear | All grants revoked on session end | No (always on) |
+
+### Configuration Model (v0.2.0)
+
+**New properties in `appsettings.json`:**
+
+```json
+{
+  "ToolOptions": {
+    "DefaultWorkingDirectory": ".",
+    "CeilingDirectory": "C:\\Users\\username",
+    "AutoGrantPatterns": [
+      "C:\\Users\\username\\Projects\\**",
+      "C:\\Users\\username\\Source\\**"
+    ],
+    "MaxConcurrentGrants": 10,
+    "DefaultGrantTtlMinutes": null
+  }
+}
+```
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `DefaultWorkingDirectory` | string | `.` | Default directory when no specific directory is requested (renamed from `WorkingDirectory`) |
+| `CeilingDirectory` | string | `%USERPROFILE%` | Maximum ancestor directory — agent cannot access anything above this |
+| `AutoGrantPatterns` | string[] | `[]` | Glob patterns for auto-approved directory access (Layer 2) |
+| `MaxConcurrentGrants` | int | `10` | Maximum simultaneous directory access grants per session |
+| `DefaultGrantTtlMinutes` | int? | `null` | Default TTL for session grants (null = session lifetime) |

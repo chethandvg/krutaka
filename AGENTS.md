@@ -115,3 +115,4 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `docs/status/DEPENDENCY-MAP.md` | NuGet package versions |
 | `docs/guides/LOCAL-SETUP.md` | Build and run instructions |
 | `docs/guides/TESTING.md` | Test strategy and procedures |
+| `docs/versions/v0.2.0.md` | v0.2.0 dynamic directory scoping architecture design |

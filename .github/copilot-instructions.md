@@ -51,3 +51,4 @@ Before making changes, read:
 - `docs/status/PROGRESS.md` — Current implementation status
 - `docs/architecture/OVERVIEW.md` — Component architecture
 - `docs/architecture/SECURITY.md` — Security model (for security-sensitive code)
+- `docs/versions/v0.2.0.md` — v0.2.0 dynamic directory scoping architecture design

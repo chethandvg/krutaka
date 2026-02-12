@@ -1,8 +1,10 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #28 - Final documentation polish and README update)
+> **Last updated:** 2026-02-12 (v0.2.0 planning started)
 
-## Phase Summary
+## v0.1.0 — Core Features (Complete)
+
+### Phase Summary
 
 | Phase | Name | Issues | Status |
 |---|---|---|---|
@@ -14,7 +16,7 @@
 | 5 | Skills & Observability | #22, #24 | 🟢 Complete |
 | 6 | Build, Package & Verify | #25, #26, #27, #28 | 🟢 Complete |
 
-## Issue Status
+### Issue Status
 
 | # | Issue | Phase | Status | Date Completed |
 |---|---|---|---|---|
@@ -46,7 +48,36 @@
 | 27 | End-to-end integration testing | 6 | 🟢 Complete | 2026-02-11 |
 | 28 | Final documentation polish | 6 | 🟢 Complete | 2026-02-11 |
 
-## Notes
+---
+
+## v0.2.0 — Dynamic Directory Scoping
+
+> **Status:** 🟡 Planning  
+> **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design, threat model, and implementation roadmap.
+
+### Overview
+
+v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration with a **dynamic, session-scoped directory access model**. The agent can request access to multiple directories at runtime. A four-layer policy engine evaluates every request: hard deny-list → configurable allow-list → session grants → heuristic checks. This removes the biggest usability friction in v0.1.0 while preserving (and strengthening) all security guarantees.
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.2.0-1 | Documentation foundation for v0.2.0 dynamic directory scoping | Docs | 🟢 Complete | 2026-02-12 |
+| v0.2.0-2 | CI/CD branch targets for feature/v0.2.0/** branches | CI | 🔴 Not Started | — |
+| v0.2.0-3 | Path hardening (PathResolver with symlink/ADS/device name handling) | Security | 🔴 Not Started | — |
+| v0.2.0-4 | Core abstractions (IAccessPolicyEngine, AccessLevel, models in Core) | Architecture | 🔴 Not Started | — |
+| v0.2.0-5 | Layered policy engine (LayeredAccessPolicyEngine with 4 layers in Tools) | Security | 🔴 Not Started | — |
+| v0.2.0-6 | Session access store (InMemorySessionAccessStore with TTL and thread safety) | Architecture | 🔴 Not Started | — |
+| v0.2.0-7 | Glob auto-grant (GlobPatternValidator with startup validation) | Configuration | 🔴 Not Started | — |
+| v0.2.0-8 | Tool refactoring (All 6 tools use IAccessPolicyEngine instead of static root) | Refactor | 🔴 Not Started | — |
+| v0.2.0-9 | Approval UI (DirectoryAccessRequested event + interactive prompt) | UI | 🔴 Not Started | — |
+| v0.2.0-10 | Adversarial tests (38+ tests across 3 new test classes) | Testing | 🔴 Not Started | — |
+| v0.2.0-11 | Release documentation (README, CHANGELOG, final doc consistency pass) | Docs | 🔴 Not Started | — |
+
+---
+
+## v0.1.0 Notes
 
 - Issues must be executed in order (dependencies are sequential within phases)
 - After completing each issue, update this file: change status to 🟢 Complete and add the date

@@ -129,3 +129,73 @@
 - Resolves second deferred task from Issue #24
 - Complements audit logging infrastructure from Issue #24
 - IFileOperations interface enables future enhancements (e.g., file operation metrics)
+
+---
+
+## ADR-012: Layered Access Policy Engine for Dynamic Directory Scoping
+
+**Date:** 2026-02-12  
+**Status:** Accepted  
+
+**Context:**
+
+v0.1.0 limits the agent to a single directory configured upfront in `appsettings.json` via `ToolOptions.WorkingDirectory`. This creates significant usability friction:
+- Monorepo users cannot work across multiple subdirectories without restarting
+- Multi-project workflows (e.g., editing both a library and its consumer) require separate sessions
+- Exploratory tasks (e.g., "find the config file somewhere under my home directory") are blocked
+- The directory must be known *before* starting the agent — the agent cannot discover it
+
+Users work around this by setting `WorkingDirectory` to very broad paths (e.g., `C:\Users\username`), defeating the sandboxing purpose, or they restart the agent for each project, losing session context.
+
+The root cause is that `ToolOptions.WorkingDirectory` is a **singleton string** injected at DI registration time. There is no mechanism to request, evaluate, or grant access to additional directories during a session.
+
+**Decision:**
+
+Implement a **four-layer access policy engine** (`LayeredAccessPolicyEngine`) that evaluates directory access requests at runtime. The agent can request access to multiple directories within a single session. Each request is evaluated through:
+
+1. **Layer 1: Hard Deny List (Immutable)** — System directories (`C:\Windows`, `C:\Program Files`, `%APPDATA%`, etc.), UNC paths, paths above ceiling directory, paths with ADS/device names are **always blocked**. No layer can override a Layer 1 denial.
+
+2. **Layer 2: Configurable Allow List (Glob patterns)** — Patterns from `appsettings.json` (e.g., `C:\Users\username\Projects\**`) are auto-approved if validated at startup. Overly-broad patterns (< 3 segments) are rejected.
+
+3. **Layer 3: Session Grants (Previously approved)** — Directories previously approved in this session are granted immediately. Grants have TTL, max count (10), and strict `AccessLevel` enforcement (ReadOnly grant ≠ ReadWrite access).
+
+4. **Layer 4: Heuristic Checks + User Prompt** — Cross-volume detection, path depth heuristics, and suspicious patterns trigger human approval prompts.
+
+**Architecture changes:**
+- New interfaces in `Krutaka.Core`: `IAccessPolicyEngine`, `ISessionAccessStore`, `DirectoryAccessRequest`, `AccessDecision`, `AccessLevel` enum
+- New implementations in `Krutaka.Tools`: `LayeredAccessPolicyEngine`, `InMemorySessionAccessStore`, `PathResolver`, `GlobPatternValidator`
+- Tool refactoring: All 6 tools receive `IAccessPolicyEngine` via DI instead of static `_projectRoot`
+- Symlink/junction security: `PathResolver` uses `ResolveLinkTarget(returnFinalTarget: true)` before policy evaluation (closes v0.1.0 security gap)
+
+**Consequences:**
+
+✅ **Benefits:**
+- Agent can access multiple directories in a single session (core user need)
+- All v0.1.0 security guarantees preserved (system dirs remain unconditionally blocked)
+- **Closes symlink escape vulnerability** (v0.1.0 gap) — symlinks/junctions resolved before evaluation
+- Frequently-used paths can be auto-approved via glob patterns (reduces approval fatigue)
+- Session grants expire via TTL (prevents stale permission accumulation)
+- Backward compatible — v0.1.0 tests continue to pass (verified with 576+ existing tests)
+
+⚠️ **Trade-offs:**
+- Increased attack surface: dynamic requests introduce new attack vectors (social engineering, glob abuse, session accumulation)
+- Complexity: 4-layer engine vs. simple `StartsWith()` check in v0.1.0
+- User friction: first access to new directory requires approval (Layer 4 prompt)
+
+🛡️ **Security mitigations:**
+- Hard deny list is immutable — no justification or configuration can override Layer 1
+- Glob pattern validation at startup (rejects overly-broad patterns like `C:\**`)
+- Max concurrent grants (default 10), TTL enforcement, automatic pruning
+- Cross-volume requests flagged for explicit approval
+- ADS, device names, null bytes, Unicode confusables blocked at Layer 1
+- Defense-in-depth: TOCTOU mitigation via re-resolve at access time
+
+📊 **Testing:**
+- 65+ new tests covering adversarial scenarios (social engineering, symlink escape, TOCTOU, glob abuse, etc.)
+- All existing 576+ v0.1.0 tests must pass (zero regressions)
+- Three new adversarial test classes verify attack vectors from threat model
+
+**Related:**
+- See `docs/versions/v0.2.0.md` for complete architecture design, data flow diagrams, and threat model
+- Implementation tracked across 11 sub-issues (v0.2.0-1 through v0.2.0-11)
+- Symlink resolution addresses security gap identified in v0.1.0 (SafeFileOperations did not resolve links)
