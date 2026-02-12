@@ -10,17 +10,15 @@ public sealed class GlobPatternValidator
 {
     private readonly ILogger<GlobPatternValidator>? _logger;
 
-    // Blocked directories from SafeFileOperations (must match)
+    // Blocked directories - mirrors SafeFileOperations.BlockedDirectories for system paths
+    // AppData, LocalAppData, and .krutaka are validated separately via SpecialFolder checks
     private static readonly string[] BlockedDirectories =
     [
         "C:\\Windows",
         "C:\\Program Files",
         "C:\\Program Files (x86)",
         "System32",
-        "SysWOW64",
-        "AppData",
-        "LocalAppData",
-        ".krutaka"
+        "SysWOW64"
     ];
 
     // LoggerMessage delegate for performance (CA1848)
@@ -45,7 +43,8 @@ public sealed class GlobPatternValidator
     /// <param name="patterns">The patterns to validate.</param>
     /// <param name="ceilingDirectory">The ceiling directory - patterns must be under this directory.</param>
     /// <returns>A validation result indicating success or failure with error messages.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when patterns or ceilingDirectory is null.</exception>
+    /// <exception cref="ArgumentNullException">Thrown when patterns is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when ceilingDirectory is null, empty, or whitespace.</exception>
     public ValidationResult ValidatePatterns(string[] patterns, string ceilingDirectory)
     {
         ArgumentNullException.ThrowIfNull(patterns);
@@ -65,10 +64,10 @@ public sealed class GlobPatternValidator
             warnings.AddRange(result.Warnings);
         }
 
-        // Log warnings
+        // Log warnings using explicit filtering
         if (_logger != null)
         {
-            foreach (var warning in warnings)
+            foreach (var warning in warnings.Where(w => !string.IsNullOrEmpty(w)))
             {
                 LogPatternWarning(_logger, warning, null);
             }
@@ -101,7 +100,7 @@ public sealed class GlobPatternValidator
         // Normalize the pattern for validation
         var normalizedPattern = pattern.Replace('/', Path.DirectorySeparatorChar);
 
-        // Check for blocked directories in the pattern (before segment counting)
+        // Check for blocked system directories in the pattern (before segment counting)
         foreach (var blockedDir in BlockedDirectories)
         {
             if (ContainsBlockedDirectory(normalizedPattern, blockedDir))
@@ -109,6 +108,13 @@ public sealed class GlobPatternValidator
                 errors.Add($"Glob pattern '{pattern}' contains blocked directory '{blockedDir}'.");
                 return new ValidationResult(false, errors, warnings);
             }
+        }
+
+        // Check for AppData, LocalAppData, and .krutaka directories using SpecialFolder paths
+        if (CheckSpecialFolderPaths(normalizedPattern, out var specialFolderError))
+        {
+            errors.Add(specialFolderError);
+            return new ValidationResult(false, errors, warnings);
         }
 
         // Check if pattern is outside ceiling directory (before segment counting)
@@ -180,16 +186,11 @@ public sealed class GlobPatternValidator
 
     /// <summary>
     /// Checks if a pattern contains a blocked directory as a path component.
+    /// Uses component-boundary matching to avoid false positives.
     /// </summary>
     private static bool ContainsBlockedDirectory(string pattern, string blockedDir)
     {
-        // Special handling for AppData and LocalAppData - check if they're anywhere in the path
-        if (blockedDir == "AppData" || blockedDir == "LocalAppData")
-        {
-            return pattern.Contains(blockedDir, StringComparison.OrdinalIgnoreCase);
-        }
-
-        // For other blocked directories, use component-boundary matching
+        // Use component-boundary matching for all blocked directories
         var index = pattern.IndexOf(blockedDir, StringComparison.OrdinalIgnoreCase);
         while (index >= 0)
         {
@@ -220,6 +221,64 @@ public sealed class GlobPatternValidator
     }
 
     /// <summary>
+    /// Checks if a pattern targets AppData, LocalAppData, or .krutaka directories
+    /// using actual SpecialFolder paths for accurate detection.
+    /// </summary>
+    private static bool CheckSpecialFolderPaths(string pattern, out string errorMessage)
+    {
+        errorMessage = string.Empty;
+
+        // Extract the base path for validation (absolute part before wildcards)
+        var basePath = ExtractBasePath(pattern);
+        if (string.IsNullOrEmpty(basePath))
+        {
+            return false; // Cannot validate patterns without absolute base
+        }
+
+        try
+        {
+            var canonicalBase = Path.GetFullPath(basePath);
+
+            // Check AppData
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (!string.IsNullOrEmpty(appDataPath) && IsPathUnderDirectory(canonicalBase, appDataPath))
+            {
+                errorMessage = $"Glob pattern '{pattern}' targets AppData directory which is not permitted.";
+                return true;
+            }
+
+            // Check LocalAppData
+            var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrEmpty(localAppDataPath) && IsPathUnderDirectory(canonicalBase, localAppDataPath))
+            {
+                errorMessage = $"Glob pattern '{pattern}' targets LocalAppData directory which is not permitted.";
+                return true;
+            }
+
+            // Check .krutaka config directory
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(userProfile))
+            {
+                var krutakaConfigPath = Path.Combine(userProfile, ".krutaka");
+                if (IsPathUnderDirectory(canonicalBase, krutakaConfigPath))
+                {
+                    errorMessage = $"Glob pattern '{pattern}' targets .krutaka configuration directory which is not permitted.";
+                    return true;
+                }
+            }
+        }
+#pragma warning disable CA1031 // Do not catch general exception types - path validation errors should not fail the check
+        catch
+        {
+            // If we can't validate the path, allow it (will be caught by other validation)
+            return false;
+        }
+#pragma warning restore CA1031
+
+        return false;
+    }
+
+    /// <summary>
     /// Extracts the base path from a glob pattern (the portion before any wildcards).
     /// </summary>
     private static string ExtractBasePath(string pattern)
@@ -238,12 +297,17 @@ public sealed class GlobPatternValidator
 
     /// <summary>
     /// Checks if a path is under a directory (including exact match).
-    /// Uses case-insensitive comparison on Windows.
+    /// Uses case-insensitive comparison on Windows, case-sensitive on other platforms.
     /// </summary>
     private static bool IsPathUnderDirectory(string path, string directory)
     {
         var normalizedPath = Path.GetFullPath(path);
         var normalizedDirectory = Path.GetFullPath(directory);
+
+        // Use OS-appropriate comparison
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
 
         // Ensure directory ends with separator for proper prefix checking
         if (!normalizedDirectory.EndsWith(Path.DirectorySeparatorChar))
@@ -251,8 +315,10 @@ public sealed class GlobPatternValidator
             normalizedDirectory += Path.DirectorySeparatorChar;
         }
 
-        return normalizedPath.StartsWith(normalizedDirectory, StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(normalizedPath, normalizedDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase);
+        var normalizedDirectoryTrimmed = normalizedDirectory.TrimEnd(Path.DirectorySeparatorChar);
+
+        return normalizedPath.StartsWith(normalizedDirectory, comparison) ||
+               string.Equals(normalizedPath, normalizedDirectoryTrimmed, comparison);
     }
 }
 
