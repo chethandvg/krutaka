@@ -2,9 +2,9 @@ name: Security Tests
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
   push:
-    branches: [ main ]
+    branches: [ main, develop, 'release/*' ]
 
 jobs:
   security-tests:
