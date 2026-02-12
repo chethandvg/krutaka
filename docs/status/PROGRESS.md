@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-12 (Directory access approval UI - Issue v0.2.0-9; all 757 tests passing)
+> **Last updated:** 2026-02-12 (Adversarial security tests - Issue v0.2.0-10; all 854 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -88,8 +88,16 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 | v0.2.0-7 | Glob auto-grant (GlobPatternValidator with startup validation) | Configuration | 🟢 Complete | 2026-02-12 |
 | v0.2.0-8 | Tool refactoring (All 6 tools use IAccessPolicyEngine instead of static root) | Refactor | 🟢 Complete | 2026-02-12 |
 | v0.2.0-9 | Approval UI (DirectoryAccessRequested event + interactive prompt) | UI | 🟢 Complete | 2026-02-12 |
-| v0.2.0-10 | Adversarial tests (38+ tests across 3 new test classes) | Testing | 🔴 Not Started | — |
+| v0.2.0-10 | Adversarial tests (87 tests across 3 new test classes) | Testing | 🟢 Complete | 2026-02-12 |
 | v0.2.0-11 | Release documentation (README, CHANGELOG, final doc consistency pass) | Docs | 🔴 Not Started | — |
+
+**Issue v0.2.0-10 Details:**
+- **Created:** 3 new adversarial test files with 60 test methods (87 total test cases with Theory parameters)
+  - `AccessPolicyEngineAdversarialTests.cs`: 21 test methods covering system directory bypass, ceiling enforcement, path manipulation, session scope accumulation, cross-volume detection
+  - `PathResolverAdversarialTests.cs`: 18 test methods covering ADS attacks, device name blocking, device path prefixes, deeply nested paths
+  - `GlobPatternAdversarialTests.cs`: 21 test methods covering overly broad patterns, relative traversal, blocked directories, null/empty patterns
+- **Testing:** All 515 tests in Krutaka.Tools.Tests pass (87 new), total 854 tests pass (1 skipped)
+- **Build:** Zero warnings, zero errors
 
 ---
 
