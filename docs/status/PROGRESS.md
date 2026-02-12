@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-12 (Smart session management implemented - Issue #29)
+> **Last updated:** 2026-02-12 (Path hardening with symlink resolution - Issue v0.2.0-3)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -81,7 +81,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 |---|---|---|---|---|
 | v0.2.0-1 | Documentation foundation for v0.2.0 dynamic directory scoping | Docs | 🟢 Complete | 2026-02-12 |
 | v0.2.0-2 | CI/CD branch targets for feature/v0.2.0/** branches | CI | 🟢 Complete | 2026-02-12 |
-| v0.2.0-3 | Path hardening (PathResolver with symlink/ADS/device name handling) | Security | 🔴 Not Started | — |
+| v0.2.0-3 | Path hardening (PathResolver with symlink/ADS/device name handling) | Security | 🟢 Complete | 2026-02-12 |
 | v0.2.0-4 | Core abstractions (IAccessPolicyEngine, AccessLevel, models in Core) | Architecture | 🔴 Not Started | — |
 | v0.2.0-5 | Layered policy engine (LayeredAccessPolicyEngine with 4 layers in Tools) | Security | 🔴 Not Started | — |
 | v0.2.0-6 | Session access store (InMemorySessionAccessStore with TTL and thread safety) | Architecture | 🔴 Not Started | — |

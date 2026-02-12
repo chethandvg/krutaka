@@ -98,12 +98,26 @@ public class SafeFileOperations : IFileOperations
             ? path
             : Path.Combine(canonicalRoot, path);
 
-        // Canonicalize the combined path
+        // Resolve symlinks, junctions, and validate against ADS/device names/device prefixes
+        // This must happen BEFORE the containment check to prevent symlink escapes
         string canonicalPath;
         try
         {
-            canonicalPath = Path.GetFullPath(combinedPath);
+            canonicalPath = PathResolver.ResolveToFinalTarget(combinedPath);
         }
+        catch (SecurityException ex)
+        {
+            // PathResolver throws SecurityException for ADS, device names, device prefixes
+            // Log and re-throw to ensure audit trail
+            LogAndThrowSecurityViolation(
+                "blocked_path",
+                path,
+                ex.Message,
+                correlationContext);
+            // Note: LogAndThrowSecurityViolation always throws, but throw is needed to satisfy compiler flow analysis
+            throw;
+        }
+#pragma warning disable CA1031 // Do not catch general exception types - LogAndThrowSecurityViolation always throws
         catch (Exception ex)
         {
             LogAndThrowSecurityViolation(
@@ -111,8 +125,10 @@ public class SafeFileOperations : IFileOperations
                 path,
                 $"Invalid path: '{path}'. {ex.Message}",
                 correlationContext);
-            throw; // Unreachable, but satisfies compiler
+            // Note: LogAndThrowSecurityViolation always throws, but throw is needed to satisfy compiler flow analysis
+            throw;
         }
+#pragma warning restore CA1031
 
         // Verify the path is within the allowed root (prevents path traversal and sibling directory access)
         // The canonicalRoot has a trailing separator, so we check:
