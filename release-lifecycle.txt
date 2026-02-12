@@ -1,0 +1,37 @@
+═══════════════════════════════════════════════════════════════
+                  KRUTAKA RELEASE LIFECYCLE
+═══════════════════════════════════════════════════════════════
+
+ ① PLAN
+    ├── Create milestone "v0.2.0" on GitHub
+    ├── Create issues, assign to milestone
+    └── Label with phase:v0.2.0
+
+ ② DEVELOP
+    ├── feature/v0.2.0/access-policy-engine → PR to develop ✓
+    ├── feature/v0.2.0/dynamic-scoping      → PR to develop ✓
+    ├── feature/v0.2.0/session-grants       → PR to develop ✓
+    └── (all features merged to develop)
+
+ ③ STABILIZE
+    ├── Cut: git checkout -b release/v0.2.0 develop
+    ├── Only bugfixes allowed on this branch
+    ├── Pre-release tag: v0.2.0-rc.1
+    └── Final testing + documentation review
+
+ ④ RELEASE
+    ├── Merge: release/v0.2.0 → main (--no-ff)
+    ├── Tag: git tag -a v0.2.0
+    ├── Back-merge: release/v0.2.0 → develop
+    ├── Delete: release/v0.2.0
+    └── Create GitHub Release with binaries + changelog
+
+ ⑤ MAINTAIN
+    ├── If critical bug found in v0.2.0:
+    │   ├── git checkout -b hotfix/v0.2.1/fix-name main
+    │   ├── Fix, test, PR to main
+    │   ├── Tag: v0.2.1
+    │   └── Back-merge hotfix to develop
+    └── Otherwise: move to v0.3.0 planning
+
+═══════════════════════════════════════════════════════════════
