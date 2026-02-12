@@ -192,6 +192,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
     /// <summary>
     /// Layer 2: Configurable Allow List - Glob pattern matching for auto-grant.
     /// Returns granted decision if pattern matches, null if no match.
+    /// Uses custom glob matching with case-insensitive comparison on Windows.
     /// </summary>
     private AccessDecision? EvaluateLayer2ConfigurableAllow(string canonicalPath, AccessLevel requestedLevel)
     {
@@ -200,7 +201,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
             return null; // No patterns configured
         }
 
-        // Simple glob pattern matching: ** matches any subdirectory
+        // Check each pattern for a match
         foreach (var pattern in _autoGrantPatterns)
         {
             if (string.IsNullOrWhiteSpace(pattern))
@@ -219,6 +220,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
 
     /// <summary>
     /// Simple glob pattern matching. Supports ** for any subdirectory.
+    /// Uses case-insensitive matching on Windows, case-sensitive on other platforms.
     /// </summary>
     private static bool MatchesGlobPattern(string path, string pattern)
     {
@@ -226,14 +228,19 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
         var normalizedPath = path.Replace('\\', '/');
         var normalizedPattern = pattern.Replace('\\', '/');
 
+        // Use OS-appropriate comparison
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
         // Handle ** (match any subdirectory)
         if (normalizedPattern.EndsWith("/**", StringComparison.Ordinal))
         {
             var basePattern = normalizedPattern[..^3]; // Remove /**
 
             // Allow match on the base directory itself, with or without trailing slash
-            if (string.Equals(normalizedPath, basePattern, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(normalizedPath, basePattern + "/", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(normalizedPath, basePattern, comparison) ||
+                string.Equals(normalizedPath, basePattern + "/", comparison))
             {
                 return true;
             }
@@ -243,11 +250,11 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
                 ? basePattern
                 : basePattern + "/";
 
-            return normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+            return normalizedPath.StartsWith(prefix, comparison);
         }
 
         // Exact match
-        return string.Equals(normalizedPath, normalizedPattern, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(normalizedPath, normalizedPattern, comparison);
     }
 
     /// <summary>

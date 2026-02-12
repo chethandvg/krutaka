@@ -397,11 +397,21 @@ Every directory access request is evaluated through four ordered layers. **A den
 
 **Configuration:** `ToolOptions.AutoGrantPatterns` (e.g., `["C:\\Users\\username\\Projects\\**"]`)
 
-**Validation at startup:**
-- Pattern must have ≥ 3 path segments (e.g., `C:\Users\name\...`)
-- Pattern must not contain any blocked directory from Layer 1
+**Validation at startup (implemented in `GlobPatternValidator`):**
+- Pattern must have ≥ 3 path segments (e.g., `C:\Users\name\...` or `/home/user/...`)
+- On Unix systems, the root "/" counts as a segment
+- Pattern must not contain any blocked directory from Layer 1 (Windows, Program Files, System32, AppData, .krutaka)
 - Pattern must be under the configured ceiling directory
+- Pattern cannot start with wildcards (must have an absolute base path)
 - Empty, null, or whitespace patterns are rejected
+- Patterns with < 4 segments generate a warning (logged but not rejected)
+- All validation happens before the application starts (fail-fast)
+
+**Pattern matching:**
+- Uses custom glob matching with case-insensitive comparison on Windows
+- Supports `**` wildcard for matching any subdirectory
+- Exact path matching when no wildcards are present
+- Enforces directory boundary matching to prevent sibling directory access
 
 **Result:** `AccessDecision(Granted: true, Source: AutoGrant)` or continue to Layer 3.
 

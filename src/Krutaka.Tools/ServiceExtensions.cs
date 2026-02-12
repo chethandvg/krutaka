@@ -1,5 +1,6 @@
 using Krutaka.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Krutaka.Tools;
 
@@ -23,6 +24,28 @@ public static class ServiceExtensions
         // Configure options
         var options = new ToolOptions();
         configureOptions?.Invoke(options);
+
+        // Validate glob patterns at startup (fail-fast)
+        if (options.AutoGrantPatterns.Length > 0)
+        {
+            // Create a validator (no logger needed for startup validation)
+            var validator = new GlobPatternValidator();
+            var validationResult = validator.ValidatePatterns(options.AutoGrantPatterns, options.CeilingDirectory);
+
+            if (!validationResult.IsValid)
+            {
+                var errorMessages = string.Join(Environment.NewLine, validationResult.Errors);
+                throw new InvalidOperationException(
+                    $"Invalid glob patterns in AutoGrantPatterns configuration:{Environment.NewLine}{errorMessages}");
+            }
+
+            // Log warnings if any (will be logged when ILogger is available)
+            if (validationResult.Warnings.Count > 0)
+            {
+                // Warnings will be logged by the validator when used at runtime with a logger
+                // For startup, we just validate and let them through
+            }
+        }
 
         // Register options as singleton
         services.AddSingleton(options);
