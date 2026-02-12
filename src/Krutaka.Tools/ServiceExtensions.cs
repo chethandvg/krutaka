@@ -88,47 +88,54 @@ public static class ServiceExtensions
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
 
-        // Get working directory from options
-        var workingDir = options.WorkingDirectory;
+        // Get default working directory from options (v0.2.0 - used as fallback when policy engine is null)
+        var defaultWorkingDir = options.DefaultWorkingDirectory;
 
-        // Register and add all tool implementations using factories to resolve IFileOperations
+        // Register and add all tool implementations using factories to resolve dependencies
+        // v0.2.0: Tools now receive IAccessPolicyEngine for dynamic directory scoping
         // Read-only tools (auto-approve)
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new ReadFileTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new ReadFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new ListFilesTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new ListFilesTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new SearchFilesTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new SearchFilesTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         // Write tools (require approval)
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new WriteFileTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new WriteFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new EditFileTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new EditFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         // Command execution tool (always requires approval)
         services.AddSingleton<ITool>(sp =>
         {
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
-            return new RunCommandTool(workingDir, securityPolicy, options.CommandTimeoutSeconds);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools

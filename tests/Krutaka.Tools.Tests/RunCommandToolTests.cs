@@ -316,7 +316,7 @@ public sealed class RunCommandToolTests : IDisposable
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().StartWith("Error: Working directory validation failed");
+        result.Should().StartWith("Error:").And.Contain("validation failed");
     }
 
     [Fact]

@@ -235,22 +235,22 @@ Claude API integration layer with token counting and context management.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
+**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10), **Dynamic directory scoping integrated** (Issue v0.2.0-8 — 2026-02-12)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
-> **v0.2.0 Note:** This project will be enhanced with dynamic directory access control components: `LayeredAccessPolicyEngine`, `InMemorySessionAccessStore`, `PathResolver`, and `GlobPatternValidator`. See `docs/versions/v0.2.0.md` for details.
+> **v0.2.0 Update:** All 6 file and command tools now use `IAccessPolicyEngine` for dynamic directory access evaluation. Tools request directory access per-operation instead of being locked to a single static root at construction time. See `docs/versions/v0.2.0.md` for architecture details.
 
 Tool implementations with security policy enforcement.
 
 | Type | Risk Level | Approval | Status |
 |---|---|---|---|
-| `ReadFileTool` | Low | Auto-approve | ✅ Implemented |
-| `ListFilesTool` | Low | Auto-approve | ✅ Implemented |
-| `SearchFilesTool` | Low | Auto-approve | ✅ Implemented |
-| `WriteFileTool` | High | Required | ✅ Implemented |
-| `EditFileTool` | High | Required | ✅ Implemented |
-| `RunCommandTool` | Critical | Always required | ✅ Fully Implemented |
+| `ReadFileTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `ListFilesTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `SearchFilesTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `WriteFileTool` | High | Required | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `EditFileTool` | High | Required | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `RunCommandTool` | Critical | Always required | ✅ Fully Implemented (v0.2.0: Dynamic working directory resolution) |
 | `MemoryStoreTool` | Medium | Auto-approve | ✅ Implemented |
 | `MemorySearchTool` | Low | Auto-approve | ✅ Implemented |
 | `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
@@ -260,16 +260,16 @@ Tool implementations with security policy enforcement.
 | `InMemorySessionAccessStore` | — | **[v0.2.0]** Session-scoped directory access grant storage with TTL enforcement | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
 | `ToolRegistry` | — | Collection + dispatch | ✅ Implemented |
-| `ToolOptions` | — | Configuration for tool execution (v0.2.0: ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
-| `ServiceExtensions` | — | DI registration via `AddAgentTools()` | ✅ Implemented |
+| `ToolOptions` | — | Configuration for tool execution (v0.2.0: `DefaultWorkingDirectory`, ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
+| `ServiceExtensions` | — | DI registration via `AddAgentTools()` (v0.2.0: injects `IAccessPolicyEngine` into all tools) | ✅ Implemented |
 
-**Implemented Tools Details:**
-- **ReadFileTool**: Reads file contents with path validation and 1MB size limit. Wraps output in `<untrusted_content>` tags for prompt injection defense.
-- **ListFilesTool**: Lists files matching glob patterns recursively. Validates all paths and filters blocked files/directories.
-- **SearchFilesTool**: Grep-like text/regex search across files. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
-- **WriteFileTool**: Creates or overwrites files with security validation. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
-- **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Creates backups before editing. Returns a diff showing changes. Requires human approval.
-- **RunCommandTool**: Executes shell commands with full security controls and sandboxing:
+**Implemented Tools Details (v0.2.0 Dynamic Directory Scoping):**
+- **ReadFileTool**: Reads file contents with dynamic directory access evaluation via `IAccessPolicyEngine`. Requests `AccessLevel.ReadOnly` for the file's parent directory. Falls back to static root if policy engine is null (backward compatibility). Wraps output in `<untrusted_content>` tags for prompt injection defense.
+- **ListFilesTool**: Lists files matching glob patterns recursively. Requests `AccessLevel.ReadOnly` for the target directory via policy engine. Validates all paths and filters blocked files/directories.
+- **SearchFilesTool**: Grep-like text/regex search across files. Requests `AccessLevel.ReadOnly` for the search directory via policy engine. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
+- **WriteFileTool**: Creates or overwrites files with dynamic directory access evaluation. Requests `AccessLevel.ReadWrite` for the file's parent directory via policy engine. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
+- **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Requests `AccessLevel.ReadWrite` for the file's parent directory via policy engine. Creates backups before editing. Returns a diff showing changes. Requires human approval.
+- **RunCommandTool**: Executes shell commands with dynamic working directory resolution. Requests `AccessLevel.Execute` for the working directory via policy engine if specified. Full security controls and sandboxing:
   - **Command validation**: Allowlist/blocklist enforcement, shell metacharacter detection
   - **Environment scrubbing**: Removes sensitive variables (*_KEY, *_SECRET, *_TOKEN, ANTHROPIC_*, etc.)
   - **Job Object sandboxing** (Windows only): 256 MB memory limit, 30-second CPU time limit, kill-on-job-close

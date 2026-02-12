@@ -142,7 +142,7 @@ try
     // Register Tools with options
     builder.Services.AddAgentTools(options =>
     {
-        options.WorkingDirectory = workingDirectory;
+        options.DefaultWorkingDirectory = workingDirectory;
     });
 
     // Register Memory services

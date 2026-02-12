@@ -10,23 +10,27 @@ namespace Krutaka.Tools;
 /// <summary>
 /// Tool for searching file contents using text or regex patterns with security validation.
 /// Provides grep-like functionality with file path and line number reporting.
+/// In v0.2.0, supports dynamic directory scoping via IAccessPolicyEngine.
 /// </summary>
 public class SearchFilesTool : ToolBase
 {
-    private readonly string _projectRoot;
+    private readonly string _defaultRoot;
     private readonly IFileOperations _fileOperations;
+    private readonly IAccessPolicyEngine? _policyEngine;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SearchFilesTool"/> class.
     /// </summary>
-    /// <param name="projectRoot">The allowed root directory for file access.</param>
+    /// <param name="defaultRoot">The default root directory (fallback when policy engine is null).</param>
     /// <param name="fileOperations">The file operations service.</param>
-    public SearchFilesTool(string projectRoot, IFileOperations fileOperations)
+    /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
+    public SearchFilesTool(string defaultRoot, IFileOperations fileOperations, IAccessPolicyEngine? policyEngine = null)
     {
-        ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(fileOperations);
-        _projectRoot = projectRoot;
+        _defaultRoot = defaultRoot;
         _fileOperations = fileOperations;
+        _policyEngine = policyEngine;
     }
 
     /// <inheritdoc/>
@@ -65,7 +69,7 @@ public class SearchFilesTool : ToolBase
             }
 
             // Extract optional parameters
-            var path = _projectRoot;
+            var path = _defaultRoot;
             if (input.TryGetProperty("path", out var pathElement))
             {
                 var providedPath = pathElement.GetString();
@@ -97,15 +101,40 @@ public class SearchFilesTool : ToolBase
                 caseSensitive = caseSensitiveElement.GetBoolean();
             }
 
-            // Validate path (security check)
+            // Determine the directory to validate against
             string validatedPath;
-            try
+            string projectRoot;
+            if (_policyEngine != null)
             {
-                validatedPath = _fileOperations.ValidatePath(path, _projectRoot);
+                // v0.2.0: Dynamic directory scoping via policy engine
+                var request = new DirectoryAccessRequest(
+                    Path: path,
+                    Level: AccessLevel.ReadOnly,
+                    Justification: $"Searching files in: {path}"
+                );
+
+                var decision = await _policyEngine.EvaluateAsync(request, cancellationToken).ConfigureAwait(false);
+
+                if (decision.Outcome == AccessOutcome.Denied)
+                {
+                    var reasons = string.Join("; ", decision.DeniedReasons);
+                    return $"Error: Access denied - {reasons}";
+                }
+
+                if (decision.Outcome == AccessOutcome.RequiresApproval)
+                {
+                    return $"Error: Access to directory '{path}' requires approval. This functionality will be available in v0.2.0-9.";
+                }
+
+                // Use the granted scoped path as the validation root
+                validatedPath = _fileOperations.ValidatePath(path, decision.ScopedPath!);
+                projectRoot = decision.ScopedPath!;
             }
-            catch (SecurityException ex)
+            else
             {
-                return $"Error: Security validation failed - {ex.Message}";
+                // v0.1.x: Static root fallback (backward compatibility)
+                validatedPath = _fileOperations.ValidatePath(path, _defaultRoot);
+                projectRoot = _defaultRoot;
             }
 
             // Check if directory exists
@@ -152,7 +181,7 @@ public class SearchFilesTool : ToolBase
                     // Validate file path
                     try
                     {
-                        _fileOperations.ValidatePath(file, _projectRoot);
+                        _fileOperations.ValidatePath(file, projectRoot);
                     }
                     catch (SecurityException)
                     {
@@ -174,7 +203,7 @@ public class SearchFilesTool : ToolBase
                     // Search file content
                     try
                     {
-                        var relativePath = Path.GetRelativePath(_projectRoot, file);
+                        var relativePath = Path.GetRelativePath(projectRoot, file);
                         var lineNumber = 0;
                         var fileHasMatches = false;
 
@@ -243,6 +272,10 @@ public class SearchFilesTool : ToolBase
             var summary = $"Found {matchCount} match(es) in {fileCount} file(s):\n\n";
             var searchResults = result.ToString().TrimEnd();
             return $"<untrusted_content>\n{summary}{searchResults}\n</untrusted_content>";
+        }
+        catch (SecurityException ex)
+        {
+            return $"Error: Security validation failed - {ex.Message}";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)
