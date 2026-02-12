@@ -8,6 +8,8 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest-all</AnalysisLevel>
     <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(IsTestProject)' == 'true'">

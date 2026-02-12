@@ -286,11 +286,12 @@ public sealed class RunCommandToolTests : IDisposable
     [Fact]
     public async Task Should_UseProjectRootAsDefaultWorkingDirectory()
     {
-        // Arrange
+        // Arrange - use dotnet which is a real executable on all platforms
+        // (echo is a shell built-in on Windows, not a standalone process)
         var input = JsonSerializer.SerializeToElement(new
         {
-            executable = "echo",
-            arguments = new[] { "test" }
+            executable = "dotnet",
+            arguments = new[] { "--version" }
         });
 
         // Act
@@ -321,14 +322,15 @@ public sealed class RunCommandToolTests : IDisposable
     [Fact]
     public async Task Should_AllowValidWorkingDirectory()
     {
-        // Arrange
+        // Arrange - use dotnet which is a real executable on all platforms
+        // (echo is a shell built-in on Windows, not a standalone process)
         var subdir = Path.Combine(_testRoot, "subdir");
         Directory.CreateDirectory(subdir);
 
         var input = JsonSerializer.SerializeToElement(new
         {
-            executable = "echo",
-            arguments = new[] { "test" },
+            executable = "dotnet",
+            arguments = new[] { "--version" },
             working_directory = subdir
         });
 
