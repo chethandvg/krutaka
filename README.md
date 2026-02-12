@@ -124,7 +124,7 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 
 | Control | Implementation | Status |
 |---|---|---|
-| **Secrets Management** | Windows Credential Manager with DPAPI encryption | ⚠️ Partially Complete |
+| **Secrets Management** | Windows Credential Manager with DPAPI encryption | ✅ Complete |
 | **Command Allowlist** | Hardcoded allowlist/blocklist in `CommandPolicy` | ✅ Complete |
 | **Path Validation** | Canonical path resolution + project root sandboxing | ✅ Complete |
 | **Process Sandboxing** | Windows Job Objects (256MB memory, 30s CPU limits) | ✅ Complete |
