@@ -80,7 +80,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 | # | Issue | Type | Status | Date Completed |
 |---|---|---|---|---|
 | v0.2.0-1 | Documentation foundation for v0.2.0 dynamic directory scoping | Docs | 🟢 Complete | 2026-02-12 |
-| v0.2.0-2 | CI/CD branch targets for feature/v0.2.0/** branches | CI | 🔴 Not Started | — |
+| v0.2.0-2 | CI/CD branch targets for feature/v0.2.0/** branches | CI | 🟢 Complete | 2026-02-12 |
 | v0.2.0-3 | Path hardening (PathResolver with symlink/ADS/device name handling) | Security | 🔴 Not Started | — |
 | v0.2.0-4 | Core abstractions (IAccessPolicyEngine, AccessLevel, models in Core) | Architecture | 🔴 Not Started | — |
 | v0.2.0-5 | Layered policy engine (LayeredAccessPolicyEngine with 4 layers in Tools) | Security | 🔴 Not Started | — |
