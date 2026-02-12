@@ -17,9 +17,7 @@ public sealed class GlobPatternValidatorTests
     public GlobPatternValidatorTests()
     {
         // Use a ceiling directory that actually exists on the system
-        _ceilingDirectory = OperatingSystem.IsWindows()
-            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        _ceilingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         // Create validator without logger for most tests
         _validator = new GlobPatternValidator();

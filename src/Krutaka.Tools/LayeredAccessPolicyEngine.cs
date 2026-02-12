@@ -1,6 +1,5 @@
 using System.Security;
 using Krutaka.Core;
-using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace Krutaka.Tools;
 
@@ -193,7 +192,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
     /// <summary>
     /// Layer 2: Configurable Allow List - Glob pattern matching for auto-grant.
     /// Returns granted decision if pattern matches, null if no match.
-    /// Uses Microsoft.Extensions.FileSystemGlobbing for pattern matching.
+    /// Uses custom glob matching with case-insensitive comparison on Windows.
     /// </summary>
     private AccessDecision? EvaluateLayer2ConfigurableAllow(string canonicalPath, AccessLevel requestedLevel)
     {
@@ -202,34 +201,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
             return null; // No patterns configured
         }
 
-        // Use FileSystemGlobbing for sophisticated pattern matching
-        var matcher = new Matcher(StringComparison.OrdinalIgnoreCase);
-        foreach (var pattern in _autoGrantPatterns)
-        {
-            if (string.IsNullOrWhiteSpace(pattern))
-            {
-                continue;
-            }
-
-            // Convert the pattern to be relative for the matcher
-            // The matcher works with relative paths, but we have absolute paths
-            // So we need to match against the canonical path
-            matcher.AddInclude(pattern);
-        }
-
-        // For FileSystemGlobbing to work, we need to provide a base directory
-        // Since our patterns are absolute, we'll match against the path itself
-        // by treating the root as the base
-        var pathRoot = Path.GetPathRoot(canonicalPath);
-        if (string.IsNullOrEmpty(pathRoot))
-        {
-            return null; // Cannot determine path root
-        }
-
-        // Get the relative path from the root
-        var relativePath = Path.GetRelativePath(pathRoot, canonicalPath);
-        
-        // Check each pattern individually for debugging clarity
+        // Check each pattern for a match
         foreach (var pattern in _autoGrantPatterns)
         {
             if (string.IsNullOrWhiteSpace(pattern))
