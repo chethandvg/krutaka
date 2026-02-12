@@ -392,7 +392,9 @@ public sealed class AgentOrchestrator : IDisposable
                     // Access was approved - grant it via session store
                     try
                     {
-                        TimeSpan? ttl = approvalResult.CreateSessionGrant ? TimeSpan.FromHours(1) : null;
+                        // Create a temporary grant for the retry
+                        // For session grants, use 1-hour TTL; for single operations, use short TTL and revoke after
+                        TimeSpan ttl = approvalResult.CreateSessionGrant ? TimeSpan.FromHours(1) : TimeSpan.FromSeconds(30);
                         await _sessionAccessStore.GrantAccessAsync(
                             dirAccessException.Path,
                             approvalResult.GrantedLevel.Value,
@@ -401,8 +403,19 @@ public sealed class AgentOrchestrator : IDisposable
                             GrantSource.User,
                             cancellationToken).ConfigureAwait(false);
 
-                        // Retry the tool execution now that access is granted
-                        toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                        try
+                        {
+                            // Retry the tool execution now that access is granted
+                            toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            // If this was a single-operation approval, revoke the grant immediately after execution
+                            if (!approvalResult.CreateSessionGrant)
+                            {
+                                await _sessionAccessStore.RevokeAccessAsync(dirAccessException.Path, cancellationToken).ConfigureAwait(false);
+                            }
+                        }
                     }
 #pragma warning disable CA1031 // Catching Exception is appropriate here to handle any grant or retry failure
                     catch (Exception grantEx)

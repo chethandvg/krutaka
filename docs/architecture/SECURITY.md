@@ -225,20 +225,21 @@ When user denies a tool call:
 
 ✅ **Complete** (Issue v0.2.0-9 — 2026-02-12)
 - ✅ `DirectoryAccessRequested` event class added to `src/Krutaka.Core/AgentEvent.cs`
-- ✅ `ApprovalHandler.HandleDirectoryAccessAsync()` method for interactive directory access prompts
+- ✅ `ApprovalHandler.HandleDirectoryAccess()` method for interactive directory access prompts
 - ✅ `AgentOrchestrator` integration: catches `DirectoryAccessRequiredException` from tools and yields `DirectoryAccessRequested` event
-- ✅ On approval: creates `SessionAccessGrant` via `ISessionAccessStore` so user isn't prompted again for the same path
+- ✅ On approval: creates `SessionAccessGrant` via `ISessionAccessStore` (for session grants) so user isn't prompted again for the same path
 - ✅ On denial: returns descriptive error message to Claude
 - ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/ApprovalHandlerTests.cs` (16 tests total)
 
 **Approval Flow:**
 1. Tool evaluates directory access via `IAccessPolicyEngine.EvaluateAsync()`
-2. If outcome is `RequiresApproval`, tool throws `DirectoryAccessRequiredException`
+2. If outcome is `RequiresApproval`, tool throws `DirectoryAccessRequiredException` with canonical scoped path
 3. `AgentOrchestrator` catches the exception and yields `DirectoryAccessRequested` event
 4. Orchestrator blocks (via `TaskCompletionSource`) until user responds
-5. ConsoleUI calls `orchestrator.ApproveDirectoryAccess()` or `orchestrator.DenyDirectoryAccess()`
-6. On approval: orchestrator creates session grant and retries tool execution
-7. On denial: orchestrator returns error to Claude
+5. **Note:** ConsoleUI does not yet handle `DirectoryAccessRequested` in v0.2.0-9; full integration pending in v0.2.0-10
+6. On approval: orchestrator creates temporary grant (30s TTL for single ops, 1h for session grants) and retries tool execution
+7. For single-operation approvals, grant is revoked immediately after tool execution completes
+8. On denial: orchestrator returns error to Claude
 
 **Interactive Prompt Format:**
 ```

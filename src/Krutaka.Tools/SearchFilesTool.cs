@@ -124,7 +124,8 @@ public class SearchFilesTool : ToolBase
                 if (decision.Outcome == AccessOutcome.RequiresApproval)
                 {
                     // Throw exception to trigger interactive approval flow in AgentOrchestrator
-                    throw new DirectoryAccessRequiredException(path, AccessLevel.ReadOnly, $"Searching files in: {path}");
+                    // Use canonical scoped path so orchestrator grant matches session store lookup
+                    throw new DirectoryAccessRequiredException(decision.ScopedPath!, AccessLevel.ReadOnly, $"Searching files in: {path}");
                 }
 
                 // Use the granted scoped path as the validation root

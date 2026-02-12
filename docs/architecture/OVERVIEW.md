@@ -520,7 +520,7 @@ The `ConsoleUI` class provides the main console interface with the following fea
   - `TextDelta`: Raw console write for streaming
   - `ToolCallStarted/Completed/Failed`: Status indicators
   - `HumanApprovalRequired`: Triggers approval handler (Issue #15)
-  - `DirectoryAccessRequested`: Triggers directory access approval handler (v0.2.0-9)
+  - `DirectoryAccessRequested`: Not yet implemented in ConsoleUI (v0.2.0-9); orchestrator will block if raised
   - `FinalResponse`: Re-renders content with Markdown formatting
 
 **MarkdownRenderer Implementation Details:**

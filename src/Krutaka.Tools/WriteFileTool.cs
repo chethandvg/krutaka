@@ -102,7 +102,8 @@ public class WriteFileTool : ToolBase
                 if (decision.Outcome == AccessOutcome.RequiresApproval)
                 {
                     // Throw exception to trigger interactive approval flow in AgentOrchestrator
-                    throw new DirectoryAccessRequiredException(fileDirectory, AccessLevel.ReadWrite, $"Writing file: {path}");
+                    // Use canonical scoped path so orchestrator grant matches session store lookup
+                    throw new DirectoryAccessRequiredException(decision.ScopedPath!, AccessLevel.ReadWrite, $"Writing file: {path}");
                 }
 
                 // Use the granted scoped path as the validation root
