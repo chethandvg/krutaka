@@ -98,7 +98,8 @@ public class ListFilesTool : ToolBase
 
                 if (decision.Outcome == AccessOutcome.RequiresApproval)
                 {
-                    return $"Error: Access to directory '{path}' requires approval. This functionality will be available in v0.2.0-9.";
+                    // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                    throw new DirectoryAccessRequiredException(path, AccessLevel.ReadOnly, $"Listing files in: {path}");
                 }
 
                 // Use the granted scoped path as the validation root
