@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 configurable command tier overrides — Issue v0.3.0-3 complete — 1,083 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 configurable command tier overrides — Issue v0.3.0-3 complete — 1,087 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -190,7 +190,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - ArgumentNullException tests: 2 tests
   - All 22 tests passing
 - **Build:** Zero warnings, zero errors
-- **Total tests:** 1,083 (was 1,061, +22 new tests)
+- **Total tests:** 1,087 (was 1,065, +22 new tests)
 - **Security:**
   - Blocklisted commands immutable via config (ADR-012 enforcement)
   - Startup validation prevents tampered configurations from starting application
