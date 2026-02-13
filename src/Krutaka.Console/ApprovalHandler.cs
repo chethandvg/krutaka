@@ -354,8 +354,8 @@ internal sealed class ApprovalHandler
                     .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No)
                     .UseConverter(choice => choice switch
                     {
-                        ApprovalChoice.Yes => "[green][Y]es - Execute this command[/]",
-                        ApprovalChoice.No => "[red][N]o - Deny this command[/]",
+                        ApprovalChoice.Yes => "[green][[Y]]es - Execute this command[/]",
+                        ApprovalChoice.No => "[red][[N]]o - Deny this command[/]",
                         _ => choice.ToString()
                     }));
 
@@ -380,10 +380,10 @@ internal sealed class ApprovalHandler
                             .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always, ApprovalChoice.View)
                             .UseConverter(c => c switch
                             {
-                                ApprovalChoice.Yes => "[green][Y]es - Write this file[/]",
-                                ApprovalChoice.No => "[red][N]o - Deny this operation[/]",
-                                ApprovalChoice.Always => "[yellow][A]lways - Approve all write_file operations this session[/]",
-                                ApprovalChoice.View => "[cyan][V]iew - View full content[/]",
+                                ApprovalChoice.Yes => "[green][[Y]]es - Write this file[/]",
+                                ApprovalChoice.No => "[red][[N]]o - Deny this operation[/]",
+                                ApprovalChoice.Always => "[yellow][[A]]lways - Approve all write_file operations this session[/]",
+                                ApprovalChoice.View => "[cyan][[V]]iew - View full content[/]",
                                 _ => c.ToString()
                             }));
 
@@ -413,9 +413,9 @@ internal sealed class ApprovalHandler
                 .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always)
                 .UseConverter(c => c switch
                 {
-                    ApprovalChoice.Yes => "[green][Y]es - Approve this operation[/]",
-                    ApprovalChoice.No => "[red][N]o - Deny this operation[/]",
-                    ApprovalChoice.Always => "[yellow][A]lways - Approve all operations of this type this session[/]",
+                    ApprovalChoice.Yes => "[green][[Y]]es - Approve this operation[/]",
+                    ApprovalChoice.No => "[red][[N]]o - Deny this operation[/]",
+                    ApprovalChoice.Always => "[yellow][[A]]lways - Approve all operations of this type this session[/]",
                     _ => c.ToString()
                 }));
 
@@ -511,10 +511,10 @@ internal sealed class ApprovalHandler
                 .AddChoices("Y", "R", "N", "S")
                 .UseConverter(c => c switch
                 {
-                    "Y" => $"[green][Y]es - Allow at {requestedLevel} level[/]",
-                    "R" => "[yellow][R]ead-only - Downgrade to ReadOnly access[/]",
-                    "N" => "[red][N]o - Deny access[/]",
-                    "S" => "[cyan][S]ession - Allow for entire session[/]",
+                    "Y" => $"[green][[Y]]es - Allow at {Markup.Escape(requestedLevel.ToString())} level[/]",
+                    "R" => "[yellow][[R]]ead-only - Downgrade to ReadOnly access[/]",
+                    "N" => "[red][[N]]o - Deny access[/]",
+                    "S" => "[cyan][[S]]ession - Allow for entire session[/]",
                     _ => c
                 }));
 
