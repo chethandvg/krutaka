@@ -9,11 +9,11 @@ namespace Krutaka.Tools.Tests;
 /// or malicious glob patterns that would grant excessive directory access.
 /// These tests verify that dangerous patterns are rejected at startup.
 /// </summary>
-public sealed class GlobPatternValidatorTests_Adversarial
+public sealed class GlobPatternAdversarialTests
 {
     private readonly GlobPatternValidator _validator;
 
-    public GlobPatternValidatorTests_Adversarial()
+    public GlobPatternAdversarialTests()
     {
         _validator = new GlobPatternValidator(NullLogger<GlobPatternValidator>.Instance);
     }

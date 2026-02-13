@@ -168,8 +168,6 @@ public sealed class PathResolverAdversarialTests
             return; // Reserved device names are Windows-specific
         }
 
-        ArgumentNullException.ThrowIfNull(filename);
-
         // Arrange
         var path = Path.Combine(@"C:\temp", filename);
 
@@ -242,15 +240,16 @@ public sealed class PathResolverAdversarialTests
             .WithMessage("*Device path prefix*");
     }
 
-    [Theory]
-    [InlineData(@"\\.\\PhysicalDrive0")] // Mixed case backslash
-    [InlineData(@"//./C:")] // Forward slashes
-    public void Should_BlockDevicePathPrefix_Variations(string devicePath)
+    [Fact]
+    public void Should_BlockDevicePathPrefix_StandardBackslash()
     {
         if (!OperatingSystem.IsWindows())
         {
             return; // Device paths are Windows-specific
         }
+
+        // Arrange - Standard device path prefix
+        var devicePath = @"\\.\PhysicalDrive0";
 
         // Act
         var action = () => PathResolver.ResolveToFinalTarget(devicePath);

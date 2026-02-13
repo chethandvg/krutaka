@@ -46,6 +46,11 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
     [Fact]
     public async Task Should_DenySystemDirectory_DespitePersuasiveJustification()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows
+        }
+
         // Arrange
         var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], null);
         var request = new DirectoryAccessRequest(
@@ -66,6 +71,11 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
     [Fact]
     public async Task Should_DenyProgramFiles_WithAnyJustification()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows
+        }
+
         // Arrange
         var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], null);
         var request = new DirectoryAccessRequest(
@@ -314,7 +324,7 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
         var decision = await engine.EvaluateAsync(request, CancellationToken.None);
 
         // Assert - should require approval (not in auto-grant patterns) but not denied
-        decision.Outcome.Should().BeOneOf(AccessOutcome.RequiresApproval);
+        decision.Outcome.Should().Be(AccessOutcome.RequiresApproval);
         decision.Granted.Should().BeFalse(); // Not auto-granted, requires approval
     }
 
@@ -347,7 +357,6 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
     {
         // Arrange
         using var store = new InMemorySessionAccessStore(maxConcurrentGrants: 3);
-        var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], store);
 
         // Grant 3 different directories (max)
         await store.GrantAccessAsync(
@@ -391,7 +400,6 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
     {
         // Arrange
         using var store = new InMemorySessionAccessStore(maxConcurrentGrants: 5);
-        var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], store);
 
         // Act - try to rapidly grant many directories
         var successCount = 0;
