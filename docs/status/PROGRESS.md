@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 configurable command tier overrides — Issue v0.3.0-3 complete — 1,087 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 configurable command tier overrides — Issue v0.3.0-3 complete — 1,090 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -185,19 +185,23 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - Path separator validation: 3 tests (Windows paths, Unix paths, relative paths)
   - Shell metacharacter validation: 3 tests (executable metacharacters, argument patterns, multiple patterns)
   - Empty/null/whitespace validation: 4 tests (empty executable, whitespace executable, empty argument, whitespace argument)
+  - Empty array warning: 1 test
+  - Executable .exe suffix validation: 2 tests
   - Null argument pattern warnings: 1 test
   - Multiple errors handling: 1 test
   - ArgumentNullException tests: 2 tests
-  - All 22 tests passing
+  - All 25 tests passing
 - **Build:** Zero warnings, zero errors
-- **Total tests:** 1,087 (was 1,065, +22 new tests)
+- **Total tests:** 1,090 (was 1,065, +25 new tests)
 - **Security:**
   - Blocklisted commands immutable via config (ADR-012 enforcement)
+  - **CRITICAL FIX**: .exe suffix validation prevents blocklist bypass (e.g., powershell.exe bypassing powershell)
   - Startup validation prevents tampered configurations from starting application
   - Shell metacharacter detection prevents injection attacks
   - Path separator detection prevents arbitrary binary execution
   - Configuration is code-side, not AI-determined (threat T4 mitigated per v0.3.0 spec)
   - Fail-fast design: invalid configs block startup immediately with descriptive errors
+  - Configuration properly nested under ToolOptions for correct binding
 
 **Issue v0.3.0-2 Details:**
 - **Created:** `CommandRiskClassifier` in `src/Krutaka.Tools/CommandRiskClassifier.cs`:
