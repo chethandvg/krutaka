@@ -472,6 +472,17 @@ try
                         orchestrator.DenyTool(toolUseId);
                     }
                 },
+                onDirectoryAccessDecision: (approved, grantedLevel, createSessionGrant) =>
+                {
+                    if (approved && grantedLevel.HasValue)
+                    {
+                        orchestrator.ApproveDirectoryAccess(grantedLevel.Value, createSessionGrant);
+                    }
+                    else
+                    {
+                        orchestrator.DenyDirectoryAccess();
+                    }
+                },
                 cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
 
             AnsiConsole.WriteLine();

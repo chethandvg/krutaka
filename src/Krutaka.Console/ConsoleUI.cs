@@ -82,10 +82,13 @@ internal sealed class ConsoleUI : IDisposable
     /// <param name="events">The stream of agent events.</param>
     /// <param name="onApprovalDecision">Optional callback invoked when a human approval decision is made. 
     /// Parameters: toolUseId, approved, alwaysApprove.</param>
+    /// <param name="onDirectoryAccessDecision">Optional callback invoked when a directory access decision is made.
+    /// Parameters: approved, grantedLevel, createSessionGrant.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DisplayStreamingResponseAsync(
         IAsyncEnumerable<AgentEvent> events,
         Action<string, bool, bool>? onApprovalDecision = null,
+        Action<bool, AccessLevel?, bool>? onDirectoryAccessDecision = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -173,6 +176,27 @@ internal sealed class ConsoleUI : IDisposable
                                 _markdownRenderer.Render(final.Content);
                             }
 
+                            break;
+
+                        case DirectoryAccessRequested dirAccess:
+                            if (!firstToken)
+                            {
+                                AnsiConsole.WriteLine();
+                            }
+
+                            // Display directory access prompt and get the user's decision
+                            var dirDecision = _approvalHandler.HandleDirectoryAccess(
+                                dirAccess.Path,
+                                dirAccess.AccessLevel,
+                                dirAccess.Justification);
+
+                            // Notify the orchestrator of the directory access decision
+                            onDirectoryAccessDecision?.Invoke(
+                                dirDecision.Approved,
+                                dirDecision.GrantedLevel,
+                                dirDecision.SessionGrant);
+
+                            firstToken = false;
                             break;
                     }
                 }
