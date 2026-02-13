@@ -165,6 +165,11 @@ public class WriteFileTool : ToolBase
 
             return $"Successfully wrote file: '{path}' ({content.Length} characters)";
         }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
         catch (SecurityException ex)
         {
             return $"Error: Security validation failed - {ex.Message}";

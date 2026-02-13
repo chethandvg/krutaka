@@ -180,6 +180,11 @@ public class ListFilesTool : ToolBase
             var wrappedPayload = $"<untrusted_content>\n{listPayload}\n</untrusted_content>";
             return wrappedPayload;
         }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
         catch (SecurityException ex)
         {
             return $"Error: Security validation failed - {ex.Message}";

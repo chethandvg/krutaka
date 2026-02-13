@@ -285,6 +285,11 @@ public class EditFileTool : ToolBase
 
             return $"Successfully edited file: '{path}'\n\nDiff:\n<untrusted_content>\n{diff}</untrusted_content>";
         }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
         catch (SecurityException ex)
         {
             return $"Error: Security validation failed - {ex.Message}";

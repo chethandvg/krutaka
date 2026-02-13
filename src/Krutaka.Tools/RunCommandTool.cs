@@ -239,6 +239,11 @@ public class RunCommandTool : ToolBase
                 return "Error: Command execution was cancelled";
             }
         }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
         catch (SecurityException ex)
         {
             return $"Error: Security validation failed - {ex.Message}";
