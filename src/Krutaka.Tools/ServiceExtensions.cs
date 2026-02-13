@@ -68,6 +68,10 @@ public static class ServiceExtensions
         // Register options as singleton
         services.AddSingleton(options);
 
+        // Register command approval cache (singleton - v0.3.0)
+        // This is shared between AgentOrchestrator and RunCommandTool to track approved commands during retry
+        services.AddSingleton<ICommandApprovalCache, CommandApprovalCache>();
+
         // Register file operations service (singleton - will be resolved with IAuditLogger if available)
         services.AddSingleton<IFileOperations>(sp =>
         {
@@ -169,7 +173,8 @@ public static class ServiceExtensions
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
             var policyEngine = sp.GetService<IAccessPolicyEngine>();
             var commandPolicy = sp.GetRequiredService<ICommandPolicy>();
-            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy);
+            var approvalCache = sp.GetRequiredService<ICommandApprovalCache>();
+            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy, approvalCache);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools

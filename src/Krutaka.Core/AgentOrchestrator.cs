@@ -27,6 +27,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly List<object> _conversationHistory;
     private readonly object _conversationHistoryLock = new(); // Protects conversation history for thread-safe access
     private readonly ConcurrentDictionary<string, bool> _approvalCache; // Tracks approved tools for session (thread-safe)
+    private readonly ICommandApprovalCache? _commandApprovalCache; // Tracks approved command signatures (v0.3.0, injected from DI)
     private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
@@ -49,6 +50,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
     /// <param name="contextCompactor">Optional context compactor for automatic context window management.</param>
+    /// <param name="commandApprovalCache">Optional command approval cache for graduated command execution (v0.3.0).</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
@@ -59,7 +61,8 @@ public sealed class AgentOrchestrator : IDisposable
         ISessionAccessStore? sessionAccessStore = null,
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null,
-        ContextCompactor? contextCompactor = null)
+        ContextCompactor? contextCompactor = null,
+        ICommandApprovalCache? commandApprovalCache = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
@@ -67,6 +70,7 @@ public sealed class AgentOrchestrator : IDisposable
         _sessionAccessStore = sessionAccessStore;
         _auditLogger = auditLogger;
         _correlationContext = correlationContext;
+        _commandApprovalCache = commandApprovalCache;
         _contextCompactor = contextCompactor;
         _maxToolResultCharacters = maxToolResultCharacters > 0 ? maxToolResultCharacters : DefaultMaxToolResultCharacters;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
@@ -361,6 +365,16 @@ public sealed class AgentOrchestrator : IDisposable
             // Signal the pending command approval as denied
             _pendingCommandApproval.TrySetResult(false);
         }
+    }
+
+    /// <summary>
+    /// Builds a command signature for approval cache lookup.
+    /// Format: "executable arg1 arg2 arg3..."
+    /// </summary>
+    private static string BuildCommandSignature(CommandExecutionRequest request)
+    {
+        var args = string.Join(" ", request.Arguments);
+        return string.IsNullOrEmpty(args) ? request.Executable : $"{request.Executable} {args}";
     }
 
     /// <summary>
@@ -708,15 +722,25 @@ public sealed class AgentOrchestrator : IDisposable
                         continue;
                     }
 
-                    // Command was approved - retry execution
+                    // Command was approved - add to approval cache before retry (if cache is available)
+                    var commandSignature = BuildCommandSignature(cmdApprovalException.Request);
+                    _commandApprovalCache?.AddApproval(commandSignature, TimeSpan.FromSeconds(30)); // Short TTL for single execution
+
+                    // Retry execution
                     try
                     {
                         toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                        
+                        // Remove approval from cache after successful execution
+                        _commandApprovalCache?.RemoveApproval(commandSignature);
                     }
 #pragma warning disable CA1031 // Catching Exception is appropriate here to handle any retry failure
                     catch (Exception retryEx)
 #pragma warning restore CA1031
                     {
+                        // Remove approval from cache even on failure
+                        _commandApprovalCache?.RemoveApproval(commandSignature);
+                        
                         // Failed to retry execution - set error result
                         toolResult = new ToolResult($"Failed to execute command after approval: {retryEx.Message}", IsError: true);
                     }
@@ -998,6 +1022,11 @@ public sealed class AgentOrchestrator : IDisposable
         catch (DirectoryAccessRequiredException)
         {
             // Directory access requires approval - rethrow to let the agentic loop handle it
+            throw;
+        }
+        catch (CommandApprovalRequiredException)
+        {
+            // Command execution requires approval - rethrow to let the agentic loop handle it
             throw;
         }
         catch (Exception ex)

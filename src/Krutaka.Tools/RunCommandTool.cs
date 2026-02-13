@@ -25,6 +25,7 @@ public class RunCommandTool : ToolBase
     private readonly int _commandTimeoutSeconds;
     private readonly IAccessPolicyEngine? _policyEngine;
     private readonly ICommandPolicy _commandPolicy;
+    private readonly ICommandApprovalCache? _approvalCache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RunCommandTool"/> class.
@@ -34,15 +35,18 @@ public class RunCommandTool : ToolBase
     /// <param name="commandTimeoutSeconds">Timeout in seconds for command execution (default: 30).</param>
     /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
     /// <param name="commandPolicy">The command policy for graduated approval decisions (v0.3.0).</param>
-    public RunCommandTool(string defaultRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30, IAccessPolicyEngine? policyEngine = null, ICommandPolicy? commandPolicy = null)
+    /// <param name="approvalCache">The command approval cache for checking pre-approved commands (v0.3.0). If null, all commands requiring approval will throw exception.</param>
+    public RunCommandTool(string defaultRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30, IAccessPolicyEngine? policyEngine = null, ICommandPolicy commandPolicy = null!, ICommandApprovalCache? approvalCache = null)
     {
         ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(securityPolicy);
+        ArgumentNullException.ThrowIfNull(commandPolicy);
         _defaultRoot = defaultRoot;
         _securityPolicy = securityPolicy;
         _commandTimeoutSeconds = commandTimeoutSeconds > 0 ? commandTimeoutSeconds : 30;
         _policyEngine = policyEngine;
-        _commandPolicy = commandPolicy ?? throw new ArgumentNullException(nameof(commandPolicy));
+        _commandPolicy = commandPolicy;
+        _approvalCache = approvalCache;
     }
 
     /// <inheritdoc/>
@@ -154,35 +158,42 @@ public class RunCommandTool : ToolBase
                 Justification: $"AI agent request: {executable} {string.Join(" ", arguments)}"
             );
 
-            // Evaluate command through graduated policy
+            // Check if this command was recently approved (retry after user approval)
+            var commandSignature = BuildCommandSignature(commandRequest);
+            var wasPreApproved = _approvalCache?.IsApproved(commandSignature) ?? false;
+
+            // Evaluate command through graduated policy (unless pre-approved)
             // This internally calls ISecurityPolicy.ValidateCommand() for security pre-check,
             // then classifies the command risk tier and determines approval requirements
             CommandDecision commandDecision;
-            try
+            if (!wasPreApproved)
             {
-                commandDecision = await _commandPolicy.EvaluateAsync(commandRequest, cancellationToken).ConfigureAwait(false);
-            }
-            catch (SecurityException ex)
-            {
-                // Security pre-check failed (blocklist, metacharacters, etc.)
-                return $"Error: Command validation failed - {ex.Message}";
+                try
+                {
+                    commandDecision = await _commandPolicy.EvaluateAsync(commandRequest, cancellationToken).ConfigureAwait(false);
+                }
+                catch (SecurityException ex)
+                {
+                    // Security pre-check failed (blocklist, metacharacters, etc.)
+                    return $"Error: Command validation failed - {ex.Message}";
+                }
+
+                // Handle policy decision
+                if (commandDecision.IsDenied)
+                {
+                    // Command is denied (Dangerous tier or directory access denied)
+                    return $"Error: Command denied - {commandDecision.Reason}";
+                }
+
+                if (commandDecision.RequiresApproval)
+                {
+                    // Command requires human approval (Moderate in untrusted dir or Elevated tier)
+                    // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                    throw new CommandApprovalRequiredException(commandRequest, commandDecision);
+                }
             }
 
-            // Handle policy decision
-            if (commandDecision.IsDenied)
-            {
-                // Command is denied (Dangerous tier or directory access denied)
-                return $"Error: Command denied - {commandDecision.Reason}";
-            }
-
-            if (commandDecision.RequiresApproval)
-            {
-                // Command requires human approval (Moderate in untrusted dir or Elevated tier)
-                // Throw exception to trigger interactive approval flow in AgentOrchestrator
-                throw new CommandApprovalRequiredException(commandRequest, commandDecision);
-            }
-
-            // Command is approved for execution (Safe tier or Moderate in trusted dir)
+            // Command is approved for execution (Safe tier, Moderate in trusted dir, or pre-approved)
             // Continue with execution...
 
             // Scrub environment variables to remove secrets
@@ -300,6 +311,16 @@ public class RunCommandTool : ToolBase
             return $"Error: Unexpected error executing command - {ex.Message}";
         }
 #pragma warning restore CA1031
+    }
+
+    /// <summary>
+    /// Builds a command signature for approval cache lookup.
+    /// Format: "executable arg1 arg2 arg3..."
+    /// </summary>
+    private static string BuildCommandSignature(CommandExecutionRequest request)
+    {
+        var args = string.Join(" ", request.Arguments);
+        return string.IsNullOrEmpty(args) ? request.Executable : $"{request.Executable} {args}";
     }
 
     /// <summary>
