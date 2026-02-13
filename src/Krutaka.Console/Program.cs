@@ -258,6 +258,7 @@ try
         var correlationContext = sp.GetRequiredService<CorrelationContext>();
         var sessionAccessStore = sp.GetService<ISessionAccessStore>(); // Optional in v0.2.0
         var contextCompactor = sp.GetService<ContextCompactor>();
+        var commandApprovalCache = sp.GetRequiredService<ICommandApprovalCache>(); // v0.3.0
 
         return new AgentOrchestrator(
             claudeClient,
@@ -269,7 +270,8 @@ try
             sessionAccessStore,
             auditLogger,
             correlationContext,
-            contextCompactor);
+            contextCompactor,
+            commandApprovalCache);
     });
 
     // Register ApprovalHandler

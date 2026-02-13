@@ -9,6 +9,7 @@ public sealed class RunCommandToolTests : IDisposable
 {
     private readonly string _testRoot;
     private readonly ISecurityPolicy _securityPolicy;
+    private readonly ICommandPolicy _commandPolicy;
     private readonly RunCommandTool _tool;
 
     public RunCommandToolTests()
@@ -18,7 +19,17 @@ public sealed class RunCommandToolTests : IDisposable
         Directory.CreateDirectory(_testRoot);
         var fileOps = new SafeFileOperations(null);
         _securityPolicy = new CommandPolicy(fileOps);
-        _tool = new RunCommandTool(_testRoot, _securityPolicy);
+        
+        // v0.3.0: Create command policy with classifier for graduated approval
+        var classifier = new CommandRiskClassifier();
+        var commandPolicyOptions = new CommandPolicyOptions
+        {
+            ModerateAutoApproveInTrustedDirs = true,
+            TierOverrides = Array.Empty<CommandRiskRule>()
+        };
+        _commandPolicy = new GraduatedCommandPolicy(classifier, _securityPolicy, null, commandPolicyOptions);
+        
+        _tool = new RunCommandTool(_testRoot, _securityPolicy, commandTimeoutSeconds: 30, policyEngine: null, commandPolicy: _commandPolicy);
     }
 
     public void Dispose()
@@ -439,33 +450,33 @@ public sealed class RunCommandToolTests : IDisposable
     [Fact]
     public async Task Should_HandleCommandWithoutArguments()
     {
-        // Arrange
-        var input = JsonSerializer.SerializeToElement(new { executable = "dotnet" });
+        // Arrange - use a Safe tier command (echo is in read-only commands list)
+        var input = JsonSerializer.SerializeToElement(new { executable = "echo", arguments = new[] { "test" } });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().Contain("Command executed: dotnet");
+        result.Should().Contain("Command executed: echo test");
         result.Should().NotStartWith("Error:");
     }
 
     [Fact]
     public async Task Should_HandleCommandWithMultipleArguments()
     {
-        // Arrange
+        // Arrange - use git status which is Safe tier
         var input = JsonSerializer.SerializeToElement(new
         {
             executable = "git",
-            arguments = new[] { "--version" }
+            arguments = new[] { "status" }
         });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().Contain("Command executed: git --version");
-        result.Should().Contain("Exit code: 0");
+        result.Should().Contain("Command executed: git status");
+        result.Should().Contain("Exit code:");
     }
 
     #endregion

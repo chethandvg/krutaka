@@ -68,6 +68,10 @@ public static class ServiceExtensions
         // Register options as singleton
         services.AddSingleton(options);
 
+        // Register command approval cache (singleton - v0.3.0)
+        // This is shared between AgentOrchestrator and RunCommandTool to track approved commands during retry
+        services.AddSingleton<ICommandApprovalCache, CommandApprovalCache>();
+
         // Register file operations service (singleton - will be resolved with IAuditLogger if available)
         services.AddSingleton<IFileOperations>(sp =>
         {
@@ -101,6 +105,21 @@ public static class ServiceExtensions
                 options.CeilingDirectory,
                 options.AutoGrantPatterns,
                 sessionStore);
+        });
+
+        // Register command risk classifier (singleton - v0.3.0 graduated command execution)
+        services.AddSingleton<ICommandRiskClassifier>(sp =>
+        {
+            return new CommandRiskClassifier();
+        });
+
+        // Register graduated command policy (singleton - v0.3.0 graduated command execution)
+        services.AddSingleton<ICommandPolicy>(sp =>
+        {
+            var classifier = sp.GetRequiredService<ICommandRiskClassifier>();
+            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, options.CommandPolicy);
         });
 
         // Register tool registry (singleton - holds registered tools)
@@ -148,12 +167,14 @@ public static class ServiceExtensions
             return new EditFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
-        // Command execution tool (always requires approval)
+        // Command execution tool (v0.3.0: approval now determined by ICommandPolicy)
         services.AddSingleton<ITool>(sp =>
         {
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
             var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine);
+            var commandPolicy = sp.GetRequiredService<ICommandPolicy>();
+            var approvalCache = sp.GetRequiredService<ICommandApprovalCache>();
+            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy, approvalCache);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools

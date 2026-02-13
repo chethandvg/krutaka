@@ -263,7 +263,7 @@ Tool implementations with security policy enforcement.
 | `SearchFilesTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
 | `WriteFileTool` | High | Required | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
 | `EditFileTool` | High | Required | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
-| `RunCommandTool` | Critical | Always required | ✅ Fully Implemented (v0.2.0: Dynamic working directory resolution) |
+| `RunCommandTool` | Tiered | **[v0.3.0]** Tier-based approval | ✅ Fully Implemented (v0.3.0: Graduated command execution with ICommandPolicy) |
 | `MemoryStoreTool` | Medium | Auto-approve | ✅ Implemented |
 | `MemorySearchTool` | Low | Auto-approve | ✅ Implemented |
 | `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
@@ -284,14 +284,21 @@ Tool implementations with security policy enforcement.
 - **SearchFilesTool**: Grep-like text/regex search across files. Requests `AccessLevel.ReadOnly` for the search directory via policy engine. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
 - **WriteFileTool**: Creates or overwrites files with dynamic directory access evaluation. Requests `AccessLevel.ReadWrite` for the file's parent directory via policy engine. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
 - **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Requests `AccessLevel.ReadWrite` for the file's parent directory via policy engine. Creates backups before editing. Returns a diff showing changes. Requires human approval.
-- **RunCommandTool**: Executes shell commands with dynamic working directory resolution. Requests `AccessLevel.Execute` for the working directory via policy engine if specified. Full security controls and sandboxing:
-  - **Command validation**: Allowlist/blocklist enforcement, shell metacharacter detection
-  - **Environment scrubbing**: Removes sensitive variables (*_KEY, *_SECRET, *_TOKEN, ANTHROPIC_*, etc.)
-  - **Job Object sandboxing** (Windows only): 256 MB memory limit, 30-second CPU time limit, kill-on-job-close
-  - **Timeout enforcement**: Configurable via `ToolOptions.CommandTimeoutSeconds` (default: 30 seconds) via `CancellationTokenSource` (all platforms)
-  - **Implementation**: Uses CliWrap's `ExecuteAsync` (streaming API) with `PipeTarget.ToStringBuilder` to capture output while accessing ProcessId for Job Object assignment
-  - **Platform-aware**: Job Objects active on Windows, graceful fallback on other platforms
-  - **Requires human approval** for every invocation (no "Always allow" option)
+- **RunCommandTool**: **[v0.3.0]** Executes shell commands with graduated approval based on risk tiers. Uses `ICommandPolicy` for tier-based decision making:
+  - **Risk Tiers**: Safe (auto-approve), Moderate (context-dependent), Elevated (always prompt), Dangerous (always block)
+  - **Safe commands** (git status, dotnet --version, read-only tools): Execute without approval
+  - **Moderate commands** (git commit, dotnet build, npm run): Auto-approve in trusted directories, require approval elsewhere
+  - **Elevated commands** (git push, npm install, dotnet publish): Always require approval
+  - **Dangerous commands** (blocklisted, unknown): Always blocked with error message
+  - **Approval flow**: Commands requiring approval throw `CommandApprovalRequiredException`, caught by `AgentOrchestrator` to trigger UI prompt
+  - **Working directory**: Requests `AccessLevel.Execute` for the working directory via policy engine if specified
+  - **Security controls and sandboxing** (unchanged from v0.2.0):
+    - Command validation: Allowlist/blocklist enforcement, shell metacharacter detection (via `ISecurityPolicy`, called inside `ICommandPolicy`)
+    - Environment scrubbing: Removes sensitive variables (*_KEY, *_SECRET, *_TOKEN, ANTHROPIC_*, etc.)
+    - Job Object sandboxing (Windows only): 256 MB memory limit, 30-second CPU time limit, kill-on-job-close
+    - Timeout enforcement: Configurable via `ToolOptions.CommandTimeoutSeconds` (default: 30 seconds)
+    - Implementation: Uses CliWrap's `ExecuteAsync` (streaming API) with `PipeTarget.ToStringBuilder`
+    - Platform-aware: Job Objects active on Windows, graceful fallback on other platforms
   - Captures stdout/stderr with clear labeling and exit codes
 
 **Security Components (v0.2.0):**

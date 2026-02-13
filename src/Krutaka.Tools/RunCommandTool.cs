@@ -10,7 +10,11 @@ namespace Krutaka.Tools;
 
 /// <summary>
 /// Tool for executing shell commands with full sandboxing and security controls.
-/// Requires human approval for every execution.
+/// In v0.3.0, uses ICommandPolicy for graduated approval based on risk tiers:
+/// - Safe commands (git status, dotnet --version) execute without approval
+/// - Moderate commands (git commit, dotnet build) auto-approve in trusted directories
+/// - Elevated commands (git push, npm install) always require approval
+/// - Dangerous commands are always blocked
 /// Commands are validated against allowlist, environment is scrubbed, and process is sandboxed with Job Objects.
 /// In v0.2.0, supports dynamic directory scoping via IAccessPolicyEngine.
 /// </summary>
@@ -20,6 +24,8 @@ public class RunCommandTool : ToolBase
     private readonly ISecurityPolicy _securityPolicy;
     private readonly int _commandTimeoutSeconds;
     private readonly IAccessPolicyEngine? _policyEngine;
+    private readonly ICommandPolicy _commandPolicy;
+    private readonly ICommandApprovalCache? _approvalCache;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RunCommandTool"/> class.
@@ -28,14 +34,19 @@ public class RunCommandTool : ToolBase
     /// <param name="securityPolicy">The security policy for command validation.</param>
     /// <param name="commandTimeoutSeconds">Timeout in seconds for command execution (default: 30).</param>
     /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
-    public RunCommandTool(string defaultRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30, IAccessPolicyEngine? policyEngine = null)
+    /// <param name="commandPolicy">The command policy for graduated approval decisions (v0.3.0).</param>
+    /// <param name="approvalCache">The command approval cache for checking pre-approved commands (v0.3.0). If null, all commands requiring approval will throw exception.</param>
+    public RunCommandTool(string defaultRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30, IAccessPolicyEngine? policyEngine = null, ICommandPolicy commandPolicy = null!, ICommandApprovalCache? approvalCache = null)
     {
         ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(securityPolicy);
+        ArgumentNullException.ThrowIfNull(commandPolicy);
         _defaultRoot = defaultRoot;
         _securityPolicy = securityPolicy;
         _commandTimeoutSeconds = commandTimeoutSeconds > 0 ? commandTimeoutSeconds : 30;
         _policyEngine = policyEngine;
+        _commandPolicy = commandPolicy;
+        _approvalCache = approvalCache;
     }
 
     /// <inheritdoc/>
@@ -45,9 +56,13 @@ public class RunCommandTool : ToolBase
     public override string Description => "Executes a shell command in a sandboxed environment with strict security controls. " +
         "Commands are validated against an allowlist (git, dotnet, npm, etc.) and blocklist (powershell, curl, etc.). " +
         "Shell metacharacters are blocked to prevent injection attacks. " +
+        "Commands are classified into risk tiers (Safe, Moderate, Elevated, Dangerous). " +
+        "Safe commands (git status, dotnet --version) execute automatically without approval. " +
+        "Moderate commands (git commit, dotnet build) auto-approve in trusted directories, require approval elsewhere. " +
+        "Elevated commands (git push, npm install) always require approval. " +
+        "Dangerous commands are blocked. " +
         "The process is sandboxed with memory (256MB) and CPU time (30s) limits. " +
         "Environment variables containing secrets are scrubbed before execution. " +
-        "This is a high-risk operation that requires human approval for every invocation. " +
         "Returns combined stdout and stderr output with clear labeling and the exit code.";
 
     /// <inheritdoc/>
@@ -134,15 +149,56 @@ public class RunCommandTool : ToolBase
                 workingDirectory = _defaultRoot;
             }
 
-            // Validate command against security policy (allowlist, blocklist, metacharacters)
-            try
+            // v0.3.0: Graduated command policy evaluation
+            // Build command execution request
+            var commandRequest = new CommandExecutionRequest(
+                Executable: executable,
+                Arguments: arguments,
+                WorkingDirectory: workingDirectory,
+                Justification: $"AI agent request: {executable} {string.Join(" ", arguments)}"
+            );
+
+            // Check if this command was recently approved (retry after user approval)
+            var wasPreApproved = false;
+            if (_approvalCache != null)
             {
-                _securityPolicy.ValidateCommand(executable, arguments);
+                var commandSignature = BuildCommandSignature(commandRequest);
+                wasPreApproved = _approvalCache.IsApproved(commandSignature);
             }
-            catch (SecurityException ex)
+
+            // Evaluate command through graduated policy (unless pre-approved)
+            // This internally calls ISecurityPolicy.ValidateCommand() for security pre-check,
+            // then classifies the command risk tier and determines approval requirements
+            if (!wasPreApproved)
             {
-                return $"Error: Command validation failed - {ex.Message}";
+                CommandDecision commandDecision;
+                try
+                {
+                    commandDecision = await _commandPolicy.EvaluateAsync(commandRequest, cancellationToken).ConfigureAwait(false);
+                }
+                catch (SecurityException ex)
+                {
+                    // Security pre-check failed (blocklist, metacharacters, etc.)
+                    return $"Error: Command validation failed - {ex.Message}";
+                }
+
+                // Handle policy decision
+                if (commandDecision.IsDenied)
+                {
+                    // Command is denied (Dangerous tier or directory access denied)
+                    return $"Error: Command denied - {commandDecision.Reason}";
+                }
+
+                if (commandDecision.RequiresApproval)
+                {
+                    // Command requires human approval (Moderate in untrusted dir or Elevated tier)
+                    // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                    throw new CommandApprovalRequiredException(commandRequest, commandDecision);
+                }
             }
+
+            // Command is approved for execution (Safe tier, Moderate in trusted dir, or pre-approved)
+            // Continue with execution...
 
             // Scrub environment variables to remove secrets
             var environment = Environment.GetEnvironmentVariables()
@@ -244,6 +300,11 @@ public class RunCommandTool : ToolBase
             // Must propagate to AgentOrchestrator for interactive approval flow
             throw;
         }
+        catch (CommandApprovalRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
         catch (SecurityException ex)
         {
             return $"Error: Security validation failed - {ex.Message}";
@@ -254,6 +315,17 @@ public class RunCommandTool : ToolBase
             return $"Error: Unexpected error executing command - {ex.Message}";
         }
 #pragma warning restore CA1031
+    }
+
+    /// <summary>
+    /// Builds a command signature for approval cache lookup.
+    /// Format: "executable arg1 arg2 arg3..."
+    /// NOTE: This method is also present in AgentOrchestrator.cs and must stay in sync.
+    /// </summary>
+    private static string BuildCommandSignature(CommandExecutionRequest request)
+    {
+        var args = string.Join(" ", request.Arguments);
+        return string.IsNullOrEmpty(args) ? request.Executable : $"{request.Executable} {args}";
     }
 
     /// <summary>
