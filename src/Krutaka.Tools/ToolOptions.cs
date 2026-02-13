@@ -56,4 +56,10 @@ public sealed class ToolOptions
     /// v0.2.0 Dynamic Directory Scoping feature.
     /// </summary>
     public int? DefaultGrantTtlMinutes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the command policy configuration for tier overrides.
+    /// v0.3.0 Graduated Command Execution feature.
+    /// </summary>
+    public CommandPolicyOptions CommandPolicy { get; set; } = new();
 }
