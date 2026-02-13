@@ -45,5 +45,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: krutaka-win-x64
-        path: ./publish/Krutaka.Console.exe
+        path: ./publish/
         retention-days: 90

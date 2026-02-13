@@ -163,16 +163,30 @@ public sealed class ContextCompactor
         IReadOnlyList<object> messages,
         CancellationToken cancellationToken)
     {
-        var summaryPrompt = @"Summarize the key points, decisions, and context from the provided conversation history. 
+        var summaryPrompt = @"Summarize the conversation with MAXIMUM DETAIL preservation. This summary will REPLACE the original messages, so every critical detail must be retained.
 
-Focus on preserving:
-1. **File paths** mentioned or modified
-2. **Action items** and tasks completed or pending
-3. **Technical decisions** made (architecture, design, implementation choices)
-4. **Error context** and debugging insights
-5. **Key outcomes** from tool executions
+CRITICAL — Preserve EXACT VALUES for:
+1. **File paths** — Include full absolute paths, not just directory names
+2. **Code snippets** — Preserve key function signatures, class names, variable names, and short code blocks
+3. **Technical decisions** — Include BOTH what was chosen AND what was rejected (and why)
+4. **Error messages** — Include exact error text, stack traces, and resolution steps
+5. **Tool execution results** — Preserve actual command output and outcomes, not just summaries
+6. **User corrections** — When the user said ""no, not that way"", preserve both the rejected and accepted versions
+7. **Configuration values** — Port numbers, env vars, connection strings, model names, thresholds
+8. **Action items** — Tasks completed and tasks still pending
 
-Provide a concise but comprehensive summary that captures all essential information needed to continue the conversation effectively.";
+Structure as:
+## Completed Work
+[detailed list with exact paths, commands, and outcomes]
+
+## Rejected Approaches
+[what was tried, what failed, and why — so these are not repeated]
+
+## Current State
+[files modified with paths, current values, pending tasks]
+
+## Key Decisions & User Preferences
+[explicit requirements, style choices, constraints, rejected alternatives]";
 
         // Create a single-turn conversation for summarization
         var summarizationMessages = new List<object>

@@ -15,15 +15,46 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
     private readonly string[] _autoGrantPatterns;
     private readonly ISessionAccessStore? _sessionStore;
 
-    // Blocked directories from SafeFileOperations (Layer 1 hard deny)
-    private static readonly string[] HardDenyDirectories =
-    [
-        "C:\\Windows",
-        "C:\\Program Files",
-        "C:\\Program Files (x86)",
-        "System32",
-        "SysWOW64"
-    ];
+    // Blocked directories resolved via environment variables (Layer 1 hard deny)
+    private static readonly string[] HardDenyDirectories = BuildHardDenyDirectories();
+
+    private static string[] BuildHardDenyDirectories()
+    {
+        var dirs = new List<string>();
+
+        // Resolve system directories via Environment instead of hardcoding drive letters
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        if (!string.IsNullOrEmpty(windowsDir))
+        {
+            dirs.Add(windowsDir);
+        }
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.IsNullOrEmpty(programFiles))
+        {
+            dirs.Add(programFiles);
+        }
+
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        if (!string.IsNullOrEmpty(programFilesX86) &&
+            !string.Equals(programFilesX86, programFiles, StringComparison.OrdinalIgnoreCase))
+        {
+            dirs.Add(programFilesX86);
+        }
+
+        // Component-only entries that match on any volume
+        dirs.Add("System32");
+        dirs.Add("SysWOW64");
+
+        // Audit log directory — prevent agent from tampering with logs
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(userProfile))
+        {
+            dirs.Add(Path.Combine(userProfile, ".krutaka", "logs"));
+        }
+
+        return [.. dirs];
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LayeredAccessPolicyEngine"/> class.

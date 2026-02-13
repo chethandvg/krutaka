@@ -117,4 +117,45 @@ public class CorrelationContextTests
         // Assert
         context.SessionId.Should().Be(sessionId);
     }
+
+    [Fact]
+    public void Should_ResetSession_WithNewSessionId()
+    {
+        // Arrange
+        var originalSessionId = Guid.NewGuid();
+        var context = new CorrelationContext(originalSessionId);
+        context.IncrementTurn();
+        context.IncrementTurn();
+        context.SetRequestId("req_123");
+
+        var newSessionId = Guid.NewGuid();
+
+        // Act
+        context.ResetSession(newSessionId);
+
+        // Assert
+        context.SessionId.Should().Be(newSessionId);
+        context.TurnId.Should().Be(0);
+        context.RequestId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_ResetSession_AndAllowNewTurns()
+    {
+        // Arrange
+        var context = new CorrelationContext(Guid.NewGuid());
+        context.IncrementTurn();
+        context.IncrementTurn();
+        context.IncrementTurn();
+
+        var newSessionId = Guid.NewGuid();
+
+        // Act
+        context.ResetSession(newSessionId);
+        context.IncrementTurn();
+
+        // Assert
+        context.SessionId.Should().Be(newSessionId);
+        context.TurnId.Should().Be(1);
+    }
 }
