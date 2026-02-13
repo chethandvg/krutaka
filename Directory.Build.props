@@ -1,5 +1,23 @@
 <Project>
   <PropertyGroup>
+  
+	<Version>0.2.0</Version>
+    <FileVersion>0.2.0.0</FileVersion>
+    <AssemblyVersion>0.2.0.0</AssemblyVersion>
+    
+    <!-- Common Metadata -->
+    <Authors>chethandvg</Authors>
+    <Company>Krutaka</Company>
+    <Product>Krutaka - AI Agent Framework</Product>
+    <Description>Open-source OpenClaw hardware control agent</Description>
+    <Copyright>Copyright © 2026 chethandvg</Copyright>
+    
+    <!-- Repository Info -->
+    <PackageProjectUrl>https://github.com/chethandvg/krutaka</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/chethandvg/krutaka</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+	
+	<!-- Build Settings -->
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

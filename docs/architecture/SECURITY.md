@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-10 (Issue #12 fully complete — RunCommandTool with full Job Object sandboxing)
+> **Last updated:** 2026-02-13 (v0.2.0 release documentation complete — all dynamic directory scoping security features implemented)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -9,10 +9,11 @@
 
 | Threat | OpenClaw CVE Parallel | Severity | Mitigation in Krutaka | Status |
 |---|---|---|---|---|
-| Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. | ⚠️ Partially Complete (Issue #7) |
+| Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. `ISecretsProvider` is the only API key source — no configuration/environment fallback. | ✅ Complete |
 | Remote Code Execution via tool abuse | CVE-2026-25253 — Arbitrary command execution through agent tools | Critical | Command allowlist in code. Human approval for all execute operations. Kill switch via CancellationToken. | ✅ Complete (Issue #9) |
 | Command injection | CVE-2026-25157 — SSH command injection | Critical | CliWrap with argument arrays (never string interpolation). Block shell metacharacters. | ✅ Complete (Issue #9) |
 | Path traversal / sandbox escape | CVE-2026-24763 — Docker sandbox escape via path manipulation | Critical | Path.GetFullPath() + StartsWith(projectRoot). Block system directories. Block sensitive files. | ✅ Complete (Issue #9) |
+| Audit log tampering | Agent tools modifying security audit trail | High | Audit log directory (`~/.krutaka/logs`) added to Layer 1 hard-deny list. Agent tools cannot read, write, or modify audit logs. | ✅ Complete |
 | Prompt injection via file contents | General agentic AI risk | High | Wrap untrusted content in `<untrusted_content>` XML tags. System prompt instructs model to treat tagged content as data only. | Not Started |
 | Supply chain (malicious skills) | OpenClaw ClawHub compromise | High | No remote skill marketplace. Local files only. | Not Started (by design) |
 | Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | Console app. No HTTP listener. No WebSocket. No network surface. Outbound HTTPS to api.anthropic.com only. | Mitigated (by design) |
@@ -22,13 +23,14 @@
 ## Secrets Management Rules
 
 ### Implementation Status
-⚠️ **Partially Complete** (Issue #7 — 2026-02-10)
+✅ **Complete**
 - ✅ `SecretsProvider` class implemented in `src/Krutaka.Console/SecretsProvider.cs`
 - ✅ `SetupWizard` class implemented in `src/Krutaka.Console/SetupWizard.cs`
 - ✅ `LogRedactionEnricher` implemented in `src/Krutaka.Console/Logging/LogRedactionEnricher.cs`
 - ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/LogRedactionEnricherTests.cs` (11 tests, all passing)
 - ✅ **Integrated**: Components wired into console application entry point (`Program.cs`)
 - ✅ **Message template redaction**: Adds `RedactedMessage` property when template text contains sensitive data
+- ✅ **No configuration fallback**: `ISecretsProvider` is the only API key source — fallback to `IConfiguration` or environment variables has been removed
 
 ### Storage
 - API keys are stored in **Windows Credential Manager** under `Krutaka_ApiKey` with `CredentialPersistence.LocalMachine`
@@ -101,15 +103,50 @@ Any command or argument containing these characters must be rejected:
 ## Path Validation Rules
 
 ### Implementation Status
-✅ **Complete** (Issue #9 — 2026-02-10)
+✅ **Complete** (Issue #9 — 2026-02-10, Enhanced with Issue v0.2.0-3 — 2026-02-12)
 - ✅ `SafeFileOperations` class implemented in `src/Krutaka.Tools/SafeFileOperations.cs`
+- ✅ `PathResolver` class implemented in `src/Krutaka.Tools/PathResolver.cs` (v0.2.0-3)
 - ✅ Comprehensive tests in `tests/Krutaka.Tools.Tests/SecurityPolicyTests.cs` (40 path validation tests)
+- ✅ Comprehensive tests in `tests/Krutaka.Tools.Tests/PathResolverTests.cs` (34 path hardening tests)
 - ✅ Path traversal attack vectors tested (10+ test cases)
+- ✅ Symlink escape attack vectors tested (v0.2.0-3)
 - ✅ Used by `CommandPolicy.ValidatePath()` via `ISecurityPolicy`
 
-### Canonicalization
-1. Resolve to absolute: `Path.GetFullPath(Path.Combine(projectRoot, relativePath))`
-2. Verify result starts with `projectRoot` (catches `../` traversal and symlink escapes)
+### Canonicalization and Symlink Resolution (v0.2.0-3 Enhancement)
+1. **Path canonicalization**: `Path.GetFullPath(Path.Combine(projectRoot, relativePath))`
+2. **Segment-by-segment symlink resolution**: `PathResolver.ResolveToFinalTarget()` walks each path component from root to leaf, resolving any symlinks, junctions, or reparse points encountered. This ensures intermediate directory links are resolved (e.g., if `link\file.txt` where `link` is a symlink directory, the link is resolved before validating the full path).
+3. **Non-existent path handling**: For paths that don't exist yet (e.g., new file creation), walks up the directory tree to find the nearest existing ancestor, resolves all symlinks in that ancestor's path, then reconstructs the full path by appending the remaining non-existent segments. This ensures that even new files created under symlinked directories are properly validated.
+4. **Circular symlink detection**: Tracks visited paths in a `HashSet<string>` to detect and reject circular symlink chains at each segment, preventing infinite loops
+5. **Containment check**: Verifies the fully-resolved path starts with `projectRoot` (catches `../` traversal and symlink escapes)
+
+**Security Enhancement**: In v0.1.0, a symlink at `C:\Projects\MyApp\link → C:\Windows\System32` would pass validation because `GetFullPath` only canonicalizes the link path itself, not the target. In v0.2.0, `PathResolver` walks each path segment and resolves `link` to `C:\Windows\System32` BEFORE the containment check, causing it to be correctly blocked.
+
+**Implementation Note**: The resolver uses `returnFinalTarget: false` with segment-by-segment resolution rather than `returnFinalTarget: true` to enable circular link detection at each step. This approach resolves intermediate directory symlinks that would otherwise be missed, while preventing cycles that could cause exceptions or infinite loops in the .NET runtime.
+
+
+### Blocked Path Patterns (v0.2.0-3 Enhancement)
+
+#### Alternate Data Streams (ADS)
+- Paths containing `:` after the drive letter position are blocked
+- Examples: `file.txt:hidden`, `document.doc:stream:$DATA`
+- Valid: `C:\path\file.txt` (drive letter colon is allowed)
+
+#### Reserved Device Names
+- Windows reserved device names are blocked in **any path segment** (case-insensitive)
+- Device names: `CON`, `PRN`, `AUX`, `NUL`
+- Serial ports: `COM1` through `COM9`
+- Parallel ports: `LPT1` through `LPT9`
+- Blocked with extensions: `CON.txt`, `NUL.dat`, etc.
+- Normalized before checking: trailing dots and spaces are trimmed (e.g., `CON.`, `CON ` are also blocked)
+- Examples of blocked paths:
+  - `C:\CON\file.txt` (CON in intermediate directory)
+  - `C:\safe\NUL\data.bin` (NUL in path segment)
+  - `C:\path\PRN.log` (PRN as filename)
+
+#### Device Path Prefixes
+- `\\.\` prefix (device namespace) is blocked
+- `\\?\` prefix (verbatim path) is blocked
+- Examples: `\\.\PhysicalDrive0`, `\\?\Volume{...}`
 
 ### Blocked Directories
 ```
@@ -137,10 +174,11 @@ known_hosts, authorized_keys
 - Oversize files return an error message, not the content
 
 ### Enforcement
-- `SafeFileOperations.ValidatePath()` validates BEFORE any file access
+- `SafeFileOperations.ValidatePath()` calls `PathResolver.ResolveToFinalTarget()` BEFORE containment check
+- Symlinks, junctions, and reparse points are resolved to their final target
 - Both read and write operations are validated
 - UNC paths (`\\server\share\...`) are blocked
-- Implemented in `Krutaka.Tools/SafeFileOperations.cs`
+- Implemented in `Krutaka.Tools/SafeFileOperations.cs` and `Krutaka.Tools/PathResolver.cs`
 
 ## Human-in-the-Loop Approval Matrix
 
@@ -184,6 +222,46 @@ For `run_command`, only `[Y]es` and `[N]o` are offered.
 When user denies a tool call:
 - Send a descriptive (non-error) message back to Claude: "The user denied execution of {tool_name} with reason: user chose not to allow this operation."
 - Claude can then adjust its approach.
+
+### Directory Access Approval (v0.2.0)
+
+✅ **Complete** (Issue v0.2.0-9 — 2026-02-12)
+- ✅ `DirectoryAccessRequested` event class added to `src/Krutaka.Core/AgentEvent.cs`
+- ✅ `ApprovalHandler.HandleDirectoryAccess()` method for interactive directory access prompts
+- ✅ `AgentOrchestrator` integration: catches `DirectoryAccessRequiredException` from tools and yields `DirectoryAccessRequested` event
+- ✅ On approval: creates `SessionAccessGrant` via `ISessionAccessStore` (for session grants) so user isn't prompted again for the same path
+- ✅ On denial: returns descriptive error message to Claude
+- ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/ApprovalHandlerTests.cs` (16 tests total)
+
+**Approval Flow:**
+1. Tool evaluates directory access via `IAccessPolicyEngine.EvaluateAsync()`
+2. If outcome is `RequiresApproval`, tool throws `DirectoryAccessRequiredException` with canonical scoped path
+3. `AgentOrchestrator` catches the exception and yields `DirectoryAccessRequested` event
+4. Orchestrator blocks (via `TaskCompletionSource`) until user responds
+5. **Note:** ConsoleUI does not yet handle `DirectoryAccessRequested` in v0.2.0-9; full integration pending in v0.2.0-10
+6. On approval: orchestrator creates temporary grant (30s TTL for single ops, 1h for session grants) and retries tool execution
+7. For single-operation approvals, grant is revoked immediately after tool execution completes
+8. On denial: orchestrator returns error to Claude
+
+**Interactive Prompt Format:**
+```
+🔐 Directory Access Request
+  Path: C:\projects\myapp
+  Requested Access Level: ReadWrite
+  Agent's Justification: Writing file: config.json
+
+  Allow directory access?
+  [Y]es - Allow at ReadWrite level
+  [R]ead-only - Downgrade to ReadOnly access
+  [N]o - Deny access
+  [S]ession - Allow for entire session
+```
+
+**Approval Options:**
+- **[Y]** Allow at requested level (single operation)
+- **[R]** Read-only (downgrade to ReadOnly, even if ReadWrite was requested)
+- **[N]** Deny access (tool fails with descriptive message)
+- **[S]** Session grant (creates TTL-bounded grant via `ISessionAccessStore`)
 
 ## Process Sandboxing
 
@@ -271,3 +349,224 @@ This enables:
 - Debugging failed API calls
 - Anthropic support ticket correlation
 - Audit trail for tool execution chains
+
+---
+
+## Dynamic Directory Access Policy (v0.2.0)
+
+> **Status:** ✅ **Complete** (All issues v0.2.0-1 through v0.2.0-11 complete — 2026-02-13)  
+> **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design and implementation details.
+
+### Overview
+
+v0.2.0 introduces a **four-layer access policy engine** that evaluates directory access requests at runtime. This replaces the static, single-directory `WorkingDirectory` configuration from v0.1.0 while preserving all existing security guarantees.
+
+**Implementation Status (All v0.2.0 issues complete — 2026-02-13):**
+- ✅ `IAccessPolicyEngine` interface in `Krutaka.Core` (Issue v0.2.0-4)
+- ✅ `ISessionAccessStore` interface in `Krutaka.Core` (Issue v0.2.0-4)
+- ✅ `LayeredAccessPolicyEngine` class in `Krutaka.Tools` implementing `IAccessPolicyEngine` (Issue v0.2.0-5)
+- ✅ `InMemorySessionAccessStore` in `Krutaka.Tools` with TTL, max grants, automatic pruning (Issue v0.2.0-6)
+- ✅ `GlobPatternValidator` with startup validation and abuse prevention (Issue v0.2.0-7)
+- ✅ All 6 tools refactored to use `IAccessPolicyEngine` (Issue v0.2.0-8)
+- ✅ `DirectoryAccessRequested` event + interactive approval UI (Issue v0.2.0-9)
+- ✅ 87 adversarial tests across 3 test classes (Issue v0.2.0-10)
+- ✅ All four policy layers implemented:
+  - **Layer 1 (Hard Deny):** Reuses `SafeFileOperations` blocked directories, AppData, `~/.krutaka`, UNC paths, ceiling enforcement, ADS blocking, device names
+  - **Layer 2 (Configurable Allow):** Glob pattern matching with `**` support for auto-grant, validated at startup
+  - **Layer 3 (Session Grants):** Checks `ISessionAccessStore` with TTL expiry, max concurrent grants, automatic pruning
+  - **Layer 4 (Heuristic Checks):** Cross-volume detection, path depth heuristics, returns `RequiresApproval` for user prompts
+- ✅ Deny short-circuiting: denials at Layer 1 cannot be overridden by Layer 2 or Layer 3
+- ✅ Decision caching: same canonical path returns cached decision within a single evaluation
+- ✅ Constructor: `IFileOperations`, ceiling directory, glob patterns, `ISessionAccessStore`
+- ✅ DI registration in `ServiceExtensions.AddAgentTools()`
+- ✅ Comprehensive test coverage: 24 tests in `AccessPolicyEngineTests.cs` + 87 adversarial tests
+- ✅ ToolOptions configuration: `CeilingDirectory`, `AutoGrantPatterns`, `MaxConcurrentGrants`, `DefaultGrantTtlMinutes`
+
+### Threat Model
+
+| # | Threat | Severity | Attack Vector | Mitigation | Layer |
+|---|--------|----------|---------------|------------|-------|
+| T1 | Agent social engineering | High | Agent crafts persuasive justification to access system dirs | Hard deny list is non-negotiable — no justification overrides Layer 1 | L1 |
+| T2 | Symlink escape | Critical | Create symlink in allowed dir pointing to blocked dir | `PathResolver` resolves all symlinks to final target before evaluation | L1 |
+| T3 | TOCTOU race | Medium | Path changes between validation and access | Resolve path at validation AND re-validate at access time | L1+Tool |
+| T4 | Session scope accumulation | Medium | Gradually request access to broad dirs over many turns | Max concurrent grants (10), TTL expiry, ceiling enforcement | L3 |
+| T5 | Path traversal via request | Critical | Request path with `..` segments to escape ceiling | `Path.GetFullPath()` canonicalization + ceiling check on resolved path | L1 |
+| T6 | Glob pattern abuse | High | Configure `C:\**` as auto-grant pattern | Startup validation rejects patterns < 3 segments, containing blocked dirs | L2 |
+| T7 | Cross-volume bypass | Medium | Request access to D: drive when ceiling is C: | Cross-volume detection in Layer 4, requires explicit approval | L4 |
+| T8 | ADS hidden data | Medium | Access `file.txt:hidden` alternate data stream | Block `:` after drive letter position in all paths | L1 |
+| T9 | Device name abuse | Medium | Access `CON`, `NUL`, `COM1` as file paths | Block all reserved Windows device names | L1 |
+| T10 | Unicode confusable | Low | Use Unicode characters that look like path separators | Normalize and validate after canonicalization | L1 |
+| T11 | Null byte injection | Critical | Embed `\0` in path string to truncate validation | Reject any path containing null bytes | L1 |
+| T12 | Junction point escape | Critical | Create NTFS junction in allowed dir pointing to system dir | `PathResolver` resolves junctions via `ResolveLinkTarget` | L1 |
+| T13 | Max-length path | Low | Submit path > 260 chars to trigger edge cases | Handle gracefully (use long path APIs or return clear error) | L1 |
+| T14 | Rapid-fire accumulation | Medium | Request many dirs quickly to accumulate broad scope | Max 10 concurrent grants, TTL enforcement | L3 |
+| T15 | AccessLevel escalation | Medium | Granted ReadOnly, attempt ReadWrite operation | Strict level checking: granted level must be ≥ requested level | L3 |
+
+### Immutable Security Boundaries
+
+These properties are **guaranteed in v0.1.0 and remain guaranteed in v0.2.0**. They are not configurable.
+
+1. **System directory blocking** — `C:\Windows`, `C:\Program Files`, `System32`, etc. are ALWAYS blocked
+2. **Path traversal protection** — `..` segments are resolved before evaluation, never trusted
+3. **UNC path blocking** — `\\server\share\...` is ALWAYS blocked
+4. **Secret redaction in logs** — `sk-ant-*` and credential patterns are ALWAYS redacted
+5. **Untrusted content tagging** — File/command output is ALWAYS wrapped in XML tags
+6. **Command injection prevention** — CliWrap argument arrays are ALWAYS used, metacharacters ALWAYS blocked
+7. **CancellationToken on everything** — All async operations respect cancellation
+8. **Sensitive file pattern blocking** — `.env`, `.key`, `.pem`, etc. are ALWAYS blocked
+9. **Agent config self-protection** — `~/.krutaka/` is ALWAYS blocked from agent access
+10. **Human approval for run_command** — ALWAYS required, no "Always" option, no bypass
+
+### Four-Layer Policy Evaluation
+
+Every directory access request is evaluated through four ordered layers. **A deny at any layer is final — no later layer can override it.**
+
+#### Layer 1: Hard Deny List (Immutable)
+
+**Purpose:** Block access to system directories, special paths, and invalid path patterns unconditionally.
+
+**Blocked items:**
+- System directories resolved via `Environment.GetFolderPath()`: Windows, Program Files, Program Files (x86)
+- Path components: `System32`, `SysWOW64`
+- `%APPDATA%`, `%LOCALAPPDATA%`
+- `%USERPROFILE%\.krutaka` (agent's own config)
+- `%USERPROFILE%\.krutaka\logs` (audit log directory — tamper-proofing)
+- UNC paths (`\\server\share\...`)
+- Paths above ceiling directory
+- Paths with ADS (`:` after drive letter)
+- Device names (`CON`, `NUL`, `COM1`, `LPT1`, etc.)
+- Device prefixes (`\\.\`, `\\?\`)
+- Null bytes in path string
+- Unicode confusables (normalized before check)
+
+**Result:** `AccessDecision(Granted: false, Reason: "System directory blocked")` or continue to Layer 2.
+
+#### Layer 2: Configurable Allow List (Glob patterns)
+
+**Purpose:** Auto-approve trusted paths via glob patterns from `appsettings.json`.
+
+**Configuration:** `ToolOptions.AutoGrantPatterns` (e.g., `["C:\\Users\\username\\Projects\\**"]`)
+
+**Validation at startup (implemented in `GlobPatternValidator`):**
+- Pattern must have ≥ 3 path segments (e.g., `C:\Users\name\...` or `/home/user/...`)
+- On Unix systems, the root "/" counts as a segment
+- Pattern must not contain any blocked directory from Layer 1 (Windows, Program Files, System32, AppData, .krutaka)
+- Pattern must be under the configured ceiling directory
+- Pattern cannot start with wildcards (must have an absolute base path)
+- Empty, null, or whitespace patterns are rejected
+- Patterns with < 4 segments generate a warning (logged but not rejected)
+- All validation happens before the application starts (fail-fast)
+
+**Pattern matching:**
+- Uses custom glob matching with case-insensitive comparison on Windows
+- Supports `**` wildcard for matching any subdirectory
+- Exact path matching when no wildcards are present
+- Enforces directory boundary matching to prevent sibling directory access
+
+**Result:** `AccessDecision(Granted: true, Source: AutoGrant)` or continue to Layer 3.
+
+#### Layer 3: Session Grants (Previously approved)
+
+**Purpose:** Check if this directory was previously approved in this session.
+
+**Grant properties:**
+- `Path`: Canonical, resolved path
+- `AccessLevel`: ReadOnly | ReadWrite | Execute
+- `GrantedAt`: Timestamp
+- `ExpiresAt`: Optional TTL (null = session lifetime)
+- `Justification`: Why access was requested
+- `GrantedBy`: User | AutoGrant | Policy
+
+**Enforcement:**
+- Max concurrent grants: 10 (configurable)
+- Automatic pruning of expired grants before each check
+- Strict level checking: granted level must be ≥ requested level (ReadOnly grant ≠ ReadWrite access)
+- Thread-safe `ConcurrentDictionary` implementation
+
+**Result:** `AccessDecision(Granted: true, Source: SessionGrant)` or continue to Layer 4.
+
+#### Layer 4: Heuristic Checks + User Prompt
+
+**Purpose:** Detect suspicious patterns and require human approval.
+
+**Heuristic checks:**
+- Cross-volume detection (different drive letter than ceiling)
+- Path depth heuristics (very deep nesting, e.g., > 10 levels)
+- Suspicious patterns (rapid requests, unusual directory names)
+
+**Result:** `AccessDecision(NeedsApproval)` → triggers `DirectoryAccessRequested` event → human approval prompt.
+
+If approved, grant is added to Layer 3 (session store) with appropriate TTL.  
+If denied, agent receives descriptive message (not error) to try a different approach.
+
+### New Attack Vectors and Mitigations
+
+#### T2: Symlink Escape (CRITICAL — closing v0.1.0 gap)
+
+**Attack:** Attacker creates `C:\Projects\MyApp\link` → `C:\Windows\System32`
+
+**v0.1.0 behavior:** `Path.GetFullPath("link\cmd.exe")` returns `C:\Projects\MyApp\link\cmd.exe` which passes `StartsWith(projectRoot)` check. The actual file accessed is `C:\Windows\System32\cmd.exe`.
+
+**v0.2.0 mitigation:**
+1. `PathResolver.ResolveToFinalTarget(path)` uses `FileSystemInfo.ResolveLinkTarget(returnFinalTarget: true)`
+2. Resolution happens BEFORE the `StartsWith(root)` containment check
+3. Resolved target `C:\Windows\System32\cmd.exe` fails Layer 1 hard deny
+4. For non-existent paths (e.g., new file creation), validate the parent directory chain
+
+#### T3: TOCTOU (Time-of-Check-to-Time-of-Use)
+
+**Attack:** Path is valid symlink at validation time, then changed to point to system dir before the tool reads it.
+
+**Mitigation:**
+- Re-resolve at access time (SafeFileOperations calls PathResolver on every operation, not just the first)
+- The window is very small (milliseconds between resolve and File.Read), and requires the attacker to have filesystem write access to the allowed directory — which means they already have the access they're trying to gain
+- Defense-in-depth: Even if TOCTOU succeeds, Job Object sandboxing limits damage for command execution
+
+#### T6: Glob Pattern Abuse
+
+**Attack:** User (or compromised config file) sets `AutoGrantPatterns: ["C:\\**"]`
+
+**Mitigation (startup validation in `GlobPatternValidator`):**
+- Pattern must have ≥ 3 path segments (e.g., `C:\Users\name\...` — not `C:\**`)
+- Pattern must not contain any blocked directory from `SafeFileOperations`
+- Pattern must be under the configured ceiling directory
+- Overly-broad patterns (< 4 segments) generate a log warning even if allowed
+- Empty, null, or whitespace patterns are rejected
+
+### Session Scope Accumulation Defense
+
+| Defense | Mechanism | Configurable |
+|---------|-----------|-------------|
+| Max concurrent grants | Default 10, reject new if full | Yes (appsettings) |
+| TTL expiry | Default: session lifetime, configurable per-grant | Yes |
+| Automatic pruning | Expired grants removed before each `IsGrantedAsync` | No (always on) |
+| Ceiling enforcement | All grants must be under ceiling directory | Yes (appsettings) |
+| AccessLevel strictness | ReadOnly grant ≠ ReadWrite access | No (always strict) |
+| Session clear | All grants revoked on session end | No (always on) |
+
+### Configuration Model (v0.2.0)
+
+**New properties in `appsettings.json`:**
+
+```json
+{
+  "ToolOptions": {
+    "DefaultWorkingDirectory": ".",
+    "CeilingDirectory": "C:\\Users\\username",
+    "AutoGrantPatterns": [
+      "C:\\Users\\username\\Projects\\**",
+      "C:\\Users\\username\\Source\\**"
+    ],
+    "MaxConcurrentGrants": 10,
+    "DefaultGrantTtlMinutes": null
+  }
+}
+```
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `DefaultWorkingDirectory` | string | `.` | Default directory when no specific directory is requested (renamed from `WorkingDirectory`) |
+| `CeilingDirectory` | string | `%USERPROFILE%` | Maximum ancestor directory — agent cannot access anything above this |
+| `AutoGrantPatterns` | string[] | `[]` | Glob patterns for auto-approved directory access (Layer 2) |
+| `MaxConcurrentGrants` | int | `10` | Maximum simultaneous directory access grants per session |
+| `DefaultGrantTtlMinutes` | int? | `null` | Default TTL for session grants (null = session lifetime) |

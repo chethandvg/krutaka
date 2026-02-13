@@ -104,6 +104,39 @@ internal sealed class ApprovalHandler
     }
 
     /// <summary>
+    /// Handles a directory access approval request from the agent.
+    /// Displays an interactive prompt with path, requested access level, and justification.
+    /// </summary>
+    /// <param name="path">The directory path being requested.</param>
+    /// <param name="requestedLevel">The access level being requested.</param>
+    /// <param name="justification">The agent's justification for the request.</param>
+    /// <returns>A directory access approval result with the user's decision.</returns>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Method kept as instance method for consistency with other approval methods and potential future use of instance state.")]
+    public DirectoryAccessApproval HandleDirectoryAccess(string path, AccessLevel requestedLevel, string justification)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(justification);
+
+        // Display the approval prompt
+        DisplayDirectoryAccessPrompt(path, requestedLevel, justification);
+
+        // Get user decision
+        var decision = GetDirectoryAccessDecision(requestedLevel);
+
+        return decision;
+    }
+
+    /// <summary>
+    /// Creates a denial message for directory access.
+    /// </summary>
+    /// <param name="path">The path that was denied.</param>
+    /// <returns>A descriptive message explaining the denial.</returns>
+    public static string CreateDirectoryAccessDenialMessage(string path)
+    {
+        return $"The user denied access to directory: {path}. Please try a different approach or request access to a different directory.";
+    }
+
+    /// <summary>
     /// Displays the approval prompt with tool information and input parameters.
     /// </summary>
     private void DisplayApprovalPrompt(string toolName, JsonElement input)
@@ -321,8 +354,8 @@ internal sealed class ApprovalHandler
                     .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No)
                     .UseConverter(choice => choice switch
                     {
-                        ApprovalChoice.Yes => "[green][Y]es - Execute this command[/]",
-                        ApprovalChoice.No => "[red][N]o - Deny this command[/]",
+                        ApprovalChoice.Yes => "[green][[Y]]es - Execute this command[/]",
+                        ApprovalChoice.No => "[red][[N]]o - Deny this command[/]",
                         _ => choice.ToString()
                     }));
 
@@ -347,10 +380,10 @@ internal sealed class ApprovalHandler
                             .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always, ApprovalChoice.View)
                             .UseConverter(c => c switch
                             {
-                                ApprovalChoice.Yes => "[green][Y]es - Write this file[/]",
-                                ApprovalChoice.No => "[red][N]o - Deny this operation[/]",
-                                ApprovalChoice.Always => "[yellow][A]lways - Approve all write_file operations this session[/]",
-                                ApprovalChoice.View => "[cyan][V]iew - View full content[/]",
+                                ApprovalChoice.Yes => "[green][[Y]]es - Write this file[/]",
+                                ApprovalChoice.No => "[red][[N]]o - Deny this operation[/]",
+                                ApprovalChoice.Always => "[yellow][[A]]lways - Approve all write_file operations this session[/]",
+                                ApprovalChoice.View => "[cyan][[V]]iew - View full content[/]",
                                 _ => c.ToString()
                             }));
 
@@ -380,9 +413,9 @@ internal sealed class ApprovalHandler
                 .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always)
                 .UseConverter(c => c switch
                 {
-                    ApprovalChoice.Yes => "[green][Y]es - Approve this operation[/]",
-                    ApprovalChoice.No => "[red][N]o - Deny this operation[/]",
-                    ApprovalChoice.Always => "[yellow][A]lways - Approve all operations of this type this session[/]",
+                    ApprovalChoice.Yes => "[green][[Y]]es - Approve this operation[/]",
+                    ApprovalChoice.No => "[red][[N]]o - Deny this operation[/]",
+                    ApprovalChoice.Always => "[yellow][[A]]lways - Approve all operations of this type this session[/]",
                     _ => c.ToString()
                 }));
 
@@ -443,6 +476,57 @@ internal sealed class ApprovalHandler
         "edit_file" => Color.Yellow,
         _ => Color.Cyan1
     };
+
+    /// <summary>
+    /// Displays the directory access approval prompt.
+    /// </summary>
+    private static void DisplayDirectoryAccessPrompt(string path, AccessLevel requestedLevel, string justification)
+    {
+        AnsiConsole.WriteLine();
+
+        var content = new System.Text.StringBuilder();
+        content.AppendLine(CultureInfo.InvariantCulture, $"[bold]Path:[/] {Markup.Escape(path)}");
+        content.AppendLine(CultureInfo.InvariantCulture, $"[bold]Requested Access Level:[/] {requestedLevel}");
+        content.AppendLine();
+        content.AppendLine(CultureInfo.InvariantCulture, $"[bold]Agent's Justification:[/]");
+        content.AppendLine(CultureInfo.InvariantCulture, $"  {Markup.Escape(justification)}");
+
+        var panel = new Panel(content.ToString())
+            .Border(BoxBorder.Rounded)
+            .BorderColor(Color.Yellow)
+            .Header("[bold]🔐 Directory Access Request[/]");
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Gets the user's directory access decision.
+    /// </summary>
+    private static DirectoryAccessApproval GetDirectoryAccessDecision(AccessLevel requestedLevel)
+    {
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Allow directory access?")
+                .AddChoices("Y", "R", "N", "S")
+                .UseConverter(c => c switch
+                {
+                    "Y" => $"[green][[Y]]es - Allow at {Markup.Escape(requestedLevel.ToString())} level[/]",
+                    "R" => "[yellow][[R]]ead-only - Downgrade to ReadOnly access[/]",
+                    "N" => "[red][[N]]o - Deny access[/]",
+                    "S" => "[cyan][[S]]ession - Allow for entire session[/]",
+                    _ => c
+                }));
+
+        return choice switch
+        {
+            "Y" => new DirectoryAccessApproval(true, requestedLevel, false),
+            "R" => new DirectoryAccessApproval(true, AccessLevel.ReadOnly, false),
+            "N" => new DirectoryAccessApproval(false, null, false),
+            "S" => new DirectoryAccessApproval(true, requestedLevel, true),
+            _ => new DirectoryAccessApproval(false, null, false) // Safe default
+        };
+    }
 }
 
 /// <summary>
@@ -451,3 +535,11 @@ internal sealed class ApprovalHandler
 /// <param name="Approved">Whether the user approved the operation.</param>
 /// <param name="AlwaysApprove">Whether the user selected "Always approve" for this tool type.</param>
 internal sealed record ApprovalDecision(bool Approved, bool AlwaysApprove);
+
+/// <summary>
+/// Represents a user's approval decision for directory access.
+/// </summary>
+/// <param name="Approved">Whether the user approved the access request.</param>
+/// <param name="GrantedLevel">The access level granted (may be downgraded from requested); null if denied.</param>
+/// <param name="SessionGrant">Whether to create a session-wide grant (user selected 'S' option).</param>
+internal sealed record DirectoryAccessApproval(bool Approved, AccessLevel? GrantedLevel, bool SessionGrant);

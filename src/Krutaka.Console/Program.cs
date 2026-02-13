@@ -83,11 +83,20 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
-    // Single session identifier for this host run
-    var sessionId = Guid.NewGuid();
+    // Warn if appsettings.json is missing — all settings will use code defaults
+    var appSettingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+    if (!File.Exists(appSettingsPath))
+    {
+        Log.Warning("appsettings.json not found at {Path}. Using default configuration values.", appSettingsPath);
+    }
 
     // Add Serilog to host
     builder.Services.AddSerilog();
+
+    // Session ID will be determined after we know the working directory
+    // Initialize with empty value - will be properly set below
+    Guid sessionId = Guid.Empty;
+    bool isResumingSession = false;
 
     // Register CorrelationContext (scoped per session)
     builder.Services.AddSingleton(sp =>
@@ -114,10 +123,37 @@ try
         workingDirectory = Environment.CurrentDirectory;
     }
 
+    // Find or create session identifier (now that we have workingDirectory)
+    Guid? existingSessionId = null;
+    try
+    {
+        existingSessionId = SessionStore.FindMostRecentSession(workingDirectory);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        Log.Warning(ex, "Failed to discover existing sessions, will create new session");
+    }
+
+    if (existingSessionId.HasValue)
+    {
+        sessionId = existingSessionId.Value;
+        isResumingSession = true;
+        Log.Information("Found existing session {SessionId}, will auto-resume", sessionId);
+    }
+    else
+    {
+        sessionId = Guid.NewGuid();
+        Log.Information("No previous session found, created new session {SessionId}", sessionId);
+    }
+
     // Register Tools with options
     builder.Services.AddAgentTools(options =>
     {
-        options.WorkingDirectory = workingDirectory;
+        // Bind ToolOptions from configuration (CeilingDirectory, AutoGrantPatterns, etc.)
+        builder.Configuration.GetSection("ToolOptions").Bind(options);
+
+        // Override DefaultWorkingDirectory from Agent section for backward compatibility
+        options.DefaultWorkingDirectory = workingDirectory;
     });
 
     // Register Memory services
@@ -187,8 +223,31 @@ try
             memoryFileReader);
     });
 
+    // Register ContextCompactor
+    builder.Services.AddSingleton(sp =>
+    {
+        var claudeClient = sp.GetRequiredService<IClaudeClient>();
+        var auditLogger = sp.GetService<IAuditLogger>();
+        var correlationContext = sp.GetService<CorrelationContext>();
+
+        return new ContextCompactor(
+            claudeClient,
+            auditLogger: auditLogger,
+            correlationContext: correlationContext);
+    });
+
     // Register AgentOrchestrator
     var toolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
+    var approvalTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ApprovalTimeoutSeconds", 300);
+    var maxTokens = builder.Configuration.GetValue<int>("Claude:MaxTokens", 8192);
+    var configuredMaxToolResultChars = builder.Configuration.GetValue<int>("Agent:MaxToolResultCharacters", 0);
+    // Derive MaxToolResultCharacters from MaxTokens if not explicitly set (0 = derive).
+    // Heuristic: 1 token ≈ 4 characters, so MaxTokens × 4 gives a proportional limit.
+    // Capped at a minimum of 100,000 to ensure usability even with small MaxTokens values.
+    var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
+    var maxToolResultCharacters = configuredMaxToolResultChars > 0
+        ? configuredMaxToolResultChars
+        : (int)derivedMaxToolResultChars;
 
     builder.Services.AddSingleton(sp =>
     {
@@ -197,14 +256,20 @@ try
         var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
         var auditLogger = sp.GetRequiredService<IAuditLogger>();
         var correlationContext = sp.GetRequiredService<CorrelationContext>();
+        var sessionAccessStore = sp.GetService<ISessionAccessStore>(); // Optional in v0.2.0
+        var contextCompactor = sp.GetService<ContextCompactor>();
 
         return new AgentOrchestrator(
             claudeClient,
             toolRegistry,
             securityPolicy,
             toolTimeoutSeconds,
+            approvalTimeoutSeconds,
+            maxToolResultCharacters,
+            sessionAccessStore,
             auditLogger,
-            correlationContext);
+            correlationContext,
+            contextCompactor);
     });
 
     // Register ApprovalHandler
@@ -232,6 +297,25 @@ try
     var sessionStore = host.Services.GetRequiredService<SessionStore>();
     var correlationContext = host.Services.GetRequiredService<CorrelationContext>();
     var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
+
+    // Auto-load previous session messages if resuming
+    if (isResumingSession)
+    {
+        try
+        {
+            var messages = await sessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
+            if (messages.Count > 0)
+            {
+                orchestrator.RestoreConversationHistory(messages);
+                AnsiConsole.MarkupLine($"[dim]✓ Resumed session with {messages.Count} messages[/]");
+                Log.Information("Auto-resumed session with {MessageCount} messages", messages.Count);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        {
+            Log.Warning(ex, "Failed to auto-resume session, continuing with empty session");
+        }
+    }
 
     // Display banner
     ui.DisplayBanner();
@@ -265,10 +349,72 @@ try
             else if (command == "/HELP")
             {
                 AnsiConsole.MarkupLine("[bold cyan]Available Commands:[/]");
-                AnsiConsole.MarkupLine("  [cyan]/help[/]    - Show this help message");
-                AnsiConsole.MarkupLine("  [cyan]/resume[/]  - Resume previous conversation from session store");
-                AnsiConsole.MarkupLine("  [cyan]/exit[/]    - Exit the application");
-                AnsiConsole.MarkupLine("  [cyan]/quit[/]    - Exit the application");
+                AnsiConsole.MarkupLine("  [cyan]/help[/]     - Show this help message");
+                AnsiConsole.MarkupLine("  [cyan]/sessions[/] - List recent sessions for this project");
+                AnsiConsole.MarkupLine("  [cyan]/new[/]      - Start a fresh session");
+                AnsiConsole.MarkupLine("  [cyan]/resume[/]   - Reload current session from disk");
+                AnsiConsole.MarkupLine("  [cyan]/exit[/]     - Exit the application");
+                AnsiConsole.MarkupLine("  [cyan]/quit[/]     - Exit the application");
+                AnsiConsole.WriteLine();
+                continue;
+            }
+            else if (command == "/SESSIONS")
+            {
+                var sessions = SessionStore.ListSessions(workingDirectory, limit: 10);
+
+                if (sessions.Count == 0)
+                {
+                    AnsiConsole.MarkupLine("[yellow]No previous sessions found for this project.[/]");
+                }
+                else
+                {
+                    var table = new Table()
+                        .Border(TableBorder.Rounded)
+                        .BorderColor(Color.Grey)
+                        .AddColumn("#")
+                        .AddColumn("Session ID")
+                        .AddColumn("Last Modified")
+                        .AddColumn("Messages")
+                        .AddColumn("Preview");
+
+                    for (int i = 0; i < sessions.Count; i++)
+                    {
+                        var session = sessions[i];
+                        var isCurrent = session.SessionId == sessionId ? "[green]►[/] " : "";
+                        var shortId = session.SessionId.ToString("N")[..8]; // N format is 32 chars without hyphens
+                        var preview = session.FirstUserMessage ?? "(empty)";
+
+                        table.AddRow(
+                            $"{i + 1}",
+                            $"{isCurrent}{shortId}...",
+                            session.LastModified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
+                            session.MessageCount.ToString(CultureInfo.InvariantCulture),
+                            Markup.Escape(preview)
+                        );
+                    }
+
+                    AnsiConsole.Write(table);
+                    AnsiConsole.MarkupLine("[dim]Tip: Use /new to start a fresh session[/]");
+                }
+
+                AnsiConsole.WriteLine();
+                continue;
+            }
+            else if (command == "/NEW")
+            {
+                // Dispose the previous session store to avoid resource leaks
+                sessionStore.Dispose();
+
+                // Create new session
+                sessionId = Guid.NewGuid();
+                correlationContext.ResetSession(sessionId);
+#pragma warning disable CA2000 // New SessionStore will be disposed when app exits or on next /new
+                sessionStore = new SessionStore(workingDirectory, sessionId);
+#pragma warning restore CA2000
+                orchestrator.ClearConversationHistory();
+
+                AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
+                Log.Information("User started new session {SessionId}", sessionId);
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -276,25 +422,25 @@ try
             {
                 try
                 {
+                    // Reload current session from disk (useful if externally modified)
                     var messages = await sessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
                     if (messages.Count == 0)
                     {
-                        AnsiConsole.MarkupLine("[yellow]No previous session found to resume.[/]");
+                        AnsiConsole.MarkupLine("[yellow]Current session is empty.[/]");
                     }
                     else
                     {
-                        // Restore conversation history into orchestrator
                         orchestrator.RestoreConversationHistory(messages);
-                        AnsiConsole.MarkupLine($"[green]✓ Resumed session with {messages.Count} messages from previous conversation.[/]");
-                        Log.Information("Session resumed with {MessageCount} messages", messages.Count);
+                        AnsiConsole.MarkupLine($"[green]✓ Reloaded {messages.Count} messages from disk[/]");
+                        Log.Information("Session reloaded with {MessageCount} messages", messages.Count);
                     }
                 }
 #pragma warning disable CA1031 // Do not catch general exception types
                 catch (Exception ex)
 #pragma warning restore CA1031
                 {
-                    AnsiConsole.MarkupLine($"[red]Error resuming session: {Markup.Escape(ex.Message)}[/]");
-                    Log.Error(ex, "Failed to resume session");
+                    AnsiConsole.MarkupLine($"[red]Error reloading session: {Markup.Escape(ex.Message)}[/]");
+                    Log.Error(ex, "Failed to reload session");
                 }
 
                 AnsiConsole.WriteLine();
@@ -339,6 +485,17 @@ try
                     else
                     {
                         orchestrator.DenyTool(toolUseId);
+                    }
+                },
+                onDirectoryAccessDecision: (approved, grantedLevel, createSessionGrant) =>
+                {
+                    if (approved && grantedLevel.HasValue)
+                    {
+                        orchestrator.ApproveDirectoryAccess(grantedLevel.Value, createSessionGrant);
+                    }
+                    else
+                    {
+                        orchestrator.DenyDirectoryAccess();
                     }
                 },
                 cancellationToken: ui.ShutdownToken).ConfigureAwait(false);

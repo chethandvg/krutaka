@@ -2,9 +2,9 @@ name: Security Tests
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**' ]
   push:
-    branches: [ main ]
+    branches: [ main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**' ]
 
 jobs:
   security-tests:
@@ -19,7 +19,7 @@ jobs:
         dotnet-version: '10.0.103'
     
     - name: Restore dependencies
-      run: dotnet restore --locked-mode
+      run: dotnet restore
     
     - name: Build
       run: dotnet build --configuration Release

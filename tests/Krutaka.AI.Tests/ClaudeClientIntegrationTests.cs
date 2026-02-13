@@ -4,6 +4,7 @@ using Krutaka.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NSubstitute;
 
 namespace Krutaka.AI.Tests;
 
@@ -20,14 +21,17 @@ public class ClaudeClientIntegrationTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Claude:ApiKey"] = "sk-ant-test-key-12345",
                 ["Claude:ModelId"] = "claude-4-sonnet-20250514",
                 ["Claude:MaxTokens"] = "4096",
                 ["Claude:Temperature"] = "0.5"
             })
             .Build();
 
+        var secretsProvider = Substitute.For<ISecretsProvider>();
+        secretsProvider.GetSecret("Claude:ApiKey").Returns("sk-ant-test-key-12345");
+
         services.AddLogging();
+        services.AddSingleton(secretsProvider);
 
         // Act
         services.AddClaudeAI(configuration);
@@ -48,7 +52,11 @@ public class ClaudeClientIntegrationTests
             .AddInMemoryCollection(new Dictionary<string, string?>())
             .Build();
 
+        var secretsProvider = Substitute.For<ISecretsProvider>();
+        secretsProvider.GetSecret("Claude:ApiKey").Returns((string?)null);
+
         services.AddLogging();
+        services.AddSingleton(secretsProvider);
         services.AddClaudeAI(configuration);
         var serviceProvider = services.BuildServiceProvider();
 
@@ -64,13 +72,14 @@ public class ClaudeClientIntegrationTests
         // Arrange
         var services = new ServiceCollection();
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Claude:ApiKey"] = "sk-ant-test-key-12345"
-            })
+            .AddInMemoryCollection(new Dictionary<string, string?>())
             .Build();
 
+        var secretsProvider = Substitute.For<ISecretsProvider>();
+        secretsProvider.GetSecret("Claude:ApiKey").Returns("sk-ant-test-key-12345");
+
         services.AddLogging();
+        services.AddSingleton(secretsProvider);
 
         // Act
         services.AddClaudeAI(configuration);

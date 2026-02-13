@@ -1,5 +1,6 @@
 using Krutaka.Core;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Krutaka.Tools;
 
@@ -24,6 +25,28 @@ public static class ServiceExtensions
         var options = new ToolOptions();
         configureOptions?.Invoke(options);
 
+        // Validate glob patterns at startup (fail-fast)
+        if (options.AutoGrantPatterns.Length > 0)
+        {
+            // Create a validator (no logger needed for startup validation)
+            var validator = new GlobPatternValidator();
+            var validationResult = validator.ValidatePatterns(options.AutoGrantPatterns, options.CeilingDirectory);
+
+            if (!validationResult.IsValid)
+            {
+                var errorMessages = string.Join(Environment.NewLine, validationResult.Errors);
+                throw new InvalidOperationException(
+                    $"Invalid glob patterns in AutoGrantPatterns configuration:{Environment.NewLine}{errorMessages}");
+            }
+
+            // Log warnings if any (will be logged when ILogger is available)
+            if (validationResult.Warnings.Count > 0)
+            {
+                // Warnings will be logged by the validator when used at runtime with a logger
+                // For startup, we just validate and let them through
+            }
+        }
+
         // Register options as singleton
         services.AddSingleton(options);
 
@@ -42,50 +65,77 @@ public static class ServiceExtensions
             return new CommandPolicy(fileOperations, auditLogger);
         });
 
+        // Register session access store (singleton - application-wide lifetime)
+        // Note: Although conceptually "per-session", the application doesn't create service scopes,
+        // so this is functionally singleton. The store persists for the application lifetime.
+        services.AddSingleton<ISessionAccessStore>(sp =>
+        {
+            return new InMemorySessionAccessStore(options.MaxConcurrentGrants);
+        });
+
+        // Register access policy engine (singleton - v0.2.0 dynamic directory scoping)
+        services.AddSingleton<IAccessPolicyEngine>(sp =>
+        {
+            var fileOperations = sp.GetRequiredService<IFileOperations>();
+            var sessionStore = sp.GetService<ISessionAccessStore>();
+            return new LayeredAccessPolicyEngine(
+                fileOperations,
+                options.CeilingDirectory,
+                options.AutoGrantPatterns,
+                sessionStore);
+        });
+
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
 
-        // Get working directory from options
-        var workingDir = options.WorkingDirectory;
+        // Get default working directory from options (v0.2.0 - used as fallback when policy engine is null)
+        var defaultWorkingDir = options.DefaultWorkingDirectory;
 
-        // Register and add all tool implementations using factories to resolve IFileOperations
+        // Register and add all tool implementations using factories to resolve dependencies
+        // v0.2.0: Tools now receive IAccessPolicyEngine for dynamic directory scoping
         // Read-only tools (auto-approve)
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new ReadFileTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new ReadFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new ListFilesTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new ListFilesTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new SearchFilesTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new SearchFilesTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         // Write tools (require approval)
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new WriteFileTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new WriteFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         services.AddSingleton<ITool>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new EditFileTool(workingDir, fileOperations);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new EditFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
         // Command execution tool (always requires approval)
         services.AddSingleton<ITool>(sp =>
         {
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
-            return new RunCommandTool(workingDir, securityPolicy, options.CommandTimeoutSeconds);
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools

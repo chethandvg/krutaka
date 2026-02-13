@@ -97,4 +97,17 @@ public class AgentEventTests
         evt.RequestId.Should().Be("req_abc123");
         evt.Timestamp.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
     }
+
+    [Fact]
+    public void DirectoryAccessRequested_Should_HaveCorrectProperties()
+    {
+        // Arrange & Act
+        var evt = new DirectoryAccessRequested(@"C:\projects\myapp", AccessLevel.ReadWrite, "Need to read and write project files");
+
+        // Assert
+        evt.Path.Should().Be(@"C:\projects\myapp");
+        evt.AccessLevel.Should().Be(AccessLevel.ReadWrite);
+        evt.Justification.Should().Be("Need to read and write project files");
+        evt.Timestamp.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
+    }
 }

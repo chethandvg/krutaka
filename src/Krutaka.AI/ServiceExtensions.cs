@@ -26,24 +26,12 @@ public static class ServiceExtensions
         // Register IClaudeClient implementation
         services.AddSingleton<IClaudeClient>(sp =>
         {
-            // Get API key from secure credential store
-            var secretsProvider = sp.GetService<ISecretsProvider>();
-            string apiKey;
-
-            if (secretsProvider != null)
-            {
-                apiKey = secretsProvider.GetSecret("Claude:ApiKey")
-                    ?? throw new InvalidOperationException(
-                        "Claude API key not found in secure credential store. " +
-                        "Please run the setup wizard to configure your Anthropic API key.");
-            }
-            else
-            {
-                // Fallback to configuration for testing/development
-                apiKey = configuration["Claude:ApiKey"]
-                    ?? throw new InvalidOperationException(
-                        "Claude API key not found. Please configure ISecretsProvider or set Claude:ApiKey in configuration.");
-            }
+            // Get API key from secure credential store only — never fall back to configuration/environment
+            var secretsProvider = sp.GetRequiredService<ISecretsProvider>();
+            var apiKey = secretsProvider.GetSecret("Claude:ApiKey")
+                ?? throw new InvalidOperationException(
+                    "Claude API key not found in secure credential store. " +
+                    "Please run the setup wizard to configure your Anthropic API key.");
 
             var modelId = configuration["Claude:ModelId"] ?? "claude-4-sonnet-20250514";
             var maxTokens = int.Parse(configuration["Claude:MaxTokens"] ?? "8192", CultureInfo.InvariantCulture);

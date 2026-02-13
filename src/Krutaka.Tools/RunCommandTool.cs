@@ -12,26 +12,30 @@ namespace Krutaka.Tools;
 /// Tool for executing shell commands with full sandboxing and security controls.
 /// Requires human approval for every execution.
 /// Commands are validated against allowlist, environment is scrubbed, and process is sandboxed with Job Objects.
+/// In v0.2.0, supports dynamic directory scoping via IAccessPolicyEngine.
 /// </summary>
 public class RunCommandTool : ToolBase
 {
-    private readonly string _projectRoot;
+    private readonly string _defaultRoot;
     private readonly ISecurityPolicy _securityPolicy;
     private readonly int _commandTimeoutSeconds;
+    private readonly IAccessPolicyEngine? _policyEngine;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RunCommandTool"/> class.
     /// </summary>
-    /// <param name="projectRoot">The allowed root directory for command execution.</param>
+    /// <param name="defaultRoot">The default root directory (fallback when policy engine is null).</param>
     /// <param name="securityPolicy">The security policy for command validation.</param>
     /// <param name="commandTimeoutSeconds">Timeout in seconds for command execution (default: 30).</param>
-    public RunCommandTool(string projectRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30)
+    /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
+    public RunCommandTool(string defaultRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30, IAccessPolicyEngine? policyEngine = null)
     {
-        ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(securityPolicy);
-        _projectRoot = projectRoot;
+        _defaultRoot = defaultRoot;
         _securityPolicy = securityPolicy;
         _commandTimeoutSeconds = commandTimeoutSeconds > 0 ? commandTimeoutSeconds : 30;
+        _policyEngine = policyEngine;
     }
 
     /// <inheritdoc/>
@@ -80,21 +84,54 @@ public class RunCommandTool : ToolBase
                 : new List<string>();
 
             // Extract working directory parameter (optional)
-            string workingDirectory = _projectRoot;
+            string workingDirectory;
             if (input.TryGetProperty("working_directory", out var workingDirElement))
             {
                 var workingDirInput = workingDirElement.GetString();
                 if (!string.IsNullOrWhiteSpace(workingDirInput))
                 {
-                    try
+                    // Determine the directory to validate against
+                    if (_policyEngine != null)
                     {
-                        workingDirectory = _securityPolicy.ValidatePath(workingDirInput, _projectRoot);
+                        // v0.2.0: Dynamic directory scoping via policy engine
+                        var request = new DirectoryAccessRequest(
+                            Path: workingDirInput,
+                            Level: AccessLevel.Execute,
+                            Justification: $"Executing command: {executable}"
+                        );
+
+                        var decision = await _policyEngine.EvaluateAsync(request, cancellationToken).ConfigureAwait(false);
+
+                        if (decision.Outcome == AccessOutcome.Denied)
+                        {
+                            var reasons = string.Join("; ", decision.DeniedReasons);
+                            return $"Error: Access denied - {reasons}";
+                        }
+
+                        if (decision.Outcome == AccessOutcome.RequiresApproval)
+                        {
+                            // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                            // Use canonical scoped path so orchestrator grant matches session store lookup
+                            throw new DirectoryAccessRequiredException(decision.ScopedPath ?? workingDirInput, AccessLevel.Execute, $"Executing command: {executable}");
+                        }
+
+                        // Use the granted scoped path as the validation root
+                        workingDirectory = _securityPolicy.ValidatePath(workingDirInput, decision.ScopedPath!);
                     }
-                    catch (SecurityException ex)
+                    else
                     {
-                        return $"Error: Working directory validation failed - {ex.Message}";
+                        // v0.1.x: Static root fallback (backward compatibility)
+                        workingDirectory = _securityPolicy.ValidatePath(workingDirInput, _defaultRoot);
                     }
                 }
+                else
+                {
+                    workingDirectory = _defaultRoot;
+                }
+            }
+            else
+            {
+                workingDirectory = _defaultRoot;
             }
 
             // Validate command against security policy (allowlist, blocklist, metacharacters)
@@ -201,6 +238,15 @@ public class RunCommandTool : ToolBase
             {
                 return "Error: Command execution was cancelled";
             }
+        }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
+        catch (SecurityException ex)
+        {
+            return $"Error: Security validation failed - {ex.Message}";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)

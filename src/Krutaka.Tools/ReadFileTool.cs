@@ -7,23 +7,27 @@ namespace Krutaka.Tools;
 /// <summary>
 /// Tool for reading file contents with security validation.
 /// Validates paths and enforces 1MB size limit before reading.
+/// In v0.2.0, supports dynamic directory scoping via IAccessPolicyEngine.
 /// </summary>
 public class ReadFileTool : ToolBase
 {
-    private readonly string _projectRoot;
+    private readonly string _defaultRoot;
     private readonly IFileOperations _fileOperations;
+    private readonly IAccessPolicyEngine? _policyEngine;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadFileTool"/> class.
     /// </summary>
-    /// <param name="projectRoot">The allowed root directory for file access.</param>
+    /// <param name="defaultRoot">The default root directory (fallback when policy engine is null).</param>
     /// <param name="fileOperations">The file operations service for security validation.</param>
-    public ReadFileTool(string projectRoot, IFileOperations fileOperations)
+    /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
+    public ReadFileTool(string defaultRoot, IFileOperations fileOperations, IAccessPolicyEngine? policyEngine = null)
     {
-        ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(fileOperations);
-        _projectRoot = projectRoot;
+        _defaultRoot = defaultRoot;
         _fileOperations = fileOperations;
+        _policyEngine = policyEngine;
     }
 
     /// <inheritdoc/>
@@ -57,15 +61,42 @@ public class ReadFileTool : ToolBase
                 return "Error: Parameter 'path' cannot be empty";
             }
 
-            // Validate path (security check)
+            // Determine the directory to validate against
             string validatedPath;
-            try
+            if (_policyEngine != null)
             {
-                validatedPath = _fileOperations.ValidatePath(path, _projectRoot);
+                // v0.2.0: Dynamic directory scoping via policy engine
+                // Extract directory from the path to request access
+                var fileDirectory = Path.GetDirectoryName(Path.GetFullPath(path)) ?? path;
+                
+                var request = new DirectoryAccessRequest(
+                    Path: fileDirectory,
+                    Level: AccessLevel.ReadOnly,
+                    Justification: $"Reading file: {path}"
+                );
+
+                var decision = await _policyEngine.EvaluateAsync(request, cancellationToken).ConfigureAwait(false);
+
+                if (decision.Outcome == AccessOutcome.Denied)
+                {
+                    var reasons = string.Join("; ", decision.DeniedReasons);
+                    return $"Error: Access denied - {reasons}";
+                }
+
+                if (decision.Outcome == AccessOutcome.RequiresApproval)
+                {
+                    // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                    // Use canonical scoped path so orchestrator grant matches session store lookup
+                    throw new DirectoryAccessRequiredException(decision.ScopedPath!, AccessLevel.ReadOnly, $"Reading file: {path}");
+                }
+
+                // Use the granted scoped path as the validation root
+                validatedPath = _fileOperations.ValidatePath(path, decision.ScopedPath!);
             }
-            catch (SecurityException ex)
+            else
             {
-                return $"Error: Security validation failed - {ex.Message}";
+                // v0.1.x: Static root fallback (backward compatibility)
+                validatedPath = _fileOperations.ValidatePath(path, _defaultRoot);
             }
 
             // Check if file exists
@@ -101,6 +132,15 @@ public class ReadFileTool : ToolBase
 
             // Wrap content in untrusted_content tags to prevent prompt injection
             return $"<untrusted_content>\n{content}\n</untrusted_content>";
+        }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
+        catch (SecurityException ex)
+        {
+            return $"Error: Security validation failed - {ex.Message}";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)

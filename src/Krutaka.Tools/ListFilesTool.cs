@@ -8,23 +8,27 @@ namespace Krutaka.Tools;
 /// <summary>
 /// Tool for listing files matching a glob pattern with security validation.
 /// Validates all paths and filters out blocked directories and patterns.
+/// In v0.2.0, supports dynamic directory scoping via IAccessPolicyEngine.
 /// </summary>
 public class ListFilesTool : ToolBase
 {
-    private readonly string _projectRoot;
+    private readonly string _defaultRoot;
     private readonly IFileOperations _fileOperations;
+    private readonly IAccessPolicyEngine? _policyEngine;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ListFilesTool"/> class.
     /// </summary>
-    /// <param name="projectRoot">The allowed root directory for file access.</param>
+    /// <param name="defaultRoot">The default root directory (fallback when policy engine is null).</param>
     /// <param name="fileOperations">The file operations service.</param>
-    public ListFilesTool(string projectRoot, IFileOperations fileOperations)
+    /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
+    public ListFilesTool(string defaultRoot, IFileOperations fileOperations, IAccessPolicyEngine? policyEngine = null)
     {
-        ArgumentNullException.ThrowIfNull(projectRoot);
+        ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(fileOperations);
-        _projectRoot = projectRoot;
+        _defaultRoot = defaultRoot;
         _fileOperations = fileOperations;
+        _policyEngine = policyEngine;
     }
 
     /// <inheritdoc/>
@@ -43,15 +47,15 @@ public class ListFilesTool : ToolBase
     );
 
     /// <inheritdoc/>
-    public override Task<string> ExecuteAsync(JsonElement input, CancellationToken cancellationToken)
+    public override async Task<string> ExecuteAsync(JsonElement input, CancellationToken cancellationToken)
     {
         try
         {
             // Check for cancellation
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Extract path parameter (default to project root)
-            var path = _projectRoot;
+            // Extract path parameter (default to default root)
+            var path = _defaultRoot;
             if (input.TryGetProperty("path", out var pathElement))
             {
                 var providedPath = pathElement.GetString();
@@ -72,21 +76,48 @@ public class ListFilesTool : ToolBase
                 }
             }
 
-            // Validate path (security check)
+            // Determine the directory to validate against
             string validatedPath;
-            try
+            string projectRoot;
+            if (_policyEngine != null)
             {
-                validatedPath = _fileOperations.ValidatePath(path, _projectRoot);
+                // v0.2.0: Dynamic directory scoping via policy engine
+                var request = new DirectoryAccessRequest(
+                    Path: path,
+                    Level: AccessLevel.ReadOnly,
+                    Justification: $"Listing files in: {path}"
+                );
+
+                var decision = await _policyEngine.EvaluateAsync(request, cancellationToken).ConfigureAwait(false);
+
+                if (decision.Outcome == AccessOutcome.Denied)
+                {
+                    var reasons = string.Join("; ", decision.DeniedReasons);
+                    return $"Error: Access denied - {reasons}";
+                }
+
+                if (decision.Outcome == AccessOutcome.RequiresApproval)
+                {
+                    // Throw exception to trigger interactive approval flow in AgentOrchestrator
+                    // Use canonical scoped path so orchestrator grant matches session store lookup
+                    throw new DirectoryAccessRequiredException(decision.ScopedPath!, AccessLevel.ReadOnly, $"Listing files in: {path}");
+                }
+
+                // Use the granted scoped path as the validation root
+                validatedPath = _fileOperations.ValidatePath(path, decision.ScopedPath!);
+                projectRoot = decision.ScopedPath!;
             }
-            catch (SecurityException ex)
+            else
             {
-                return Task.FromResult($"Error: Security validation failed - {ex.Message}");
+                // v0.1.x: Static root fallback (backward compatibility)
+                validatedPath = _fileOperations.ValidatePath(path, _defaultRoot);
+                projectRoot = _defaultRoot;
             }
 
             // Check if directory exists
             if (!Directory.Exists(validatedPath))
             {
-                return Task.FromResult($"Error: Directory not found: '{path}'");
+                return $"Error: Directory not found: '{path}'";
             }
 
             // Filter files through security validation and build result
@@ -111,10 +142,10 @@ public class ListFilesTool : ToolBase
                     // Validate each file path
                     try
                     {
-                        _fileOperations.ValidatePath(file, _projectRoot);
+                        _fileOperations.ValidatePath(file, projectRoot);
 
                         // Make path relative to project root for cleaner output
-                        var relativePath = Path.GetRelativePath(_projectRoot, file);
+                        var relativePath = Path.GetRelativePath(projectRoot, file);
                         result.AppendLine(relativePath);
                         fileCount++;
                     }
@@ -127,32 +158,41 @@ public class ListFilesTool : ToolBase
             }
             catch (UnauthorizedAccessException)
             {
-                return Task.FromResult($"Error: Permission denied accessing directory: '{path}'");
+                return $"Error: Permission denied accessing directory: '{path}'";
             }
             catch (IOException ex)
             {
-                return Task.FromResult($"Error: I/O error accessing directory: '{path}' - {ex.Message}");
+                return $"Error: I/O error accessing directory: '{path}' - {ex.Message}";
             }
 
             if (fileCount == 0)
             {
                 if (blockedCount > 0)
                 {
-                    return Task.FromResult($"No accessible files found matching pattern '{pattern}' in '{path}'. Some files were blocked by security policy.");
+                    return $"No accessible files found matching pattern '{pattern}' in '{path}'. Some files were blocked by security policy.";
                 }
 
-                return Task.FromResult($"No files found matching pattern '{pattern}' in '{path}'.");
+                return $"No files found matching pattern '{pattern}' in '{path}'.";
             }
 
             // Wrap output in untrusted_content tags for prompt injection defense
             var listPayload = result.ToString().TrimEnd();
             var wrappedPayload = $"<untrusted_content>\n{listPayload}\n</untrusted_content>";
-            return Task.FromResult(wrappedPayload);
+            return wrappedPayload;
+        }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
+        catch (SecurityException ex)
+        {
+            return $"Error: Security validation failed - {ex.Message}";
         }
 #pragma warning disable CA1031 // Do not catch general exception types - returning user-friendly error messages
         catch (Exception ex)
         {
-            return Task.FromResult($"Error: Unexpected error listing files - {ex.Message}");
+            return $"Error: Unexpected error listing files - {ex.Message}";
         }
 #pragma warning restore CA1031
     }

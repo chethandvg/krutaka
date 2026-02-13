@@ -236,7 +236,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         // Act
         services.AddAgentTools(options =>
         {
-            options.WorkingDirectory = _testRoot;
+            options.DefaultWorkingDirectory = _testRoot;
             options.CommandTimeoutSeconds = 60;
             options.RequireApprovalForWrites = false;
         });
@@ -246,7 +246,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         // Assert - Verify all services are registered
         var toolOptions = serviceProvider.GetService<ToolOptions>();
         toolOptions.Should().NotBeNull();
-        toolOptions!.WorkingDirectory.Should().Be(_testRoot);
+        toolOptions!.DefaultWorkingDirectory.Should().Be(_testRoot);
         toolOptions.CommandTimeoutSeconds.Should().Be(60);
         toolOptions.RequireApprovalForWrites.Should().BeFalse();
 

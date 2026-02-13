@@ -97,24 +97,38 @@ public sealed class SystemPromptBuilder
 
     private async Task<string> LoadCoreIdentityAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_agentsPromptPath))
+        if (File.Exists(_agentsPromptPath))
+        {
+            // Validate file size to prevent reading excessively large files
+            var fileInfo = new FileInfo(_agentsPromptPath);
+            const long maxFileSizeBytes = 1_048_576; // 1 MB limit (same as ReadFileTool)
+
+            if (fileInfo.Length > maxFileSizeBytes)
+            {
+                throw new InvalidOperationException(
+                    $"AGENTS.md file at '{_agentsPromptPath}' exceeds maximum size of 1 MB. " +
+                    $"Current size: {fileInfo.Length:N0} bytes.");
+            }
+
+            var content = await File.ReadAllTextAsync(_agentsPromptPath, cancellationToken).ConfigureAwait(false);
+            return content.Trim();
+        }
+
+        // Fallback to embedded resource when file is not found on disk
+        return LoadCoreIdentityFromEmbeddedResource();
+    }
+
+    private static string LoadCoreIdentityFromEmbeddedResource()
+    {
+        var assembly = typeof(SystemPromptBuilder).Assembly;
+        using var stream = assembly.GetManifestResourceStream("Krutaka.Core.prompts.AGENTS.md");
+        if (stream == null)
         {
             return string.Empty;
         }
 
-        // Validate file size to prevent reading excessively large files
-        var fileInfo = new FileInfo(_agentsPromptPath);
-        const long maxFileSizeBytes = 1_048_576; // 1 MB limit (same as ReadFileTool)
-
-        if (fileInfo.Length > maxFileSizeBytes)
-        {
-            throw new InvalidOperationException(
-                $"AGENTS.md file at '{_agentsPromptPath}' exceeds maximum size of 1 MB. " +
-                $"Current size: {fileInfo.Length:N0} bytes.");
-        }
-
-        var content = await File.ReadAllTextAsync(_agentsPromptPath, cancellationToken).ConfigureAwait(false);
-        return content.Trim();
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd().Trim();
     }
 
     private static string GetSecurityInstructions()

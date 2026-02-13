@@ -1,8 +1,10 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-11 (Issue #28 - Final documentation polish and README update)
+> **Last updated:** 2026-02-13 (Bug fixes: ConsoleUI crash, ApprovalHandler markup crash, configurable settings — 903 tests passing)
 
-## Phase Summary
+## v0.1.0 — Core Features (Complete)
+
+### Phase Summary
 
 | Phase | Name | Issues | Status |
 |---|---|---|---|
@@ -14,7 +16,7 @@
 | 5 | Skills & Observability | #22, #24 | 🟢 Complete |
 | 6 | Build, Package & Verify | #25, #26, #27, #28 | 🟢 Complete |
 
-## Issue Status
+### Issue Status
 
 | # | Issue | Phase | Status | Date Completed |
 |---|---|---|---|---|
@@ -46,7 +48,90 @@
 | 27 | End-to-end integration testing | 6 | 🟢 Complete | 2026-02-11 |
 | 28 | Final documentation polish | 6 | 🟢 Complete | 2026-02-11 |
 
-## Notes
+---
+
+## v0.1.1 — Bug Fixes and Enhancements
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| 29 | Smart Session Management - Auto-Resume and Session Discovery | Enhancement | 🟢 Complete | 2026-02-12 |
+
+**Issue #29 Details:**
+- **Problem:** Users experienced data loss between app restarts, `/resume` command was broken
+- **Solution:** Auto-resume on startup, session discovery (`FindMostRecentSession`, `ListSessions`), new `/sessions` and `/new` commands
+- **Testing:** Added 12 new tests (11 for session discovery, 1 for ClearConversationHistory), all 603 tests passing
+- **Security:** CodeQL scan passed with 0 alerts
+
+---
+
+## v0.2.0 — Dynamic Directory Scoping (Complete)
+
+> **Status:** 🟢 **Complete** (All 11 issues complete — 2026-02-13)  
+> **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design, threat model, and implementation roadmap.
+
+### Overview
+
+v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration with a **dynamic, session-scoped directory access model**. The agent can request access to multiple directories at runtime. A four-layer policy engine evaluates every request: hard deny-list → configurable allow-list → session grants → heuristic checks. This removes the biggest usability friction in v0.1.0 while preserving (and strengthening) all security guarantees.
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.2.0-1 | Documentation foundation for v0.2.0 dynamic directory scoping | Docs | 🟢 Complete | 2026-02-12 |
+| v0.2.0-2 | CI/CD branch targets for feature/v0.2.0/** branches | CI | 🟢 Complete | 2026-02-12 |
+| v0.2.0-3 | Path hardening (PathResolver with symlink/ADS/device name handling) | Security | 🟢 Complete | 2026-02-12 |
+| v0.2.0-4 | Core abstractions (IAccessPolicyEngine, AccessLevel, models in Core) | Architecture | 🟢 Complete | 2026-02-12 |
+| v0.2.0-5 | Layered policy engine (LayeredAccessPolicyEngine with 4 layers in Tools) | Security | 🟢 Complete | 2026-02-12 |
+| v0.2.0-6 | Session access store (InMemorySessionAccessStore with TTL and thread safety) | Architecture | 🟢 Complete | 2026-02-12 |
+| v0.2.0-7 | Glob auto-grant (GlobPatternValidator with startup validation) | Configuration | 🟢 Complete | 2026-02-12 |
+| v0.2.0-8 | Tool refactoring (All 6 tools use IAccessPolicyEngine instead of static root) | Refactor | 🟢 Complete | 2026-02-12 |
+| v0.2.0-9 | Approval UI (DirectoryAccessRequested event + interactive prompt) | UI | 🟢 Complete | 2026-02-12 |
+| v0.2.0-10 | Adversarial tests (87 tests across 3 new test classes) | Testing | 🟢 Complete | 2026-02-12 |
+| v0.2.0-11 | Release documentation (README, CHANGELOG, final doc consistency pass) | Docs | 🟢 Complete | 2026-02-13 |
+
+**Issue v0.2.0-11 Details:**
+- **Created:** `CHANGELOG.md` following Keep a Changelog format with v0.2.0 entry
+- **Updated:** `README.md` with v0.2.0 status, dynamic directory scoping features, updated test count (853), security enhancements
+- **Updated:** `.github/copilot-instructions.md` with v0.2.0 implementation status and IAccessPolicyEngine security guidance
+- **Updated:** `AGENTS.md` with v0.2.0 implementation status, updated security rules, CHANGELOG.md in Key Files Reference
+- **Updated:** `docs/status/PROGRESS.md` with issue v0.2.0-11 completion and updated timestamp
+- **All 11 v0.2.0 issues marked complete**
+
+**Issue v0.2.0-10 Details:**
+- **Created:** 3 new adversarial test files with 60 test methods (87 total test cases with Theory parameters)
+  - `AccessPolicyEngineAdversarialTests.cs`: 21 test methods covering system directory bypass, ceiling enforcement, path manipulation, session scope accumulation, cross-volume detection
+  - `PathResolverAdversarialTests.cs`: 18 test methods covering ADS attacks, device name blocking, device path prefixes, deeply nested paths
+  - `GlobPatternAdversarialTests.cs`: 21 test methods covering overly broad patterns, relative traversal, blocked directories, null/empty patterns
+- **Testing:** All 515 tests in Krutaka.Tools.Tests pass (87 new), total 854 tests pass (1 skipped)
+- **Build:** Zero warnings, zero errors
+
+---
+
+## v0.2.1 — Bug Fixes
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| — | ConsoleUI crash on empty status string | Bug Fix | 🟢 Complete | 2026-02-13 |
+| — | ApprovalHandler crash on unescaped markup brackets | Bug Fix | 🟢 Complete | 2026-02-13 |
+| — | Interactive prompts blocked inside Status context | Bug Fix | 🟢 Complete | 2026-02-13 |
+| — | Configurable MaxToolResultCharacters | Enhancement | 🟢 Complete | 2026-02-13 |
+| — | ApprovalTimeoutSeconds configurable via appsettings | Enhancement | 🟢 Complete | 2026-02-13 |
+
+**Bug Fix Details:**
+- **ConsoleUI crash:** `ctx.Status(string.Empty)` threw `InvalidOperationException` ("Task name cannot be empty") from Spectre.Console when streaming text deltas. Spectre.Console's `ProgressTask` validates with `string.IsNullOrWhiteSpace()`, so neither empty strings nor whitespace-only strings are accepted. Fixed by using a zero-width space (`\u200B`) which is not whitespace per .NET's `char.IsWhiteSpace` but is invisible in terminal output.
+- **ApprovalHandler crash:** `SelectionPrompt` converter strings like `[green][Y]es...` caused `InvalidOperationException` ("Could not find color or style 'R'") because Spectre.Console parsed `[Y]`, `[R]`, `[N]`, `[S]` as markup style tags. Fixed by escaping brackets: `[Y]` → `[[Y]]` which renders as literal `[Y]` in terminal. Same latent bug existed in all approval prompt converters (`GetUserDecision` and `GetDirectoryAccessDecision`).
+- **Interactive prompts blocked:** `SelectionPrompt` (used for tool approval and directory access prompts) was called inside `AnsiConsole.Status().StartAsync()` live rendering context. Spectre.Console's exclusivity mode prevented the `SelectionPrompt` from capturing keyboard input — the prompt rendered but the user couldn't interact. Fixed by restructuring `DisplayStreamingResponseAsync` to exit the Status context before showing interactive prompts, then re-enter afterward using a manual `IAsyncEnumerator`.
+- **Configurable MaxToolResultCharacters:** Previously hardcoded at 200,000 characters. Now configurable via `Agent:MaxToolResultCharacters` in `appsettings.json`. When set to 0 (default), derived dynamically from `Claude:MaxTokens × 4`, capped at minimum 100,000.
+- **ApprovalTimeoutSeconds:** Previously hardcoded to 300 seconds. Now read from `Agent:ApprovalTimeoutSeconds` in `appsettings.json`.
+- **Testing:** Added 6 tests for MaxToolResultCharacters configuration, 12 tests for markup validation; all 903 tests passing.
+
+---
+
+## v0.1.0 Notes
 
 - Issues must be executed in order (dependencies are sequential within phases)
 - After completing each issue, update this file: change status to 🟢 Complete and add the date

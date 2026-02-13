@@ -4,7 +4,7 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
-**Implementation Status:** ✅ **v0.1.0 Core Features Complete** — All core features implemented with 576 tests passing. See `docs/status/PROGRESS.md` for detailed status (Issue #7 - Secrets Management marked as partially complete).
+**Implementation Status:** ✅ **v0.2.0 Dynamic Directory Scoping Complete** — All core features and dynamic directory scoping implemented with 853 tests passing. See `docs/status/PROGRESS.md` for detailed status.
 
 ## Coding Conventions
 
@@ -33,7 +33,8 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 ### Security (Critical)
 - NEVER hardcode secrets, API keys, or credentials
 - NEVER use `string.Format` or interpolation to build shell commands — use CliWrap argument arrays
-- ALWAYS validate file paths through `SafeFileOperations` before any I/O
+- ALWAYS validate directory access through `IAccessPolicyEngine.EvaluateAsync()` before any file I/O
+- ALWAYS validate file paths through `PathResolver.ResolveToFinalTarget()` to resolve symlinks, junctions, and reparse points
 - ALWAYS validate commands through `CommandPolicy` before execution
 - ALWAYS wrap untrusted content in `<untrusted_content>` tags when sending to Claude
 - ALWAYS use `CancellationToken` for cancellable operations
@@ -51,3 +52,5 @@ Before making changes, read:
 - `docs/status/PROGRESS.md` — Current implementation status
 - `docs/architecture/OVERVIEW.md` — Component architecture
 - `docs/architecture/SECURITY.md` — Security model (for security-sensitive code)
+- `docs/versions/v0.2.0.md` — v0.2.0 dynamic directory scoping architecture design
+- `docs/architecture/DECISIONS.md` — Architecture Decision Records (ADR-012 for access policy engine)

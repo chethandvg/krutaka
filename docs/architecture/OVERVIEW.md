@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-11 (Issue #21 complete — ConsoleUI and MarkdownRenderer with streaming support)
+> **Last updated:** 2026-02-13 (v0.2.0 release documentation complete — dynamic directory scoping fully implemented)
 
 ## System Architecture
 
@@ -39,6 +39,8 @@ flowchart LR
 **Path:** `src/Krutaka.Core/`  
 **Dependencies:** None (zero NuGet packages)
 
+> **v0.2.0 Note:** This project will receive new interfaces for dynamic directory access control: `IAccessPolicyEngine`, `ISessionAccessStore`, and new model types (`DirectoryAccessRequest`, `AccessDecision`, `AccessLevel` enum, `SessionAccessGrant`). See `docs/versions/v0.2.0.md` for details.
+
 The shared contract layer. Defines all interfaces that other projects implement, all model types used across the solution, the core agentic loop orchestrator, context window management, and system prompt assembly.
 
 #### Core Interfaces
@@ -49,9 +51,11 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `IToolRegistry` | Tool collection and dispatch | Register, GetToolDefinitions, ExecuteAsync |
 | `IClaudeClient` | Claude API abstraction | SendMessageAsync (streaming), CountTokensAsync |
 | `IMemoryService` | Hybrid search and storage | HybridSearchAsync, StoreAsync, ChunkAndIndexAsync |
-| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync |
+| `ISessionStore` | JSONL session persistence | AppendAsync, LoadAsync, ReconstructMessagesAsync (static on SessionStore: FindMostRecentSession, ListSessions) |
 | `ISecurityPolicy` | Security policy enforcement | ValidatePath, ValidateCommand, ScrubEnvironment, IsApprovalRequired |
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
+| `IAccessPolicyEngine` | **[v0.2.0]** Directory access policy evaluation | EvaluateAsync(DirectoryAccessRequest, CancellationToken) → Task<AccessDecision> |
+| `ISessionAccessStore` | **[v0.2.0]** Session-scoped directory access grants with TTL | IsGrantedAsync, GrantAccessAsync, RevokeAccessAsync, GetActiveGrantsAsync, PruneExpiredAsync |
 
 #### Model Types
 
@@ -60,9 +64,16 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ToolBase` | Abstract Class | Base class with BuildSchema helper for JSON Schema generation |
 | `AgentEvent` | Abstract Record | Base for event hierarchy (TextDelta, ToolCallStarted/Completed/Failed, HumanApprovalRequired, FinalResponse) |
 | `SessionEvent` | Record | JSONL event: Type, Role, Content, Timestamp, ToolName, ToolUseId, IsMeta |
+| `SessionInfo` | Record | Session metadata: SessionId, FilePath, LastModified, MessageCount, FirstUserMessage |
 | `MemoryResult` | Record | Search result: Id, Content, Source, CreatedAt, Score |
 | `AgentConfiguration` | Record | Configuration: ModelId, MaxTokens, Temperature, approval preferences, directory paths |
 | `CompactionResult` | Record | Context compaction result: message counts, token counts, summary, compacted messages |
+| `AccessLevel` | Enum | **[v0.2.0]** Access level for directory operations: ReadOnly, ReadWrite, Execute |
+| `DirectoryAccessRequest` | Record | **[v0.2.0]** Request to access a directory: Path, Level, Justification |
+| `AccessDecision` | Record | **[v0.2.0]** Result of access evaluation: Granted, ScopedPath, GrantedLevel, ExpiresAfter, DeniedReasons |
+| `SessionAccessGrant` | Record | **[v0.2.0]** Session-scoped directory grant: Path, AccessLevel, GrantedAt, ExpiresAt, Justification, GrantedBy |
+| `GrantSource` | Enum | **[v0.2.0]** Source of directory grant: User, AutoGrant, Policy |
+
 
 #### Core Classes
 
@@ -81,6 +92,7 @@ The `AgentOrchestrator` implements the core agentic loop with the following feat
 - **Pattern A implementation**: Manual loop with full control for transparency, audit logging, and human-in-the-loop approvals
 - **Streaming support**: Yields `IAsyncEnumerable<AgentEvent>` for real-time progress tracking
 - **Tool execution**: Processes tool calls from Claude, enforces security policies, and manages tool results
+- **Context compaction**: Invokes `ContextCompactor` before every Claude API call inside the agentic loop to prevent context window overflow during multi-step tool-call rounds
 - **Tool-result ordering invariants**: Ensures tool result blocks are correctly formatted and ordered per Claude API requirements:
   - Tool result blocks must come first in user messages
   - Every tool_result references a valid tool_use.Id
@@ -94,6 +106,8 @@ The `AgentOrchestrator` implements the core agentic loop with the following feat
 **Key Methods:**
 - `RunAsync(userPrompt, systemPrompt, cancellationToken)`: Main entry point for agentic loop
 - `ApproveTool(toolUseId, alwaysApprove)`: Approves pending tool execution
+- `RestoreConversationHistory(messages)`: Restores conversation from previous session
+- `ClearConversationHistory()`: Clears conversation history for fresh start
 - `ConversationHistory`: Read-only access to conversation state
 
 #### ContextCompactor Implementation
@@ -107,12 +121,15 @@ The `ContextCompactor` provides automatic context window management with the fol
   - Note: For production use, configure a cheaper model (e.g., Claude Haiku) via a dedicated `IClaudeClient` instance
 - **Message preservation**: Keeps last 6 messages (3 user/assistant pairs) + adds summary message
   - Conditionally adds assistant acknowledgment only when needed to maintain role alternation
-- **Content preservation**: Summary focuses on:
-  - File paths mentioned or modified
-  - Action items completed or pending
-  - Technical decisions made
-  - Error context and debugging insights
-  - Key outcomes from tool executions
+- **Content preservation**: Enhanced summary prompt focuses on maximum detail retention:
+  - Exact file paths (full absolute paths)
+  - Code snippets with function signatures, class names, variable names
+  - Technical decisions — both chosen AND rejected approaches (and why)
+  - Exact error messages, stack traces, and resolution steps
+  - Tool execution results with actual command output
+  - User corrections (rejected vs. accepted versions)
+  - Configuration values (ports, env vars, model names)
+  - Action items completed and pending
 - **Security**: Wraps untrusted conversation content in `<untrusted_content>` tags for prompt injection defense
 - **Short-circuit optimization**: When `messages.Count <= messagesToKeep`, returns original messages without summarization
 - **Token counting**: Counts tokens in compacted conversation and reports original vs. new token count
@@ -222,36 +239,41 @@ Claude API integration layer with token counting and context management.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10)  
+**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10), **Dynamic directory scoping integrated** (Issue v0.2.0-8 — 2026-02-12)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
+
+> **v0.2.0 Update:** All 6 file and command tools now use `IAccessPolicyEngine` for dynamic directory access evaluation. Tools request directory access per-operation instead of being locked to a single static root at construction time. See `docs/versions/v0.2.0.md` for architecture details.
 
 Tool implementations with security policy enforcement.
 
 | Type | Risk Level | Approval | Status |
 |---|---|---|---|
-| `ReadFileTool` | Low | Auto-approve | ✅ Implemented |
-| `ListFilesTool` | Low | Auto-approve | ✅ Implemented |
-| `SearchFilesTool` | Low | Auto-approve | ✅ Implemented |
-| `WriteFileTool` | High | Required | ✅ Implemented |
-| `EditFileTool` | High | Required | ✅ Implemented |
-| `RunCommandTool` | Critical | Always required | ✅ Fully Implemented |
+| `ReadFileTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `ListFilesTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `SearchFilesTool` | Low | Auto-approve | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `WriteFileTool` | High | Required | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `EditFileTool` | High | Required | ✅ Implemented (v0.2.0: Dynamic directory scoping) |
+| `RunCommandTool` | Critical | Always required | ✅ Fully Implemented (v0.2.0: Dynamic working directory resolution) |
 | `MemoryStoreTool` | Medium | Auto-approve | ✅ Implemented |
 | `MemorySearchTool` | Low | Auto-approve | ✅ Implemented |
 | `CommandPolicy` | — | Allowlist/blocklist enforcement | ✅ Implemented |
 | `SafeFileOperations` | — | Path canonicalization + jail | ✅ Implemented |
+| `PathResolver` | — | **[v0.2.0]** Symlink/junction resolution, ADS/device name blocking | ✅ Implemented |
+| `LayeredAccessPolicyEngine` | — | **[v0.2.0]** Four-layer directory access policy (Hard Deny → Allow → Session → Heuristic) | ✅ Implemented |
+| `InMemorySessionAccessStore` | — | **[v0.2.0]** Session-scoped directory access grant storage with TTL enforcement | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
 | `ToolRegistry` | — | Collection + dispatch | ✅ Implemented |
-| `ToolOptions` | — | Configuration for tool execution | ✅ Implemented |
-| `ServiceExtensions` | — | DI registration via `AddAgentTools()` | ✅ Implemented |
+| `ToolOptions` | — | Configuration for tool execution (v0.2.0: `DefaultWorkingDirectory`, ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
+| `ServiceExtensions` | — | DI registration via `AddAgentTools()` (v0.2.0: injects `IAccessPolicyEngine` into all tools) | ✅ Implemented |
 
-**Implemented Tools Details:**
-- **ReadFileTool**: Reads file contents with path validation and 1MB size limit. Wraps output in `<untrusted_content>` tags for prompt injection defense.
-- **ListFilesTool**: Lists files matching glob patterns recursively. Validates all paths and filters blocked files/directories.
-- **SearchFilesTool**: Grep-like text/regex search across files. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
-- **WriteFileTool**: Creates or overwrites files with security validation. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
-- **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Creates backups before editing. Returns a diff showing changes. Requires human approval.
-- **RunCommandTool**: Executes shell commands with full security controls and sandboxing:
+**Implemented Tools Details (v0.2.0 Dynamic Directory Scoping):**
+- **ReadFileTool**: Reads file contents with dynamic directory access evaluation via `IAccessPolicyEngine`. Requests `AccessLevel.ReadOnly` for the file's parent directory. Falls back to static root if policy engine is null (backward compatibility). Wraps output in `<untrusted_content>` tags for prompt injection defense.
+- **ListFilesTool**: Lists files matching glob patterns recursively. Requests `AccessLevel.ReadOnly` for the target directory via policy engine. Validates all paths and filters blocked files/directories.
+- **SearchFilesTool**: Grep-like text/regex search across files. Requests `AccessLevel.ReadOnly` for the search directory via policy engine. Supports case-sensitive/insensitive matching, file pattern filtering, and returns results with file path and line number.
+- **WriteFileTool**: Creates or overwrites files with dynamic directory access evaluation. Requests `AccessLevel.ReadWrite` for the file's parent directory via policy engine. Creates parent directories if needed. Backs up existing files before overwriting. Requires human approval.
+- **EditFileTool**: Edits files by replacing content in a specific line range (1-indexed). Requests `AccessLevel.ReadWrite` for the file's parent directory via policy engine. Creates backups before editing. Returns a diff showing changes. Requires human approval.
+- **RunCommandTool**: Executes shell commands with dynamic working directory resolution. Requests `AccessLevel.Execute` for the working directory via policy engine if specified. Full security controls and sandboxing:
   - **Command validation**: Allowlist/blocklist enforcement, shell metacharacter detection
   - **Environment scrubbing**: Removes sensitive variables (*_KEY, *_SECRET, *_TOKEN, ANTHROPIC_*, etc.)
   - **Job Object sandboxing** (Windows only): 256 MB memory limit, 30-second CPU time limit, kill-on-job-close
@@ -260,6 +282,24 @@ Tool implementations with security policy enforcement.
   - **Platform-aware**: Job Objects active on Windows, graceful fallback on other platforms
   - **Requires human approval** for every invocation (no "Always allow" option)
   - Captures stdout/stderr with clear labeling and exit codes
+
+**Security Components (v0.2.0):**
+- **LayeredAccessPolicyEngine**: Four-layer directory access policy engine implementing `IAccessPolicyEngine`:
+  - **Layer 1 - Hard Deny (immutable)**: Blocks system directories (C:\Windows, Program Files, etc.), AppData, ~/.krutaka, UNC paths, paths above ceiling, and paths with ADS/device names. Uses `PathResolver` for symlink/junction resolution before evaluation. Denials at this layer cannot be overridden by any other layer.
+  - **Layer 2 - Configurable Allow**: Matches glob patterns (e.g., `C:\Users\me\Projects\**`) from `ToolOptions.AutoGrantPatterns` for auto-approved access without prompting. Supports `**` for recursive directory matching.
+  - **Layer 3 - Session Grants**: Checks `ISessionAccessStore` (optional, from Issue v0.2.0-6) for previously approved directory access within the session. Respects access level (ReadOnly grant ≠ ReadWrite access) and TTL expiry.
+  - **Layer 4 - Heuristic Checks**: Flags suspicious patterns for human review - cross-volume access (different drive than ceiling), very deep nesting (>10 levels). Default outcome: RequiresApproval.
+  - **Decision caching**: Caches decisions for the same canonical path within a single evaluation to avoid redundant checks.
+  - **Test coverage**: 24 comprehensive tests covering all layers, layering behavior, edge cases, and error handling.
+- **PathResolver** (v0.2.0-3): Segment-by-segment symlink/junction resolution with circular link detection, ADS blocking, device name blocking, and device path prefix blocking. Ensures intermediate directory symlinks are resolved before validation.
+- **InMemorySessionAccessStore** (v0.2.0-6): Thread-safe in-memory implementation of `ISessionAccessStore`:
+  - **Thread-safety**: Uses `ConcurrentDictionary<string, SessionAccessGrant>` with case-insensitive path comparison and `SemaphoreSlim` for atomic operations
+  - **TTL enforcement**: Throttled automatic pruning (max once per second) to avoid performance overhead on frequent reads
+  - **Max concurrent grants**: Configurable limit (default: 10) enforced atomically during grant with prune-check-add inside lock to prevent race conditions
+  - **Access level validation**: ReadWrite grants cover ReadOnly requests; Execute grants are independent
+  - **Grant operations**: GrantAccessAsync, RevokeAccessAsync, IsGrantedAsync, GetActiveGrantsAsync, PruneExpiredAsync
+  - **Lifecycle**: Registered as singleton (application-wide lifetime), implements IDisposable for SemaphoreSlim cleanup
+  - **Test coverage**: 25 comprehensive tests covering grant/revoke, TTL expiry, max limits, thread-safety, and access level validation
 
 **Tool Registry & DI:**
 - **ToolRegistry**: Centralized collection of all tools with:
@@ -271,9 +311,15 @@ Tool implementations with security policy enforcement.
   - `WorkingDirectory`: Root directory for file/command operations (defaults to current directory)
   - `CommandTimeoutSeconds`: Timeout for command execution (defaults to 30 seconds)
   - `RequireApprovalForWrites`: Whether write operations require human approval (defaults to true)
+  - **[v0.2.0]** `CeilingDirectory`: Maximum ancestor directory the agent can access (defaults to user profile)
+  - **[v0.2.0]** `AutoGrantPatterns`: Glob patterns for auto-approved directory access (Layer 2), e.g., `["C:\\Users\\me\\Projects\\**"]`
+  - **[v0.2.0]** `MaxConcurrentGrants`: Maximum simultaneous directory access grants per session (defaults to 10)
+  - **[v0.2.0]** `DefaultGrantTtlMinutes`: Default TTL for session grants (null = session lifetime)
 - **ServiceExtensions.AddAgentTools()**: DI registration method that:
   - Registers `ToolOptions` as singleton
   - Registers `CommandPolicy` as `ISecurityPolicy` singleton
+  - **[v0.2.0]** Registers `InMemorySessionAccessStore` as `ISessionAccessStore` singleton (application-wide lifetime)
+  - **[v0.2.0]** Registers `LayeredAccessPolicyEngine` as `IAccessPolicyEngine` singleton
   - Registers `ToolRegistry` as `IToolRegistry` singleton
   - Instantiates and registers all 6 tool implementations
   - Automatically adds all tools to the registry
@@ -309,13 +355,19 @@ Persistence layer for sessions, memory search, and daily logs.
 - **Session persistence**: All event types are persisted during the agentic loop via `WrapWithSessionPersistence()` in the composition root:
   - Accumulated assistant text is flushed before tool_use events to preserve content block ordering
   - Tool errors use `tool_error` type so `ReconstructMessagesAsync` reconstructs `is_error=true` for Claude
+- **Session discovery** (added in smart session management):
+  - `FindMostRecentSession(projectPath)`: Static method to find the most recently modified non-empty session
+  - `ListSessions(projectPath, limit)`: Static method to get session metadata (SessionId, LastModified, MessageCount, FirstUserMessage preview)
+  - Ignores empty session files (Length == 0) to reduce clutter
+  - Handles corrupted files gracefully by skipping them
+- **Auto-resume behavior**: Application startup automatically finds and loads the most recent session for the current project
 - **Key methods**:
   - `AppendAsync(SessionEvent)`: Appends events to JSONL file immediately
   - `LoadAsync()`: Returns `IAsyncEnumerable<SessionEvent>` from JSONL file
   - `ReconstructMessagesAsync()`: Rebuilds message list from events for Claude API (handles `tool_error` → `is_error=true`)
   - `SaveMetadataAsync(projectPath, modelId)`: Writes session metadata
 - **Resource management**: Implements `IDisposable` for `SemaphoreSlim` cleanup
-- **Testing**: 18 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, and concurrent access
+- **Testing**: 29 comprehensive unit tests covering serialization, reconstruction, path encoding edge cases, concurrent access, and session discovery
 
 **SqliteMemoryStore Implementation Details (v1 — FTS5 only):**
 - **Database path**: `~/.krutaka/memory.db` (configurable via `MemoryOptions`)
@@ -438,7 +490,7 @@ Entry point and console UI with streaming display and Markdown rendering.
 | `Program` | Composition root, DI wiring, main loop | Placeholder |
 | `ConsoleUI` | Streaming display, input prompt, tool indicators | ✅ Implemented |
 | `MarkdownRenderer` | Markdig AST → Spectre.Console markup | ✅ Implemented |
-| `ApprovalHandler` | Human-in-the-loop approval prompts | ✅ Implemented |
+| `ApprovalHandler` | Human-in-the-loop approval prompts (tools + directories) | ✅ Implemented |
 | `SetupWizard` | First-run API key configuration | ✅ Implemented |
 | `SecretsProvider` | Windows Credential Manager read/write | ✅ Implemented |
 
@@ -471,7 +523,8 @@ The `ConsoleUI` class provides the main console interface with the following fea
 - **Event stream processing**: Handles `IAsyncEnumerable<AgentEvent>` from `AgentOrchestrator`:
   - `TextDelta`: Raw console write for streaming
   - `ToolCallStarted/Completed/Failed`: Status indicators
-  - `HumanApprovalRequired`: Triggers approval handler (integration pending)
+  - `HumanApprovalRequired`: Triggers approval handler (Issue #15)
+  - `DirectoryAccessRequested`: Not yet implemented in ConsoleUI (v0.2.0-9); orchestrator will block if raised
   - `FinalResponse`: Re-renders content with Markdown formatting
 
 **MarkdownRenderer Implementation Details:**
