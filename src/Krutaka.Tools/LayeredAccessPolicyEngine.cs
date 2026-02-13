@@ -138,7 +138,7 @@ public sealed class LayeredAccessPolicyEngine : IAccessPolicyEngine
 
                     if (isAtComponentEnd)
                     {
-                        return AccessDecision.Deny($"Access to '{blockedDir}' is not permitted.");
+                        return AccessDecision.Deny($"Access to system directory '{blockedDir}' is not permitted.");
                     }
                 }
 
