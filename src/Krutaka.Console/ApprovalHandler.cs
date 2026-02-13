@@ -93,6 +93,53 @@ internal sealed class ApprovalHandler
     }
 
     /// <summary>
+    /// Handles a command approval request from the agent (v0.3.0 tiered command execution).
+    /// Displays tier-specific approval prompt or auto-approval message.
+    /// </summary>
+    /// <param name="request">The command execution request requiring approval.</param>
+    /// <param name="decision">The policy decision containing tier and reason.</param>
+    /// <returns>An approval decision indicating whether to proceed and if always approve was selected.</returns>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static", Justification = "Method kept as instance method for consistency with other approval methods and potential future use of instance state.")]
+    public ApprovalDecision HandleCommandApproval(CommandExecutionRequest request, CommandDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(decision);
+
+        // Build command string for display
+        var commandString = BuildCommandString(request.Executable, request.Arguments);
+
+        // Display tier-aware approval prompt
+        DisplayCommandApprovalPrompt(request, decision, commandString);
+
+        // Get user decision (tier-specific options)
+        var userDecision = GetCommandUserDecision(decision.Tier);
+
+        return userDecision;
+    }
+
+    /// <summary>
+    /// Displays an auto-approval message for commands that don't require human approval.
+    /// Used for Safe tier and Moderate tier in trusted directories.
+    /// </summary>
+    /// <param name="request">The command execution request that was auto-approved.</param>
+    /// <param name="decision">The policy decision containing tier and reason.</param>
+    public static void DisplayAutoApprovalMessage(CommandExecutionRequest request, CommandDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(decision);
+
+        var commandString = BuildCommandString(request.Executable, request.Arguments);
+        var tierDescription = decision.Tier switch
+        {
+            CommandRiskTier.Safe => "Safe",
+            CommandRiskTier.Moderate => "Moderate — trusted dir",
+            _ => decision.Tier.ToString()
+        };
+
+        AnsiConsole.MarkupLine($"[dim]⚙ Auto-approved ({tierDescription}): {Markup.Escape(commandString)}[/]");
+    }
+
+    /// <summary>
     /// Creates a denial message to send back to Claude when a tool is denied.
     /// This is sent as a tool result (not an error) so Claude can adjust its approach.
     /// </summary>
@@ -527,6 +574,135 @@ internal sealed class ApprovalHandler
             _ => new DirectoryAccessApproval(false, null, false) // Safe default
         };
     }
+
+    /// <summary>
+    /// Displays the command approval prompt with tier-specific formatting.
+    /// </summary>
+    private static void DisplayCommandApprovalPrompt(CommandExecutionRequest request, CommandDecision decision, string commandString)
+    {
+        AnsiConsole.WriteLine();
+
+        var content = new System.Text.StringBuilder();
+
+        // Add tier with emoji and label
+        var tierLabel = GetTierLabel(decision.Tier);
+        var tierEmoji = GetTierEmoji(decision.Tier);
+        content.AppendLine(CultureInfo.InvariantCulture, $"[bold]Risk Tier:[/] {tierEmoji} {tierLabel}");
+        content.AppendLine();
+
+        // Add working directory
+        var workingDir = string.IsNullOrWhiteSpace(request.WorkingDirectory)
+            ? "(project root)"
+            : request.WorkingDirectory;
+        content.AppendLine(CultureInfo.InvariantCulture, $"[bold]Working Directory:[/] {Markup.Escape(workingDir)}");
+        content.AppendLine();
+
+        // Add justification
+        content.AppendLine("[bold]Justification:[/]");
+        content.AppendLine(CultureInfo.InvariantCulture, $"  {Markup.Escape(request.Justification)}");
+
+        var panel = new Panel(content.ToString())
+            .Border(BoxBorder.Rounded)
+            .BorderColor(GetTierBorderColor(decision.Tier))
+            .Header($"[bold]⚙ Claude wants to run: {Markup.Escape(commandString)}[/]");
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
+    /// Gets the user's decision for a command approval based on the tier.
+    /// </summary>
+    private static ApprovalDecision GetCommandUserDecision(CommandRiskTier tier)
+    {
+        // For Elevated tier, only allow Yes/No (no "Always" option per security policy)
+        if (tier == CommandRiskTier.Elevated)
+        {
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<ApprovalChoice>()
+                    .Title("Allow this command?")
+                    .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No)
+                    .UseConverter(choice => choice switch
+                    {
+                        ApprovalChoice.Yes => "[green][[Y]]es - Execute this command[/]",
+                        ApprovalChoice.No => "[red][[N]]o - Deny this command[/]",
+                        _ => choice.ToString()
+                    }));
+
+            return choice == ApprovalChoice.Yes
+                ? new ApprovalDecision(true, false)
+                : new ApprovalDecision(false, false);
+        }
+
+        // For Moderate tier (outside trusted directory), offer Yes/No/Always
+        var moderateChoice = AnsiConsole.Prompt(
+            new SelectionPrompt<ApprovalChoice>()
+                .Title("Allow this command?")
+                .AddChoices(ApprovalChoice.Yes, ApprovalChoice.No, ApprovalChoice.Always)
+                .UseConverter(c => c switch
+                {
+                    ApprovalChoice.Yes => "[green][[Y]]es - Execute this command[/]",
+                    ApprovalChoice.No => "[red][[N]]o - Deny this command[/]",
+                    ApprovalChoice.Always => "[yellow][[A]]lways - Approve this command for this session[/]",
+                    _ => c.ToString()
+                }));
+
+        return moderateChoice switch
+        {
+            ApprovalChoice.Yes => new ApprovalDecision(true, false),
+            ApprovalChoice.Always => new ApprovalDecision(true, true),
+            _ => new ApprovalDecision(false, false)
+        };
+    }
+
+    /// <summary>
+    /// Builds a human-readable command string from executable and arguments.
+    /// </summary>
+    private static string BuildCommandString(string executable, IReadOnlyList<string> arguments)
+    {
+        if (arguments == null || arguments.Count == 0)
+        {
+            return executable;
+        }
+
+        return $"{executable} {string.Join(" ", arguments)}";
+    }
+
+    /// <summary>
+    /// Gets the tier label for display.
+    /// </summary>
+    private static string GetTierLabel(CommandRiskTier tier) => tier switch
+    {
+        CommandRiskTier.Safe => "[green]SAFE[/]",
+        CommandRiskTier.Moderate => "[yellow]MODERATE (not in trusted directory)[/]",
+        CommandRiskTier.Elevated => "[red]ELEVATED[/]",
+        CommandRiskTier.Dangerous => "[red]DANGEROUS[/]",
+        _ => "[grey]UNKNOWN[/]"
+    };
+
+    /// <summary>
+    /// Gets the tier emoji for display.
+    /// </summary>
+    private static string GetTierEmoji(CommandRiskTier tier) => tier switch
+    {
+        CommandRiskTier.Safe => "🟢",
+        CommandRiskTier.Moderate => "🟢",
+        CommandRiskTier.Elevated => "🟡",
+        CommandRiskTier.Dangerous => "🔴",
+        _ => "⚪"
+    };
+
+    /// <summary>
+    /// Gets the border color for the approval prompt based on tier.
+    /// </summary>
+    private static Color GetTierBorderColor(CommandRiskTier tier) => tier switch
+    {
+        CommandRiskTier.Safe => Color.Green,
+        CommandRiskTier.Moderate => Color.Yellow,
+        CommandRiskTier.Elevated => Color.Red,
+        CommandRiskTier.Dangerous => Color.Red,
+        _ => Color.Grey
+    };
 }
 
 /// <summary>
