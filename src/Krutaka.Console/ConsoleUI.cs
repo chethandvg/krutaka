@@ -109,9 +109,11 @@ internal sealed class ConsoleUI : IDisposable
                             if (firstToken)
                             {
                                 // Stop spinner and start streaming text.
-                                // Spectre.Console requires a non-empty status string,
-                                // so use a single space to visually clear the spinner.
-                                ctx.Status(" ");
+                                // Spectre.Console rejects empty or whitespace-only status strings
+                                // (ProgressTask.Update throws InvalidOperationException).
+                                // Use a zero-width space (U+200B) which is NOT whitespace per
+                                // char.IsWhiteSpace, so it passes validation while being invisible.
+                                ctx.Status("\u200B");
                                 ctx.Spinner(Spinner.Known.Default);
                                 AnsiConsole.WriteLine();
                                 firstToken = false;

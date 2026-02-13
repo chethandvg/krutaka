@@ -120,7 +120,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 | — | ApprovalTimeoutSeconds configurable via appsettings | Enhancement | 🟢 Complete | 2026-02-13 |
 
 **Bug Fix Details:**
-- **ConsoleUI crash:** `ctx.Status(string.Empty)` threw `InvalidOperationException` ("Task name cannot be empty") from Spectre.Console when streaming text deltas. Fixed by passing a non-empty placeholder string.
+- **ConsoleUI crash:** `ctx.Status(string.Empty)` threw `InvalidOperationException` ("Task name cannot be empty") from Spectre.Console when streaming text deltas. Spectre.Console's `ProgressTask` validates with `string.IsNullOrWhiteSpace()`, so neither empty strings nor whitespace-only strings are accepted. Fixed by using a zero-width space (`\u200B`) which is not whitespace per .NET's `char.IsWhiteSpace` but is invisible in terminal output.
 - **Configurable MaxToolResultCharacters:** Previously hardcoded at 200,000 characters. Now configurable via `Agent:MaxToolResultCharacters` in `appsettings.json`. When set to 0 (default), derived dynamically from `Claude:MaxTokens × 4`, capped at minimum 100,000.
 - **ApprovalTimeoutSeconds:** Previously hardcoded to 300 seconds. Now read from `Agent:ApprovalTimeoutSeconds` in `appsettings.json`.
 - **Testing:** Added 6 new tests for MaxToolResultCharacters configuration; all 891 tests passing.
