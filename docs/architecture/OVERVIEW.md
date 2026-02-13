@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-13 (v0.2.0 release documentation complete — dynamic directory scoping fully implemented)
+> **Last updated:** 2026-02-13 (v0.3.0 core abstractions added)
 
 ## System Architecture
 
@@ -56,6 +56,8 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ISkillRegistry` | Skill metadata provider | GetSkillMetadata |
 | `IAccessPolicyEngine` | **[v0.2.0]** Directory access policy evaluation | EvaluateAsync(DirectoryAccessRequest, CancellationToken) → Task<AccessDecision> |
 | `ISessionAccessStore` | **[v0.2.0]** Session-scoped directory access grants with TTL | IsGrantedAsync, GrantAccessAsync, RevokeAccessAsync, GetActiveGrantsAsync, PruneExpiredAsync |
+| `ICommandRiskClassifier` | **[v0.3.0]** Command risk tier classification | Classify(CommandExecutionRequest) → CommandRiskTier, GetRules() |
+| `ICommandPolicy` | **[v0.3.0]** Command execution policy evaluation | EvaluateAsync(CommandExecutionRequest, CancellationToken) → Task<CommandDecision> |
 
 #### Model Types
 
@@ -73,6 +75,11 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `AccessDecision` | Record | **[v0.2.0]** Result of access evaluation: Granted, ScopedPath, GrantedLevel, ExpiresAfter, DeniedReasons |
 | `SessionAccessGrant` | Record | **[v0.2.0]** Session-scoped directory grant: Path, AccessLevel, GrantedAt, ExpiresAt, Justification, GrantedBy |
 | `GrantSource` | Enum | **[v0.2.0]** Source of directory grant: User, AutoGrant, Policy |
+| `CommandRiskTier` | Enum | **[v0.3.0]** Command risk tier: Safe, Moderate, Elevated, Dangerous |
+| `CommandOutcome` | Enum | **[v0.3.0]** Command decision outcome: Approved, RequiresApproval, Denied |
+| `CommandRiskRule` | Record | **[v0.3.0]** Risk rule: Executable, ArgumentPatterns, Tier, Description |
+| `CommandExecutionRequest` | Record | **[v0.3.0]** Command execution request: Executable, Arguments (defensive copy), WorkingDirectory, Justification |
+| `CommandDecision` | Record | **[v0.3.0]** Command decision: Outcome, Tier, Reason; convenience properties: IsApproved, RequiresApproval, IsDenied; factory methods: Approve, RequireApproval, Deny |
 
 
 #### Core Classes

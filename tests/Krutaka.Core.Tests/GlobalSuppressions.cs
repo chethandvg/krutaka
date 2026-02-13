@@ -12,3 +12,6 @@ using System.Diagnostics.CodeAnalysis;
 
 // Allow unsealed test classes (for potential test inheritance)
 [assembly: SuppressMessage("Performance", "CA1852:Seal internal types", Justification = "Test classes may be inherited in future", Scope = "namespaceanddescendants", Target = "~N:Krutaka.Core.Tests")]
+
+// Allow inline array creation in test methods for readability
+[assembly: SuppressMessage("Performance", "CA1861:Avoid constant arrays as arguments", Justification = "Test readability is more important than performance", Scope = "namespaceanddescendants", Target = "~N:Krutaka.Core.Tests")]
