@@ -171,14 +171,14 @@ public sealed class GlobPatternValidator
 
         if (segmentCount < 3)
         {
-            errors.Add($"Glob pattern '{pattern}' is too broad (fewer than 3 path segments). Example of valid pattern: 'C:\\Users\\name\\Projects\\**'");
+            errors.Add($"Glob pattern '{pattern}' is too broad (fewer than 3 path segments required). Example of valid pattern: 'C:\\Users\\name\\Projects\\**'");
             return new ValidationResult(false, errors, warnings);
         }
 
         // Warn about patterns with fewer than 4 segments
         if (segmentCount < 4)
         {
-            warnings.Add($"Glob pattern '{pattern}' has only {segmentCount} segments - consider using a more specific pattern to reduce attack surface.");
+            warnings.Add($"Glob pattern '{pattern}' has only {segmentCount} segments - pattern is broad. Consider using a more specific pattern to reduce attack surface.");
         }
 
         return new ValidationResult(true, errors, warnings);
