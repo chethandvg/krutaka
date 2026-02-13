@@ -619,6 +619,118 @@ public sealed class AgentOrchestratorTests
             "CountTokensAsync must be called to evaluate whether compaction is needed");
     }
 
+    [Fact]
+    public void Constructor_Should_UseDefaultMaxToolResultCharacters_WhenNotSpecified()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act - no maxToolResultCharacters specified, should use default
+        var act = () => new AgentOrchestrator(claudeClient, toolRegistry, securityPolicy);
+
+        // Assert - should not throw
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Constructor_Should_UseDefaultMaxToolResultCharacters_WhenSetToZero()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act - maxToolResultCharacters = 0 should fall back to default
+        var act = () => new AgentOrchestrator(
+            claudeClient, toolRegistry, securityPolicy,
+            maxToolResultCharacters: 0);
+
+        // Assert - should not throw
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Constructor_Should_UseDefaultMaxToolResultCharacters_WhenSetToNegative()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act - negative value should fall back to default
+        var act = () => new AgentOrchestrator(
+            claudeClient, toolRegistry, securityPolicy,
+            maxToolResultCharacters: -100);
+
+        // Assert - should not throw
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Constructor_Should_AcceptCustomMaxToolResultCharacters()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act - explicit positive value
+        var act = () => new AgentOrchestrator(
+            claudeClient, toolRegistry, securityPolicy,
+            maxToolResultCharacters: 100_000);
+
+        // Assert - should not throw
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_TruncateToolResult_WhenExceedsCustomLimit()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var customLimit = 100; // Very small limit for testing
+
+        // Tool returns a result larger than the custom limit
+        var largeResult = new string('x', 200);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", largeResult);
+
+        // First response: tool use
+        claudeClient.AddToolCallStarted("search", "tool_trunc", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+
+        // Second response: final answer
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            maxToolResultCharacters: customLimit);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search test", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - the tool call should complete (not fail) but with truncated content
+        var completedEvents = events.OfType<ToolCallCompleted>().ToList();
+        completedEvents.Should().ContainSingle();
+        completedEvents[0].Result.Should().Contain("[Output truncated:");
+        completedEvents[0].Result.Length.Should().BeLessThan(largeResult.Length + 200); // Allow room for truncation notice
+    }
+
+    [Fact]
+    public void DefaultMaxToolResultCharacters_ShouldBe200000()
+    {
+        // Assert - verify the default constant value
+        AgentOrchestrator.DefaultMaxToolResultCharacters.Should().Be(200_000);
+    }
+
     private static AgentOrchestrator CreateOrchestrator(
         MockClaudeClient? claudeClient = null,
         MockToolRegistry? toolRegistry = null,

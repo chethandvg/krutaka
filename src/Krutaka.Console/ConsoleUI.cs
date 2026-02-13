@@ -108,8 +108,10 @@ internal sealed class ConsoleUI : IDisposable
                         case TextDelta delta:
                             if (firstToken)
                             {
-                                // Stop spinner and start streaming text
-                                ctx.Status(string.Empty);
+                                // Stop spinner and start streaming text.
+                                // Spectre.Console requires a non-empty status string,
+                                // so use a single space to visually clear the spinner.
+                                ctx.Status(" ");
                                 ctx.Spinner(Spinner.Known.Default);
                                 AnsiConsole.WriteLine();
                                 firstToken = false;

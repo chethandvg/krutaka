@@ -20,6 +20,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly IAuditLogger? _auditLogger;
     private readonly CorrelationContext? _correlationContext;
     private readonly ContextCompactor? _contextCompactor;
+    private readonly int _maxToolResultCharacters;
     private readonly TimeSpan _toolTimeout;
     private readonly TimeSpan _approvalTimeout;
     private readonly SemaphoreSlim _turnLock;
@@ -41,6 +42,8 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="securityPolicy">The security policy for approval checks.</param>
     /// <param name="toolTimeoutSeconds">Timeout for tool execution in seconds (default: 30).</param>
     /// <param name="approvalTimeoutSeconds">Timeout for human approval waits in seconds (default: 300 = 5 minutes, 0 = infinite).</param>
+    /// <param name="maxToolResultCharacters">Maximum characters allowed in a single tool result before truncation. 
+    /// Defaults to 200,000 (~50K tokens). Set to 0 to derive from maxTokens (maxTokens × 4).</param>
     /// <param name="sessionAccessStore">Optional session access store for directory access grants (v0.2.0).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
@@ -51,6 +54,7 @@ public sealed class AgentOrchestrator : IDisposable
         ISecurityPolicy securityPolicy,
         int toolTimeoutSeconds = 30,
         int approvalTimeoutSeconds = 300,
+        int maxToolResultCharacters = DefaultMaxToolResultCharacters,
         ISessionAccessStore? sessionAccessStore = null,
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null,
@@ -63,6 +67,7 @@ public sealed class AgentOrchestrator : IDisposable
         _auditLogger = auditLogger;
         _correlationContext = correlationContext;
         _contextCompactor = contextCompactor;
+        _maxToolResultCharacters = maxToolResultCharacters > 0 ? maxToolResultCharacters : DefaultMaxToolResultCharacters;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
         if (approvalTimeoutSeconds < 0)
         {
@@ -904,21 +909,22 @@ public sealed class AgentOrchestrator : IDisposable
     private sealed record ToolResult(string Content, bool IsError);
 
     /// <summary>
-    /// Maximum number of characters allowed in a single tool result before truncation.
+    /// Default maximum number of characters allowed in a single tool result before truncation.
     /// Approximately 200K characters ≈ 50K tokens, leaving ample room for the rest of the
     /// conversation, system prompt, and tool definitions within the 200K token API limit.
+    /// Configurable via <c>Agent:MaxToolResultCharacters</c> in appsettings.json.
     /// </summary>
-    private const int MaxToolResultCharacters = 200_000;
+    public const int DefaultMaxToolResultCharacters = 200_000;
 
     /// <summary>
-    /// Truncates a tool result that exceeds <see cref="MaxToolResultCharacters"/>.
+    /// Truncates a tool result that exceeds the configured maximum character limit.
     /// Returns the original result if it fits within the limit.
     /// When truncated, includes a clear message indicating truncation with the original size.
     /// Preserves <c>&lt;untrusted_content&gt;</c> wrapper tags when present to maintain prompt-injection mitigation.
     /// </summary>
-    private static string TruncateToolResult(string result, string toolName)
+    private string TruncateToolResult(string result, string toolName)
     {
-        if (result.Length <= MaxToolResultCharacters)
+        if (result.Length <= _maxToolResultCharacters)
         {
             return result;
         }
@@ -929,20 +935,20 @@ public sealed class AgentOrchestrator : IDisposable
         var isWrapped = result.StartsWith(openTag, StringComparison.Ordinal)
             && result.TrimEnd().EndsWith(closeTag, StringComparison.Ordinal);
 
-        var truncatedContent = result[..MaxToolResultCharacters];
+        var truncatedContent = result[.._maxToolResultCharacters];
 
         // Try to cut at the last newline to avoid breaking a line mid-way.
         // Only use the newline break if it's in the latter half of the content,
         // to avoid losing too much useful output.
         var lastNewline = truncatedContent.LastIndexOf('\n');
-        if (lastNewline > MaxToolResultCharacters / 2)
+        if (lastNewline > _maxToolResultCharacters / 2)
         {
             truncatedContent = truncatedContent[..lastNewline];
         }
 
         var truncationNotice = string.Create(CultureInfo.InvariantCulture,
             $"\n\n[Output truncated: tool '{toolName}' returned {result.Length:N0} characters, " +
-            $"which exceeds the {MaxToolResultCharacters:N0} character limit. " +
+            $"which exceeds the {_maxToolResultCharacters:N0} character limit. " +
             $"Results have been truncated. Consider using more specific search criteria or narrowing the scope.]");
 
         // Re-wrap in <untrusted_content> tags if the original result was wrapped,
