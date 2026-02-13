@@ -91,10 +91,12 @@ public sealed class ContextCompactor
         ArgumentNullException.ThrowIfNull(systemPrompt);
 
         // Minimum: keep at least 2 messages (one user + one assistant) for a valid conversation
+        // Only drop complete pairs to maintain the alternating role pattern
         const int absoluteMinimumMessages = 2;
+        const int pairSize = 2;
         var current = messages.ToList();
 
-        while (current.Count > absoluteMinimumMessages)
+        while (current.Count >= absoluteMinimumMessages + pairSize)
         {
             var tokenCount = await _claudeClient.CountTokensAsync(current, systemPrompt, cancellationToken).ConfigureAwait(false);
 
@@ -104,8 +106,7 @@ public sealed class ContextCompactor
             }
 
             // Drop the oldest 2 messages (one user-assistant pair) from the front
-            var dropCount = Math.Min(2, current.Count - absoluteMinimumMessages);
-            current.RemoveRange(0, dropCount);
+            current.RemoveRange(0, pairSize);
         }
 
         return current.AsReadOnly();
