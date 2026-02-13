@@ -82,10 +82,13 @@ internal sealed class ConsoleUI : IDisposable
     /// <param name="events">The stream of agent events.</param>
     /// <param name="onApprovalDecision">Optional callback invoked when a human approval decision is made. 
     /// Parameters: toolUseId, approved, alwaysApprove.</param>
+    /// <param name="onDirectoryAccessDecision">Optional callback invoked when a directory access approval decision is made.
+    /// Parameters: grantedLevel, createSessionGrant.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DisplayStreamingResponseAsync(
         IAsyncEnumerable<AgentEvent> events,
         Action<string, bool, bool>? onApprovalDecision = null,
+        Action<AccessLevel?, bool>? onDirectoryAccessDecision = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -155,6 +158,33 @@ internal sealed class ConsoleUI : IDisposable
                                 approval.ToolUseId,
                                 decision.Approved,
                                 decision.AlwaysApprove);
+
+                            firstToken = false;
+                            break;
+
+                        case DirectoryAccessRequested dirAccess:
+                            if (!firstToken)
+                            {
+                                AnsiConsole.WriteLine();
+                            }
+
+                            // Display directory access request and get the user's decision
+                            var dirDecision = _approvalHandler.HandleDirectoryAccess(
+                                dirAccess.Path,
+                                dirAccess.AccessLevel,
+                                dirAccess.Justification);
+
+                            // Notify the orchestrator of the directory access decision
+                            if (dirDecision.Approved)
+                            {
+                                onDirectoryAccessDecision?.Invoke(
+                                    dirDecision.GrantedLevel,
+                                    dirDecision.SessionGrant);
+                            }
+                            else
+                            {
+                                onDirectoryAccessDecision?.Invoke(null, false);
+                            }
 
                             firstToken = false;
                             break;
