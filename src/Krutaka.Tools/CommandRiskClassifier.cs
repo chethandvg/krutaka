@@ -13,20 +13,6 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
     private readonly IReadOnlyList<CommandRiskRule> _defaultRules;
     private readonly Dictionary<string, IReadOnlyList<CommandRiskRule>> _rulesByExecutable;
 
-    // Reference to existing blocklist from CommandPolicy
-    // These executables are ALWAYS Dangerous
-    private static readonly HashSet<string> BlockedExecutables = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "powershell", "pwsh", "cmd",
-        "reg", "regedit", "netsh", "netstat",
-        "certutil", "bitsadmin",
-        "format", "diskpart", "chkdsk",
-        "rundll32", "regsvr32", "mshta", "wscript", "cscript",
-        "msiexec", "sc", "schtasks", "taskkill",
-        "net", "net1", "runas", "icacls", "takeown",
-        "curl", "wget", "invoke-webrequest"
-    };
-
     public CommandRiskClassifier()
     {
         _defaultRules = BuildDefaultRules();
@@ -37,23 +23,32 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // 1. Normalize executable name (strip .exe, case-insensitive)
-        var executableName = NormalizeExecutableName(request.Executable);
-
-        // 2. Check blocklist → Dangerous
-        if (BlockedExecutables.Contains(executableName))
+        // 1. Security: Reject executables with path separators (same as CommandPolicy.ValidateCommand)
+        // This prevents executing arbitrary binaries by providing a path
+        if (request.Executable.Contains(Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+            request.Executable.Contains(Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
+            Path.IsPathRooted(request.Executable))
         {
             return CommandRiskTier.Dangerous;
         }
 
-        // 3. Look up executable in default rules
+        // 2. Normalize executable name (strip .exe, case-insensitive)
+        var executableName = NormalizeExecutableName(request.Executable);
+
+        // 3. Check blocklist → Dangerous (reference to CommandPolicy.BlockedExecutables)
+        if (CommandPolicy.BlockedExecutables.Contains(executableName))
+        {
+            return CommandRiskTier.Dangerous;
+        }
+
+        // 4. Look up executable in default rules
         if (!_rulesByExecutable.TryGetValue(executableName, out var rules))
         {
             // Unknown executable → Dangerous (fail-closed)
             return CommandRiskTier.Dangerous;
         }
 
-        // 4. Match argument patterns
+        // 5. Match argument patterns
         var tier = MatchArgumentPatterns(executableName, request.Arguments, rules);
         return tier;
     }
@@ -64,7 +59,8 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
     }
 
     /// <summary>
-    /// Normalizes executable name: strips .exe suffix, converts to lowercase for comparison.
+    /// Normalizes executable name by stripping .exe suffix.
+    /// Comparisons are performed case-insensitively by callers.
     /// </summary>
     private static string NormalizeExecutableName(string executable)
     {
@@ -205,7 +201,7 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
     }
 
     // Static readonly arrays for argument patterns (CA1861)
-    private static readonly string[] GitReadOnlyArgs = ["status", "log", "diff", "show", "branch", "tag", "remote", "rev-parse"];
+    private static readonly string[] GitReadOnlyArgs = ["status", "log", "diff", "show", "rev-parse"];
     private static readonly string[] DotnetInfoArgs = ["--version", "--info", "--list-sdks", "--list-runtimes"];
     private static readonly string[] NodeVersionArg = ["--version"];
     private static readonly string[] NpmVersionArg = ["--version"];
@@ -214,7 +210,7 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
     private static readonly string[] GitLocalArgs = ["add", "commit", "stash", "checkout", "switch", "merge"];
     private static readonly string[] DotnetBuildArgs = ["build", "test", "run", "restore", "clean", "format"];
     private static readonly string[] NpmScriptArgs = ["run", "test", "start", "lint", "build"];
-    private static readonly string[] GitRemoteArgs = ["push", "pull", "fetch", "clone", "rebase", "reset", "cherry-pick"];
+    private static readonly string[] GitRemoteArgs = ["push", "pull", "fetch", "clone", "rebase", "reset", "cherry-pick", "branch", "tag", "remote"];
     private static readonly string[] DotnetPackageArgs = ["publish", "pack", "nuget", "new", "tool"];
     private static readonly string[] NpmDependencyArgs = ["install", "uninstall", "update", "publish", "link"];
     private static readonly string[] PipDependencyArgs = ["install", "uninstall", "download"];

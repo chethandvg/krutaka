@@ -20,9 +20,6 @@ public sealed class CommandRiskClassifierTests
     [InlineData("log")]
     [InlineData("diff")]
     [InlineData("show")]
-    [InlineData("branch")]
-    [InlineData("tag")]
-    [InlineData("remote")]
     [InlineData("rev-parse")]
     public void Should_ClassifyGitReadOnlyOperations_AsSafe(string subcommand)
     {
@@ -372,6 +369,9 @@ public sealed class CommandRiskClassifierTests
     [InlineData("rebase")]
     [InlineData("reset")]
     [InlineData("cherry-pick")]
+    [InlineData("branch")]
+    [InlineData("tag")]
+    [InlineData("remote")]
     public void Should_ClassifyGitRemoteOperations_AsElevated(string subcommand)
     {
         // Arrange
@@ -616,6 +616,31 @@ public sealed class CommandRiskClassifierTests
             new[] { "arg" },
             "/test",
             "Exe suffix test");
+
+        // Act
+        var tier = _classifier.Classify(request);
+
+        // Assert
+        tier.Should().Be(CommandRiskTier.Dangerous);
+    }
+
+    #endregion
+
+    #region Path Separator Tests
+
+    [Theory]
+    [InlineData("C:\\tools\\git.exe")]
+    [InlineData("..\\git.exe")]
+    [InlineData("/usr/bin/git")]
+    [InlineData("../malicious")]
+    public void Should_ClassifyExecutablesWithPathSeparators_AsDangerous(string executable)
+    {
+        // Arrange
+        var request = new CommandExecutionRequest(
+            executable,
+            new[] { "status" },
+            "/test",
+            "Executable with path");
 
         // Act
         var tier = _classifier.Classify(request);

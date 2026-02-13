@@ -20,7 +20,7 @@ public class CommandPolicy : ISecurityPolicy
         "echo", "sort", "head", "tail", "wc", "diff", "mkdir"
     };
 
-    private static readonly HashSet<string> BlockedExecutables = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> BlockedExecutables = new(StringComparer.OrdinalIgnoreCase)
     {
         "powershell", "pwsh", "cmd",
         "reg", "regedit", "netsh", "netstat",
