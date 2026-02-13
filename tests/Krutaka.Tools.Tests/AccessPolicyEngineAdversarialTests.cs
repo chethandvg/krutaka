@@ -65,7 +65,7 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
         decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
         decision.DeniedReasons.Should().NotBeEmpty();
-        decision.DeniedReasons.Should().ContainMatch("*Windows*");
+        decision.DeniedReasons.Should().ContainMatch("*system directory*");
     }
 
     [Fact]
