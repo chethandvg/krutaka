@@ -8,9 +8,9 @@ public sealed class CorrelationContext
 {
     /// <summary>
     /// Session identifier (GUID, per session).
-    /// Generated once per session and remains constant throughout.
+    /// Can be reset when starting a new session via <see cref="ResetSession"/>.
     /// </summary>
-    public Guid SessionId { get; }
+    public Guid SessionId { get; private set; }
 
     /// <summary>
     /// Turn identifier (incrementing integer, per user turn within session).
@@ -57,6 +57,19 @@ public sealed class CorrelationContext
     /// </summary>
     public void ClearRequestId()
     {
+        RequestId = null;
+    }
+
+    /// <summary>
+    /// Resets the session with a new session ID and resets the turn counter.
+    /// Used by the /new command to start a fresh session while reusing
+    /// the same DI-registered CorrelationContext instance.
+    /// </summary>
+    /// <param name="newSessionId">The new session identifier.</param>
+    public void ResetSession(Guid newSessionId)
+    {
+        SessionId = newSessionId;
+        TurnId = 0;
         RequestId = null;
     }
 }

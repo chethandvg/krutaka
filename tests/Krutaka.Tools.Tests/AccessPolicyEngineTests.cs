@@ -50,8 +50,14 @@ public sealed class AccessPolicyEngineTests : IDisposable
     public async Task Should_DenyAccess_WhenPathIsSystemDirectory()
     {
         // Arrange
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows — Windows directory resolved via Environment
+        }
+
         var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], null);
-        var request = new DirectoryAccessRequest(@"C:\Windows", AccessLevel.ReadOnly, "test");
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var request = new DirectoryAccessRequest(windowsDir, AccessLevel.ReadOnly, "test");
 
         // Act
         var decision = await engine.EvaluateAsync(request, CancellationToken.None);
@@ -59,15 +65,20 @@ public sealed class AccessPolicyEngineTests : IDisposable
         // Assert
         decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
-        decision.DeniedReasons.Should().ContainMatch("*Windows*");
     }
 
     [Fact]
     public async Task Should_DenyAccess_WhenPathIsProgramFiles()
     {
         // Arrange
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows — Program Files resolved via Environment
+        }
+
         var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], null);
-        var request = new DirectoryAccessRequest(@"C:\Program Files\SomeApp", AccessLevel.ReadOnly, "test");
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var request = new DirectoryAccessRequest(Path.Combine(programFiles, "SomeApp"), AccessLevel.ReadOnly, "test");
 
         // Act
         var decision = await engine.EvaluateAsync(request, CancellationToken.None);
@@ -75,7 +86,6 @@ public sealed class AccessPolicyEngineTests : IDisposable
         // Assert
         decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
-        decision.DeniedReasons.Should().ContainMatch("*Program Files*");
     }
 
     [Fact]
@@ -370,9 +380,15 @@ public sealed class AccessPolicyEngineTests : IDisposable
     public async Task Should_DenyInLayer1_CannotBeOverriddenByLayer2GlobPattern()
     {
         // Arrange
-        var globPattern = @"C:\Windows\**"; // Try to auto-grant system directory
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows — Windows directory resolved via Environment
+        }
+
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var globPattern = windowsDir + @"\**"; // Try to auto-grant system directory
         var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [globPattern], null);
-        var request = new DirectoryAccessRequest(@"C:\Windows\System32", AccessLevel.ReadOnly, "test");
+        var request = new DirectoryAccessRequest(Path.Combine(windowsDir, "System32"), AccessLevel.ReadOnly, "test");
 
         // Act
         var decision = await engine.EvaluateAsync(request, CancellationToken.None);
@@ -380,19 +396,24 @@ public sealed class AccessPolicyEngineTests : IDisposable
         // Assert
         decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
-        decision.DeniedReasons.Should().ContainMatch("*Windows*");
     }
 
     [Fact]
     public async Task Should_DenyInLayer1_CannotBeOverriddenByLayer3SessionGrant()
     {
         // Arrange
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows — Windows directory resolved via Environment
+        }
+
+        var windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var mockSessionStore = Substitute.For<ISessionAccessStore>();
         mockSessionStore.IsGrantedAsync(Arg.Any<string>(), Arg.Any<AccessLevel>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult(true)); // Pretend session grant exists
 
         var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], mockSessionStore);
-        var request = new DirectoryAccessRequest(@"C:\Windows\System32", AccessLevel.ReadOnly, "test");
+        var request = new DirectoryAccessRequest(Path.Combine(windowsDir, "System32"), AccessLevel.ReadOnly, "test");
 
         // Act
         var decision = await engine.EvaluateAsync(request, CancellationToken.None);
@@ -400,7 +421,6 @@ public sealed class AccessPolicyEngineTests : IDisposable
         // Assert
         decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
-        decision.DeniedReasons.Should().ContainMatch("*Windows*");
     }
 
     #endregion

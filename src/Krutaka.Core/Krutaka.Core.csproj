@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\prompts\AGENTS.md" Link="prompts\AGENTS.md" LogicalName="Krutaka.Core.prompts.AGENTS.md" />
+  </ItemGroup>
+
 </Project>

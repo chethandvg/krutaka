@@ -17,6 +17,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly ISessionAccessStore? _sessionAccessStore;
     private readonly IAuditLogger? _auditLogger;
     private readonly CorrelationContext? _correlationContext;
+    private readonly ContextCompactor? _contextCompactor;
     private readonly TimeSpan _toolTimeout;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
@@ -37,6 +38,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="sessionAccessStore">Optional session access store for directory access grants (v0.2.0).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
+    /// <param name="contextCompactor">Optional context compactor for automatic context window management.</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
@@ -44,7 +46,8 @@ public sealed class AgentOrchestrator : IDisposable
         int toolTimeoutSeconds = 30,
         ISessionAccessStore? sessionAccessStore = null,
         IAuditLogger? auditLogger = null,
-        CorrelationContext? correlationContext = null)
+        CorrelationContext? correlationContext = null,
+        ContextCompactor? contextCompactor = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
@@ -52,6 +55,7 @@ public sealed class AgentOrchestrator : IDisposable
         _sessionAccessStore = sessionAccessStore;
         _auditLogger = auditLogger;
         _correlationContext = correlationContext;
+        _contextCompactor = contextCompactor;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
         _turnLock = new SemaphoreSlim(1, 1);
         _conversationHistory = [];
@@ -139,6 +143,12 @@ public sealed class AgentOrchestrator : IDisposable
             // Add user message to conversation history
             var userMessage = CreateUserMessage(userPrompt);
             _conversationHistory.Add(userMessage);
+
+            // Check if context compaction is needed before sending to Claude
+            if (_contextCompactor != null)
+            {
+                await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
+            }
 
             // Run the agentic loop until we get a final response
             await foreach (var evt in RunAgenticLoopAsync(systemPrompt, cancellationToken).ConfigureAwait(false))
@@ -529,6 +539,32 @@ public sealed class AgentOrchestrator : IDisposable
             role = "user",
             content = toolResults
         };
+    }
+
+    /// <summary>
+    /// Checks if context compaction is needed and performs it if so.
+    /// Replaces conversation history with compacted version.
+    /// </summary>
+    private async Task CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
+    {
+        if (_contextCompactor == null || _conversationHistory.Count == 0)
+        {
+            return;
+        }
+
+        var tokenCount = await _claudeClient.CountTokensAsync(_conversationHistory, systemPrompt, cancellationToken).ConfigureAwait(false);
+
+        if (_contextCompactor.ShouldCompact(tokenCount))
+        {
+            var result = await _contextCompactor.CompactAsync(
+                _conversationHistory,
+                systemPrompt,
+                tokenCount,
+                cancellationToken).ConfigureAwait(false);
+
+            _conversationHistory.Clear();
+            _conversationHistory.AddRange(result.CompactedMessages);
+        }
     }
 
     /// <summary>

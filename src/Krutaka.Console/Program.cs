@@ -83,6 +83,13 @@ try
 
     var builder = Host.CreateApplicationBuilder(args);
 
+    // Warn if appsettings.json is missing — all settings will use code defaults
+    var appSettingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+    if (!File.Exists(appSettingsPath))
+    {
+        Log.Warning("appsettings.json not found at {Path}. Using default configuration values.", appSettingsPath);
+    }
+
     // Add Serilog to host
     builder.Services.AddSerilog();
 
@@ -212,6 +219,19 @@ try
             memoryFileReader);
     });
 
+    // Register ContextCompactor
+    builder.Services.AddSingleton(sp =>
+    {
+        var claudeClient = sp.GetRequiredService<IClaudeClient>();
+        var auditLogger = sp.GetService<IAuditLogger>();
+        var correlationContext = sp.GetService<CorrelationContext>();
+
+        return new ContextCompactor(
+            claudeClient,
+            auditLogger: auditLogger,
+            correlationContext: correlationContext);
+    });
+
     // Register AgentOrchestrator
     var toolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
 
@@ -223,6 +243,7 @@ try
         var auditLogger = sp.GetRequiredService<IAuditLogger>();
         var correlationContext = sp.GetRequiredService<CorrelationContext>();
         var sessionAccessStore = sp.GetService<ISessionAccessStore>(); // Optional in v0.2.0
+        var contextCompactor = sp.GetService<ContextCompactor>();
 
         return new AgentOrchestrator(
             claudeClient,
@@ -231,7 +252,8 @@ try
             toolTimeoutSeconds,
             sessionAccessStore,
             auditLogger,
-            correlationContext);
+            correlationContext,
+            contextCompactor);
     });
 
     // Register ApprovalHandler
@@ -368,9 +390,8 @@ try
                 sessionStore.Dispose();
 
                 // Create new session
-                // Note: CorrelationContext.SessionId remains unchanged (set at startup)
-                // This means audit logs will still reference the original session ID
                 sessionId = Guid.NewGuid();
+                correlationContext.ResetSession(sessionId);
 #pragma warning disable CA2000 // New SessionStore will be disposed when app exits or on next /new
                 sessionStore = new SessionStore(workingDirectory, sessionId);
 #pragma warning restore CA2000
