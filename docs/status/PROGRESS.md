@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 GraduatedCommandPolicy security fix — Issue v0.3.0-4 complete — 1,122 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 RunCommandTool integration — Issue v0.3.0-5 complete — 1,138 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -133,7 +133,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 
 ## v0.3.0 — Graduated Command Execution (In Progress)
 
-> **Status:** 🟡 **In Progress** (Issue v0.3.0-3 complete — 2026-02-13)  
+> **Status:** 🟡 **In Progress** (Issue v0.3.0-5 complete — 2026-02-13)  
 > **Reference:** See `docs/versions/v0.3.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
@@ -148,6 +148,58 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-2 | Default command risk rules and CommandRiskClassifier implementation | Implementation | 🟢 Complete | 2026-02-13 |
 | v0.3.0-3 | Configurable command tier overrides via appsettings.json | Configuration | 🟢 Complete | 2026-02-13 |
 | v0.3.0-4 | GraduatedCommandPolicy implementation with tiered evaluation | Implementation | 🟢 Complete | 2026-02-13 |
+| v0.3.0-5 | Refactor RunCommandTool and DI registration to use ICommandPolicy | Integration | 🟢 Complete | 2026-02-13 |
+
+**Issue v0.3.0-5 Details:**
+- **Created:** `CommandApprovalRequiredException` in `src/Krutaka.Core/CommandApprovalRequiredException.cs`:
+  - New exception type for graduated command approval flow
+  - Includes `CommandExecutionRequest` and `CommandDecision` properties
+  - Follows same pattern as `DirectoryAccessRequiredException`
+  - Includes proper null validation and exception serialization constructors
+- **Created:** `CommandApprovalRequested` event in `AgentEvent.cs`:
+  - New event type yielded by orchestrator when command requires approval
+  - Contains request and decision details for UI display
+- **Modified:** `RunCommandTool` in `src/Krutaka.Tools/RunCommandTool.cs`:
+  - Added `ICommandPolicy` dependency to constructor
+  - Replaced direct `_securityPolicy.ValidateCommand()` call with `_commandPolicy.EvaluateAsync()`
+  - Implemented three-outcome handling: Approved (execute), RequiresApproval (throw exception), Denied (return error)
+  - Updated tool description to document graduated approval model
+  - Updated class documentation to reflect v0.3.0 behavior
+- **Modified:** `AgentOrchestrator` in `src/Krutaka.Core/AgentOrchestrator.cs`:
+  - Added `_pendingCommandApproval` TaskCompletionSource for blocking on approval
+  - Added `ApproveCommand()` and `DenyCommand()` public methods for UI integration
+  - Catches `CommandApprovalRequiredException` and triggers approval flow
+  - Yields `CommandApprovalRequested` event
+  - Applies timeout handling consistent with directory access approvals
+  - Integrated with existing approval state locking mechanism
+- **Modified:** `CommandPolicy` in `src/Krutaka.Tools/CommandPolicy.cs`:
+  - Removed `run_command` from static `ToolsRequiringApproval` set
+  - Documented that approval is now determined dynamically by `ICommandPolicy`
+- **Modified:** `ServiceExtensions` in `src/Krutaka.Tools/ServiceExtensions.cs`:
+  - Registered `CommandRiskClassifier` as singleton
+  - Registered `GraduatedCommandPolicy` as `ICommandPolicy` singleton
+  - Updated `RunCommandTool` registration to inject `ICommandPolicy`
+- **Created:** `GraduatedCommandExecutionTests.cs`:
+  - 17 comprehensive tests for graduated command execution
+  - Tests Safe tier auto-approval (git status, dotnet --version, echo)
+  - Tests Moderate tier context-dependent approval (git add, dotnet build, npm run)
+  - Tests Elevated tier approval requirement (git push, npm install, dotnet publish)
+  - Tests Dangerous tier blocking (blocklisted and unknown commands)
+  - Tests exception properties and decision details
+- **Modified:** Existing test files updated to work with graduated approval:
+  - `SecurityPolicyTests.cs`: Removed run_command from approval tests, added v0.3.0 verification
+  - `DirectoryAccessExceptionPropagationTests.cs`: Added ICommandPolicy mock
+  - `ToolRegistryIntegrationTests.cs`: Created command policy for tool registration
+  - `RunCommandToolTests.cs`: Updated to use Safe tier commands (git status, echo)
+- **Test Results:** 1,138 tests passing (1 skipped, 0 failures)
+  - Memory.Tests: 127 passed
+  - Core.Tests: 166 passed
+  - Skills.Tests: 17 passed
+  - Console.Tests: 84 passed
+  - Tools.Tests: 734 passed (includes 17 new graduated execution tests)
+  - AI.Tests: 10 passed
+- **Build Status:** Zero warnings, zero errors
+- **Security Analysis:** CodeQL found zero alerts
 
 **Issue v0.3.0-3 Details:**
 - **Created:** `CommandPolicyOptions` in `src/Krutaka.Tools/CommandPolicyOptions.cs`:
