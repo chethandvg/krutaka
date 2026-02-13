@@ -19,6 +19,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly CorrelationContext? _correlationContext;
     private readonly ContextCompactor? _contextCompactor;
     private readonly TimeSpan _toolTimeout;
+    private readonly TimeSpan _approvalTimeout;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
     private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
@@ -36,6 +37,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="toolRegistry">The tool registry for executing tools.</param>
     /// <param name="securityPolicy">The security policy for approval checks.</param>
     /// <param name="toolTimeoutSeconds">Timeout for tool execution in seconds (default: 30).</param>
+    /// <param name="approvalTimeoutSeconds">Timeout for human approval waits in seconds (default: 300 = 5 minutes, 0 = infinite).</param>
     /// <param name="sessionAccessStore">Optional session access store for directory access grants (v0.2.0).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
@@ -45,6 +47,7 @@ public sealed class AgentOrchestrator : IDisposable
         IToolRegistry toolRegistry,
         ISecurityPolicy securityPolicy,
         int toolTimeoutSeconds = 30,
+        int approvalTimeoutSeconds = 300,
         ISessionAccessStore? sessionAccessStore = null,
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null,
@@ -58,6 +61,7 @@ public sealed class AgentOrchestrator : IDisposable
         _correlationContext = correlationContext;
         _contextCompactor = contextCompactor;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
+        _approvalTimeout = approvalTimeoutSeconds > 0 ? TimeSpan.FromSeconds(approvalTimeoutSeconds) : Timeout.InfiniteTimeSpan;
         _turnLock = new SemaphoreSlim(1, 1);
         _conversationHistory = [];
         _approvalCache = [];
@@ -65,8 +69,24 @@ public sealed class AgentOrchestrator : IDisposable
 
     /// <summary>
     /// Gets the current conversation history.
+    /// Thread-safe: Returns a defensive copy of the conversation history.
     /// </summary>
-    public IReadOnlyList<object> ConversationHistory => _conversationHistory.AsReadOnly();
+    public IReadOnlyList<object> ConversationHistory
+    {
+        get
+        {
+            _turnLock.Wait();
+            try
+            {
+                // Return a defensive copy to prevent concurrent modification during enumeration
+                return _conversationHistory.ToList().AsReadOnly();
+            }
+            finally
+            {
+                _turnLock.Release();
+            }
+        }
+    }
 
     /// <summary>
     /// Restores conversation history from a previous session.
@@ -379,7 +399,28 @@ public sealed class AgentOrchestrator : IDisposable
                     bool approved;
                     try
                     {
-                        approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        // Apply approval timeout if configured
+                        if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                        {
+                            using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                            
+                            try
+                            {
+                                approved = await approvalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                            {
+                                // Approval timeout occurred (not user cancellation)
+                                throw new TimeoutException($"Approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for tool '{toolCall.Name}'. " +
+                                    "The user did not respond to the approval request in time.");
+                            }
+                        }
+                        else
+                        {
+                            // No timeout - wait indefinitely (or until user cancels)
+                            approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        }
                     }
                     finally
                     {
@@ -449,7 +490,28 @@ public sealed class AgentOrchestrator : IDisposable
                     DirectoryAccessApprovalResult approvalResult;
                     try
                     {
-                        approvalResult = await dirApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        // Apply approval timeout if configured
+                        if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                        {
+                            using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                            
+                            try
+                            {
+                                approvalResult = await dirApprovalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                            {
+                                // Approval timeout occurred (not user cancellation)
+                                throw new TimeoutException($"Directory access approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for path '{dirAccessException.Path}'. " +
+                                    "The user did not respond to the approval request in time.");
+                            }
+                        }
+                        else
+                        {
+                            // No timeout - wait indefinitely (or until user cancels)
+                            approvalResult = await dirApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        }
                     }
                     finally
                     {

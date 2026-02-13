@@ -250,6 +250,7 @@ try
             toolRegistry,
             securityPolicy,
             toolTimeoutSeconds,
+            approvalTimeoutSeconds: 300, // 5 minutes default
             sessionAccessStore,
             auditLogger,
             correlationContext,
