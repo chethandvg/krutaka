@@ -118,18 +118,28 @@ public sealed class GraduatedCommandPolicy : ICommandPolicy
 
         var accessDecision = await _policyEngine.EvaluateAsync(accessRequest, cancellationToken).ConfigureAwait(false);
 
-        // If directory access is granted (trusted zone), auto-approve the command
-        if (accessDecision.Granted)
+        // Evaluate based on access decision outcome
+        return accessDecision.Outcome switch
         {
-            return CommandDecision.Approve(
+            // If directory access is granted (trusted zone), auto-approve the command
+            AccessOutcome.Granted => CommandDecision.Approve(
                 CommandRiskTier.Moderate,
-                "Auto-approved (Moderate tier in trusted directory)");
-        }
+                "Auto-approved (Moderate tier in trusted directory)"),
 
-        // Otherwise, require approval
-        return CommandDecision.RequireApproval(
-            CommandRiskTier.Moderate,
-            "Requires approval (Moderate tier in untrusted directory)");
+            // If directory access is explicitly denied (e.g., system directories, paths above ceiling),
+            // deny the command - this is a hard boundary that cannot be overridden
+            AccessOutcome.Denied => CommandDecision.Deny(
+                CommandRiskTier.Moderate,
+                $"Denied (Moderate tier - directory access denied: {string.Join(", ", accessDecision.DeniedReasons)})"),
+
+            // If directory access requires approval, require approval for the command
+            AccessOutcome.RequiresApproval => CommandDecision.RequireApproval(
+                CommandRiskTier.Moderate,
+                "Requires approval (Moderate tier in untrusted directory)"),
+
+            // Defensive: should never reach here
+            _ => throw new InvalidOperationException($"Unknown access outcome: {accessDecision.Outcome}")
+        };
     }
 
     /// <summary>

@@ -362,10 +362,10 @@ public sealed class GraduatedCommandPolicyTests
 
     #endregion
 
-    #region Moderate Tier Tests - Untrusted Directory
+    #region Moderate Tier Tests - Denied Directory
 
     [Fact]
-    public async Task EvaluateAsync_Should_RequireApprovalForModerate_WhenInUntrustedDirectory()
+    public async Task EvaluateAsync_Should_DenyModerate_WhenDirectoryAccessIsDenied()
     {
         // Arrange
         var workingDir = "/untrusted/dir";
@@ -377,11 +377,11 @@ public sealed class GraduatedCommandPolicyTests
 
         _mockClassifier.Classify(request).Returns(CommandRiskTier.Moderate);
 
-        // Configure policy engine to deny access (untrusted directory)
+        // Configure policy engine to explicitly deny access (hard denial - e.g., system directory)
         _mockPolicyEngine.EvaluateAsync(
             Arg.Any<DirectoryAccessRequest>(),
             Arg.Any<CancellationToken>())
-            .Returns(AccessDecision.Deny("Not in trusted zone"));
+            .Returns(AccessDecision.Deny("Path is a system directory"));
 
         var policy = new GraduatedCommandPolicy(
             _mockClassifier,
@@ -393,13 +393,53 @@ public sealed class GraduatedCommandPolicyTests
         var decision = await policy.EvaluateAsync(request, CancellationToken.None);
 
         // Assert
-        decision.RequiresApproval.Should().BeTrue();
+        decision.IsDenied.Should().BeTrue();
         decision.IsApproved.Should().BeFalse();
+        decision.RequiresApproval.Should().BeFalse();
         decision.Tier.Should().Be(CommandRiskTier.Moderate);
-        decision.Reason.Should().Contain("Requires approval");
+        decision.Reason.Should().Contain("Denied");
         decision.Reason.Should().Contain("Moderate tier");
-        decision.Reason.Should().Contain("untrusted directory");
+        decision.Reason.Should().Contain("directory access denied");
+        decision.Reason.Should().Contain("Path is a system directory");
     }
+
+    [Fact]
+    public async Task EvaluateAsync_Should_DenyModerate_WhenDirectoryAboveCeiling()
+    {
+        // Arrange
+        var workingDir = "C:\\Windows\\System32";
+        var request = new CommandExecutionRequest(
+            "dotnet",
+            new[] { "build" },
+            workingDir,
+            "Build in system directory");
+
+        _mockClassifier.Classify(request).Returns(CommandRiskTier.Moderate);
+
+        // Configure policy engine to deny access (above ceiling)
+        _mockPolicyEngine.EvaluateAsync(
+            Arg.Any<DirectoryAccessRequest>(),
+            Arg.Any<CancellationToken>())
+            .Returns(AccessDecision.Deny("Path is above ceiling directory"));
+
+        var policy = new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
+            _defaultOptions);
+
+        // Act
+        var decision = await policy.EvaluateAsync(request, CancellationToken.None);
+
+        // Assert
+        decision.IsDenied.Should().BeTrue();
+        decision.Tier.Should().Be(CommandRiskTier.Moderate);
+        decision.Reason.Should().Contain("above ceiling");
+    }
+
+    #endregion
+
+    #region Moderate Tier Tests - Requires Approval Directory
 
     [Fact]
     public async Task EvaluateAsync_Should_RequireApprovalForModerate_WhenAccessRequiresApproval()
@@ -414,7 +454,7 @@ public sealed class GraduatedCommandPolicyTests
 
         _mockClassifier.Classify(request).Returns(CommandRiskTier.Moderate);
 
-        // Configure policy engine to require approval
+        // Configure policy engine to require approval (not in auto-grant, no session grant)
         _mockPolicyEngine.EvaluateAsync(
             Arg.Any<DirectoryAccessRequest>(),
             Arg.Any<CancellationToken>())
@@ -431,7 +471,12 @@ public sealed class GraduatedCommandPolicyTests
 
         // Assert
         decision.RequiresApproval.Should().BeTrue();
+        decision.IsApproved.Should().BeFalse();
+        decision.IsDenied.Should().BeFalse();
         decision.Tier.Should().Be(CommandRiskTier.Moderate);
+        decision.Reason.Should().Contain("Requires approval");
+        decision.Reason.Should().Contain("Moderate tier");
+        decision.Reason.Should().Contain("untrusted directory");
     }
 
     #endregion
