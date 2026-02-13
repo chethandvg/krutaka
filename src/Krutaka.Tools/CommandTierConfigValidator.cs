@@ -88,16 +88,26 @@ public sealed partial class CommandTierConfigValidator
 
         var executable = rule.Executable.Trim();
 
-        // 2. CRITICAL: Prevent promoting blocklisted commands
+        // 2. Normalize executable name by removing .exe suffix if present
+        // This prevents bypass of blocklist check (e.g., "powershell.exe" bypassing "powershell")
+        var executableNameForComparison = executable;
+        if (executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add($"Executable '{executable}' should not include file extension. " +
+                      $"Use the base name without '.exe' suffix (e.g., 'cargo' not 'cargo.exe').");
+            return new ValidationResult(false, errors, warnings);
+        }
+
+        // 3. CRITICAL: Prevent promoting blocklisted commands
         // BlockedExecutables are Dangerous-tier and can NEVER be promoted via config
-        if (CommandPolicy.BlockedExecutables.Contains(executable))
+        if (CommandPolicy.BlockedExecutables.Contains(executableNameForComparison))
         {
             errors.Add($"Cannot override tier for blocklisted executable '{executable}'. " +
                       $"Dangerous-tier commands cannot be promoted via configuration for security reasons.");
             return new ValidationResult(false, errors, warnings);
         }
 
-        // 3. CRITICAL: Users cannot add to the Dangerous tier via config (code-only change)
+        // 4. CRITICAL: Users cannot add to the Dangerous tier via config (code-only change)
         if (rule.Tier == CommandRiskTier.Dangerous)
         {
             errors.Add($"Cannot set tier to 'Dangerous' for executable '{executable}'. " +
@@ -105,7 +115,7 @@ public sealed partial class CommandTierConfigValidator
             return new ValidationResult(false, errors, warnings);
         }
 
-        // 4. Validate executable is a simple name (no path separators)
+        // 5. Validate executable is a simple name (no path separators)
         if (executable.IndexOfAny(PathSeparators) >= 0)
         {
             errors.Add($"Executable '{executable}' contains path separators. " +
@@ -113,7 +123,7 @@ public sealed partial class CommandTierConfigValidator
             return new ValidationResult(false, errors, warnings);
         }
 
-        // 5. Validate executable doesn't contain shell metacharacters
+        // 6. Validate executable doesn't contain shell metacharacters
         if (executable.IndexOfAny(ShellMetacharacters) >= 0)
         {
             errors.Add($"Executable '{executable}' contains shell metacharacters. " +
@@ -121,9 +131,16 @@ public sealed partial class CommandTierConfigValidator
             return new ValidationResult(false, errors, warnings);
         }
 
-        // 6. Validate argument patterns don't contain shell metacharacters
+        // 7. Validate argument patterns don't contain shell metacharacters
         if (rule.ArgumentPatterns != null)
         {
+            // Check for empty array (likely user error - won't match anything)
+            if (rule.ArgumentPatterns.Count == 0)
+            {
+                warnings.Add($"Tier override for '{executable}' has empty argument patterns array, which will never match any arguments. " +
+                            $"Consider using null to match all arguments, or provide specific patterns.");
+            }
+
             foreach (var pattern in rule.ArgumentPatterns)
             {
                 if (string.IsNullOrWhiteSpace(pattern))
@@ -142,7 +159,7 @@ public sealed partial class CommandTierConfigValidator
         }
         else
         {
-            // 7. WARN: Null argument patterns mean the rule applies to ANY arguments for this executable
+            // 8. WARN: Null argument patterns mean the rule applies to ANY arguments for this executable
             // This is broad and could be risky depending on the executable
             warnings.Add($"Tier override for '{executable}' has null argument patterns, which matches ALL arguments for this executable. " +
                         $"Consider using specific argument patterns to reduce the attack surface.");

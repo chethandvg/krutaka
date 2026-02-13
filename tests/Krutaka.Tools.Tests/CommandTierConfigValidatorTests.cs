@@ -1,8 +1,6 @@
 using FluentAssertions;
 using Krutaka.Core;
 using Krutaka.Tools;
-using Microsoft.Extensions.Logging;
-using NSubstitute;
 
 namespace Krutaka.Tools.Tests;
 
@@ -196,6 +194,56 @@ public sealed class CommandTierConfigValidatorTests
 
     #endregion
 
+    #region Executable Name Validation (.exe suffix)
+
+    [Fact]
+    public void Should_RejectExecutable_WithExeSuffix()
+    {
+        // Arrange
+        var rules = new[]
+        {
+            new CommandRiskRule(
+                Executable: "cargo.exe",
+                ArgumentPatterns: ["build"],
+                Tier: CommandRiskTier.Moderate,
+                Description: "With .exe suffix"
+            )
+        };
+
+        // Act
+        var result = _validator.ValidateRules(rules);
+
+        // Assert
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().ContainMatch("*should not include file extension*");
+        result.Errors.Should().ContainMatch("*cargo.exe*");
+    }
+
+    [Fact]
+    public void Should_RejectBlocklistedExecutable_WithExeSuffix()
+    {
+        // Arrange - This is the critical security fix
+        var rules = new[]
+        {
+            new CommandRiskRule(
+                Executable: "powershell.exe",
+                ArgumentPatterns: null,
+                Tier: CommandRiskTier.Safe,
+                Description: "Trying to bypass blocklist with .exe"
+            )
+        };
+
+        // Act
+        var result = _validator.ValidateRules(rules);
+
+        // Assert
+        result.IsValid.Should().BeFalse();
+        // Should reject due to .exe suffix, not get to blocklist check
+        result.Errors.Should().ContainMatch("*should not include file extension*");
+    }
+
+    #endregion
+
     #region Dangerous Tier Assignment Prevention
 
     [Fact]
@@ -244,9 +292,9 @@ public sealed class CommandTierConfigValidatorTests
 
         // Assert
         result.IsValid.Should().BeFalse();
-        // Can be rejected as either path separator or shell metacharacter (both are valid security checks)
+        // Can be rejected for .exe suffix, path separator, or shell metacharacter (all valid)
         result.Errors.Should().NotBeEmpty();
-        result.Errors[0].Should().ContainAny("path separators", "shell metacharacters");
+        result.Errors[0].Should().ContainAny("path separators", "shell metacharacters", "file extension");
     }
 
     [Fact]
@@ -470,6 +518,31 @@ public sealed class CommandTierConfigValidatorTests
         // Assert
         result.IsValid.Should().BeFalse();
         result.Errors.Should().ContainMatch("*empty*null*argument pattern*");
+    }
+
+    [Fact]
+    public void Should_WarnForEmptyArgumentPatterns()
+    {
+        // Arrange - Empty array (not null)
+        var rules = new[]
+        {
+            new CommandRiskRule(
+                Executable: "cargo",
+                ArgumentPatterns: Array.Empty<string>(),
+                Tier: CommandRiskTier.Moderate,
+                Description: "Empty array - won't match anything"
+            )
+        };
+
+        // Act
+        var result = _validator.ValidateRules(rules);
+
+        // Assert
+        result.IsValid.Should().BeTrue();
+        result.Errors.Should().BeEmpty();
+        result.Warnings.Should().NotBeEmpty();
+        result.Warnings.Should().ContainMatch("*empty argument patterns array*");
+        result.Warnings.Should().ContainMatch("*will never match*");
     }
 
     #endregion
