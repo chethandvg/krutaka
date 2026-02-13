@@ -273,6 +273,113 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task RunAsync_Should_ThrowTimeoutException_WhenApprovalTimeoutExceeded()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        securityPolicy.SetApprovalRequired("write_file", true);
+        toolRegistry.AddTool("write_file", "{\"path\":\"test.txt\",\"content\":\"data\"}", "Success");
+
+        // First response: tool use
+        claudeClient.AddToolCallStarted("write_file", "tool_456", "{\"path\":\"test.txt\",\"content\":\"data\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+
+        // Create orchestrator with 1-second approval timeout
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            securityPolicy,
+            toolTimeoutSeconds: 30,
+            approvalTimeoutSeconds: 1);
+
+        // Act - don't approve, wait for timeout
+        var act = async () =>
+        {
+            await foreach (var evt in orchestrator.RunAsync("Write file", "System prompt"))
+            {
+                if (evt is HumanApprovalRequired)
+                {
+                    // Don't call ApproveTool - let it timeout
+                    await Task.Delay(2000); // Wait longer than timeout
+                }
+            }
+        };
+
+        // Assert
+        await act.Should().ThrowAsync<TimeoutException>()
+            .WithMessage("*Approval timeout*");
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenApprovalTimeoutNegative()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act & Assert
+        var act = () => new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            securityPolicy,
+            approvalTimeoutSeconds: -1);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("approvalTimeoutSeconds");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_AllowInfiniteApprovalTimeout_WhenSetToZero()
+    {
+        // Arrange - timeout set to 0 = infinite
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        securityPolicy.SetApprovalRequired("write_file", true);
+        toolRegistry.AddTool("write_file", "{\"path\":\"test.txt\",\"content\":\"data\"}", "Success");
+
+        // First response: tool use
+        claudeClient.AddToolCallStarted("write_file", "tool_789", "{\"path\":\"test.txt\",\"content\":\"data\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+
+        // Second response: final answer
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            securityPolicy,
+            approvalTimeoutSeconds: 0); // Infinite
+
+        // Act
+        var events = new List<AgentEvent>();
+        var runTask = Task.Run(async () =>
+        {
+            await foreach (var evt in orchestrator.RunAsync("Write file", "System prompt"))
+            {
+                events.Add(evt);
+                if (evt is HumanApprovalRequired approval)
+                {
+                    // Approve after a delay (would timeout if limit was strict)
+                    await Task.Delay(500);
+                    orchestrator.ApproveTool(approval.ToolUseId);
+                }
+            }
+        });
+
+        // Assert - should complete without timeout (using Task.Wait with timeout)
+        var completed = await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5)));
+        completed.Should().Be(runTask, "task should complete before timeout");
+        await runTask; // Ensure no exceptions were thrown
+        events.OfType<HumanApprovalRequired>().Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task RunAsync_Should_HandleToolExecutionFailure_WithoutCrashingLoop()
     {
         // Arrange

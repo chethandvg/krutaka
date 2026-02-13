@@ -40,7 +40,7 @@ public sealed class PathResolverTests : IDisposable
     {
         // Arrange
         var relativePath = Path.Combine(".", "test.txt");
-        
+
         // Act
         var resolved = PathResolver.ResolveToFinalTarget(relativePath);
 
@@ -190,12 +190,12 @@ public sealed class PathResolverTests : IDisposable
             // Arrange
             var targetDir = Path.Combine(_testRoot, "target");
             Directory.CreateDirectory(targetDir);
-            
+
             var targetFile = Path.Combine(targetDir, "real.txt");
             File.WriteAllText(targetFile, "content");
 
             var linkDir = Path.Combine(_testRoot, "link");
-            
+
             // Create symlink (requires admin or developer mode on Windows)
             Directory.CreateSymbolicLink(linkDir, targetDir);
 
@@ -297,6 +297,65 @@ public sealed class PathResolverTests : IDisposable
         catch (IOException ex) when (!ex.Message.Contains("Circular", StringComparison.OrdinalIgnoreCase))
         {
             // Symlink might not be supported - skip test
+            return;
+        }
+    }
+
+    [Fact]
+    public void Should_ThrowIOException_WhenSymlinkDepthExceedsMaximum()
+    {
+        // Skip on non-Windows or if symlink creation fails
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            // Arrange - Create a chain of 34 nested symlinks (exceeds max depth of 32)
+            const int symlinkCount = 34;
+            var symlinks = new List<string>();
+
+            // Create target directory at the end
+            var targetDir = Path.Combine(_testRoot, "target");
+            Directory.CreateDirectory(targetDir);
+
+            // Create nested symlink chain: link0 -> link1 -> link2 -> ... -> link33 -> target
+            for (var i = 0; i < symlinkCount; i++)
+            {
+                var linkName = Path.Combine(_testRoot, $"link{i}");
+                symlinks.Add(linkName);
+            }
+
+            // Create symlinks from end to start
+            // Last symlink points to target directory
+            Directory.CreateSymbolicLink(symlinks[symlinkCount - 1], targetDir);
+
+            // Each previous symlink points to the next symlink
+            for (var i = symlinkCount - 2; i >= 0; i--)
+            {
+                Directory.CreateSymbolicLink(symlinks[i], symlinks[i + 1]);
+            }
+
+            // Create a file path through the deeply nested symlinks
+            var deepPath = Path.Combine(symlinks[0], "test.txt");
+
+            // Act
+            var action = () => PathResolver.ResolveToFinalTarget(deepPath);
+
+            // Assert
+            action.Should().Throw<IOException>()
+                .WithMessage("*Maximum symlink resolution depth*");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Skip if we don't have symlink creation permission
+            // This is expected on Windows without admin/developer mode
+            return;
+        }
+        catch (IOException ex) when (!ex.Message.Contains("Maximum symlink", StringComparison.OrdinalIgnoreCase))
+        {
+            // Symlink creation might not be supported - skip test
             return;
         }
     }
