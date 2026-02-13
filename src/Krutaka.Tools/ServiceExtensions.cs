@@ -47,6 +47,24 @@ public static class ServiceExtensions
             }
         }
 
+        // Validate command tier overrides at startup (fail-fast)
+        if (options.CommandPolicy.TierOverrides.Length > 0)
+        {
+            // Create a validator (no logger needed for startup validation)
+            var tierValidator = new CommandTierConfigValidator();
+            var tierValidationResult = tierValidator.ValidateRules(options.CommandPolicy.TierOverrides);
+
+            if (!tierValidationResult.IsValid)
+            {
+                var errorMessages = string.Join(Environment.NewLine, tierValidationResult.Errors);
+                throw new InvalidOperationException(
+                    $"Invalid command tier overrides in CommandPolicy configuration:{Environment.NewLine}{errorMessages}");
+            }
+
+            // Warnings will be logged when validator is used at runtime with a logger
+            // For startup, we just validate and let them through
+        }
+
         // Register options as singleton
         services.AddSingleton(options);
 
