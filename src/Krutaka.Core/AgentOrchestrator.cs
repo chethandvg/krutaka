@@ -923,7 +923,9 @@ public sealed class AgentOrchestrator : IDisposable
 
         var truncatedContent = result[..MaxToolResultCharacters];
 
-        // Try to cut at the last newline to avoid breaking a line mid-way
+        // Try to cut at the last newline to avoid breaking a line mid-way.
+        // Only use the newline break if it's in the latter half of the content,
+        // to avoid losing too much useful output.
         var lastNewline = truncatedContent.LastIndexOf('\n');
         if (lastNewline > MaxToolResultCharacters / 2)
         {
