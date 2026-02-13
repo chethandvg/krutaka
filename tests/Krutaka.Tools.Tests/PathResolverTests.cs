@@ -310,12 +310,13 @@ public sealed class PathResolverTests : IDisposable
             return;
         }
 
+        // Arrange - Create a chain of 34 nested symlinks (exceeds max depth of 32)
+        const int symlinkCount = 34;
+        var symlinks = new List<string>();
+        string deepPath;
+
         try
         {
-            // Arrange - Create a chain of 34 nested symlinks (exceeds max depth of 32)
-            const int symlinkCount = 34;
-            var symlinks = new List<string>();
-
             // Create target directory at the end
             var targetDir = Path.Combine(_testRoot, "target");
             Directory.CreateDirectory(targetDir);
@@ -338,14 +339,7 @@ public sealed class PathResolverTests : IDisposable
             }
 
             // Create a file path through the deeply nested symlinks
-            var deepPath = Path.Combine(symlinks[0], "test.txt");
-
-            // Act
-            var action = () => PathResolver.ResolveToFinalTarget(deepPath);
-
-            // Assert
-            action.Should().Throw<IOException>()
-                .WithMessage("*Maximum symlink resolution depth*");
+            deepPath = Path.Combine(symlinks[0], "test.txt");
         }
         catch (UnauthorizedAccessException)
         {
@@ -353,11 +347,16 @@ public sealed class PathResolverTests : IDisposable
             // This is expected on Windows without admin/developer mode
             return;
         }
-        catch (IOException ex) when (!ex.Message.Contains("Maximum symlink", StringComparison.OrdinalIgnoreCase))
+        catch (IOException)
         {
             // Symlink creation might not be supported - skip test
             return;
         }
+
+        // Act & Assert (outside try-catch to ensure assertion failures are not silently skipped)
+        var action = () => PathResolver.ResolveToFinalTarget(deepPath);
+        action.Should().Throw<IOException>()
+            .WithMessage("*Maximum symlink resolution depth*");
     }
 
     #endregion

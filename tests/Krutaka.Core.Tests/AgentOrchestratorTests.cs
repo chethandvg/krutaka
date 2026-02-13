@@ -302,8 +302,7 @@ public sealed class AgentOrchestratorTests
             {
                 if (evt is HumanApprovalRequired)
                 {
-                    // Don't call ApproveTool - let it timeout
-                    await Task.Delay(2000); // Wait longer than timeout
+                    // Intentionally do nothing here; orchestrator will hit its internal approval timeout.
                 }
             }
         };
