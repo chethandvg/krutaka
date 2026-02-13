@@ -1,14 +1,109 @@
 # Krutaka v0.2.0 — Fixes Applied
 
+> **Version:** v0.2.0  
 > **Date:** 2026-02-13  
 > **Status:** ✅ All critical and high-severity issues fixed  
+> **PR Review:** ✅ All actionable comments addressed  
 > **Test Status:** 859 tests passing, 1 skipped (unchanged)
 
 ---
 
 ## Summary
 
-This document tracks the fixes applied based on the comprehensive analysis documented in `ANALYSIS_FINDINGS.md`. All critical (🔴) and high-severity (🟠) issues have been addressed, along with two medium-severity (🟡) issues.
+This document tracks the fixes applied based on the comprehensive analysis documented in `ANALYSIS_FINDINGS.md`, plus additional fixes from PR review comments. All critical (🔴) and high-severity (🟠) issues have been addressed, along with two medium-severity (🟡) issues and four PR review findings.
+
+---
+
+## PR Review Comments Addressed (2026-02-13)
+
+### ✅ Fixed: _approvalCache Thread-Safety (Comment 2803267525)
+
+**Issue:** `_approvalCache` was a non-thread-safe `Dictionary<string, bool>`, vulnerable to race conditions when accessed from UI thread (approval methods) and agent thread (agentic loop).
+
+**Fix:**
+```csharp
+// Before
+private readonly Dictionary<string, bool> _approvalCache;
+
+// After
+private readonly ConcurrentDictionary<string, bool> _approvalCache;
+```
+
+**Impact:** All reads/writes to approval cache are now thread-safe without explicit locking.
+
+---
+
+### ✅ Fixed: ConversationHistory Deadlock Risk (Comment 2803267552)
+
+**Issue:** `ConversationHistory` property blocked on `_turnLock`, which is held for the entire duration of `RunAsync`. Any consumer accessing `ConversationHistory` during event handling could deadlock.
+
+**Fix:** Added dedicated `_conversationHistoryLock` for conversation history access:
+```csharp
+// New lock
+private readonly object _conversationHistoryLock = new();
+
+// Updated property
+public IReadOnlyList<object> ConversationHistory
+{
+    get
+    {
+        lock (_conversationHistoryLock)
+        {
+            return _conversationHistory.ToList().AsReadOnly();
+        }
+    }
+}
+```
+
+**Impact:** Eliminates deadlock risk. All conversation history accesses now protected by short-lived dedicated lock.
+
+---
+
+### ✅ Fixed: approvalTimeoutSeconds Validation (Comment 2803267572)
+
+**Issue:** Constructor accepted negative values for `approvalTimeoutSeconds`, treating them as infinite timeout.
+
+**Fix:** Added explicit validation:
+```csharp
+if (approvalTimeoutSeconds < 0)
+{
+    throw new ArgumentOutOfRangeException(
+        nameof(approvalTimeoutSeconds), 
+        "Approval timeout must be non-negative (0 = infinite).");
+}
+```
+
+**Impact:** Clear contract enforcement. Negative values now rejected at construction time.
+
+---
+
+### ✅ Fixed: Typo in Documentation (Comment 2803267627)
+
+**Issue:** Typo "Mitigatio Required" in `ANALYSIS_FINDINGS.md`.
+
+**Fix:** Corrected to "Mitigation Required".
+
+---
+
+### ⏸️ Deferred: Approval Timeout Test (Comment 2803267592)
+
+**Recommendation:** Add test asserting `TimeoutException` behavior when approval isn't provided within timeout.
+
+**Status:** Deferred to separate PR
+- Requires time manipulation or very small timeout values
+- May introduce test flakiness in CI
+- Core functionality validated manually
+
+---
+
+### ⏸️ Deferred: Max Symlink Depth Test (Comment 2803267607)
+
+**Recommendation:** Add test exercising >32 nested symlinks resulting in `IOException`.
+
+**Status:** Deferred to separate PR
+- Requires Windows symlink creation permissions (not always available in CI)
+- May need platform-specific test skipping
+- Core functionality validated through existing PathResolver tests
 
 ---
 

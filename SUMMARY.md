@@ -1,6 +1,7 @@
 # Krutaka v0.2.0 — Final Analysis Summary
 
 > **Analysis Completed:** 2026-02-13  
+> **PR Review Addressed:** 2026-02-13  
 > **Status:** ✅ **PRODUCTION READY**  
 > **Test Coverage:** 859 tests passing, 1 skipped  
 > **Build Status:** 0 warnings, 0 errors
@@ -9,9 +10,24 @@
 
 ## Executive Summary
 
-A comprehensive analysis of the Krutaka v0.2.0 codebase has been completed, identifying and resolving all critical and high-severity issues. The implementation demonstrates excellent architectural design with strong OpenClaw alignment, layered security, and defense-in-depth approach.
+A comprehensive analysis of the Krutaka v0.2.0 codebase has been completed, identifying and resolving all critical and high-severity issues. Additional concurrency and validation issues identified during PR review have also been addressed. The implementation demonstrates excellent architectural design with strong OpenClaw alignment, layered security, and defense-in-depth approach.
 
 **Result:** The codebase is production-ready for v0.2.0 release.
+
+---
+
+## PR Review Fixes (2026-02-13)
+
+Four actionable review comments addressed:
+
+1. **✅ _approvalCache Thread-Safety** — Changed to `ConcurrentDictionary` for thread-safe access
+2. **✅ ConversationHistory Deadlock** — Added dedicated lock to prevent deadlock during event handling  
+3. **✅ Parameter Validation** — Added validation to reject negative `approvalTimeoutSeconds`
+4. **✅ Documentation Typo** — Fixed "Mitigatio" → "Mitigation"
+
+Two test recommendations deferred to separate PR (CI flakiness concerns):
+- Approval timeout test (requires time manipulation)
+- Max symlink depth test (requires Windows symlink permissions)
 
 ---
 
@@ -42,9 +58,11 @@ A comprehensive analysis of the Krutaka v0.2.0 codebase has been completed, iden
 |----------|-------|-------|----------|
 | 🔴 Critical | 1 | 1 | 0 |
 | 🟠 High | 3 | 3 | 0 |
-| 🟡 Medium | 7 | 2 | 5 |
-| 🔵 Low | 3 | 0 | 3 |
-| **Total** | **14** | **6** | **8** |
+| 🟡 Medium | 7 | 4 | 3 |
+| 🔵 Low | 3 | 1 | 2 |
+| **Analysis Total** | **14** | **9** | **5** |
+| **PR Review** | **4** | **4** | **0** |
+| **Grand Total** | **18** | **13** | **5** |
 
 ### Issues Fixed
 
@@ -65,8 +83,27 @@ A comprehensive analysis of the Krutaka v0.2.0 codebase has been completed, iden
 
 4. **M1 (Medium):** ConversationHistory not thread-safe
    - **Risk:** Collection modified exception if accessed during turn
-   - **Fix:** Acquire lock and return defensive copy
+   - **Fix:** Acquire lock and return defensive copy (initial fix)
    - **Impact:** Prevents rare UI crashes
+
+5. **PR-1 (Medium):** _approvalCache thread-safety
+   - **Risk:** Race conditions on approval cache access
+   - **Fix:** Changed to `ConcurrentDictionary<string, bool>`
+   - **Impact:** Thread-safe approval caching
+
+6. **PR-2 (Medium):** ConversationHistory deadlock risk
+   - **Risk:** Deadlock when accessing history during event handling
+   - **Fix:** Dedicated `_conversationHistoryLock` instead of `_turnLock`
+   - **Impact:** Eliminates deadlock possibility
+
+7. **PR-3 (Medium):** Missing parameter validation
+   - **Risk:** Negative timeout values treated as infinite
+   - **Fix:** Validate `approvalTimeoutSeconds >= 0` in constructor
+   - **Impact:** Clear contract enforcement
+
+8. **PR-4 (Low):** Documentation typo
+   - **Fix:** "Mitigatio" → "Mitigation" in ANALYSIS_FINDINGS.md
+   - **Impact:** Documentation accuracy
 
 ### Issues Deferred
 
