@@ -103,6 +103,12 @@ public sealed class ContextCompactor
             // with the corresponding tool_use blocks — drop extra messages to maintain this invariant.
             DropOrphanedToolResultPrefix(current);
 
+            // Re-check count after orphan drop — it may have reduced below the threshold
+            if (current.Count < absoluteMinimumMessages + pairSize)
+            {
+                break;
+            }
+
             var tokenCount = await _claudeClient.CountTokensAsync(current, systemPrompt, cancellationToken).ConfigureAwait(false);
 
             if (!ExceedsHardLimit(tokenCount))

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -913,6 +914,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// Truncates a tool result that exceeds <see cref="MaxToolResultCharacters"/>.
     /// Returns the original result if it fits within the limit.
     /// When truncated, includes a clear message indicating truncation with the original size.
+    /// Preserves <c>&lt;untrusted_content&gt;</c> wrapper tags when present to maintain prompt-injection mitigation.
     /// </summary>
     private static string TruncateToolResult(string result, string toolName)
     {
@@ -920,6 +922,12 @@ public sealed class AgentOrchestrator : IDisposable
         {
             return result;
         }
+
+        // Detect if the result is wrapped in <untrusted_content> tags
+        const string openTag = "<untrusted_content>";
+        const string closeTag = "</untrusted_content>";
+        var isWrapped = result.StartsWith(openTag, StringComparison.Ordinal)
+            && result.TrimEnd().EndsWith(closeTag, StringComparison.Ordinal);
 
         var truncatedContent = result[..MaxToolResultCharacters];
 
@@ -932,9 +940,25 @@ public sealed class AgentOrchestrator : IDisposable
             truncatedContent = truncatedContent[..lastNewline];
         }
 
-        return $"{truncatedContent}\n\n[Output truncated: tool '{toolName}' returned {result.Length:N0} characters, " +
-               $"which exceeds the {MaxToolResultCharacters:N0} character limit. " +
-               "Results have been truncated. Consider using more specific search criteria or narrowing the scope.]";
+        var truncationNotice = string.Create(CultureInfo.InvariantCulture,
+            $"\n\n[Output truncated: tool '{toolName}' returned {result.Length:N0} characters, " +
+            $"which exceeds the {MaxToolResultCharacters:N0} character limit. " +
+            $"Results have been truncated. Consider using more specific search criteria or narrowing the scope.]");
+
+        // Re-wrap in <untrusted_content> tags if the original result was wrapped,
+        // to preserve prompt-injection mitigation
+        if (isWrapped)
+        {
+            // Strip the open tag if it's in the truncated content (it will be)
+            if (truncatedContent.StartsWith(openTag, StringComparison.Ordinal))
+            {
+                truncatedContent = truncatedContent[openTag.Length..];
+            }
+
+            return $"{openTag}\n{truncatedContent}\n{closeTag}{truncationNotice}";
+        }
+
+        return $"{truncatedContent}{truncationNotice}";
     }
 
     /// <summary>

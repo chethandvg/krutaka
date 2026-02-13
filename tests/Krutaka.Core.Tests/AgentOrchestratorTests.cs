@@ -1,4 +1,5 @@
 #pragma warning disable CA2007 // Do not directly await a Task in tests
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using FluentAssertions;
@@ -495,7 +496,9 @@ public sealed class AgentOrchestratorTests
             "oversized tool result should be truncated");
         completed.Result.Should().Contain("[Output truncated:",
             "truncation message should be appended");
-        completed.Result.Should().Contain("300,000 characters",
+        // Use invariant culture formatting to match production code
+        var expectedSize = string.Create(CultureInfo.InvariantCulture, $"{300_000:N0}");
+        completed.Result.Should().Contain($"{expectedSize} characters",
             "truncation message should include original size");
     }
 

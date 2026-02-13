@@ -204,23 +204,28 @@ public sealed class SessionStore : ISessionStore, IDisposable
 
     /// <summary>
     /// Parses a JSON string into a JsonElement for proper nested serialization.
-    /// Falls back to the raw string if parsing fails.
+    /// Falls back to an empty JSON object if parsing fails, to avoid crashing
+    /// downstream deserialization (ClaudeClientWrapper expects a valid JSON object).
     /// </summary>
-    private static object ParseToolInput(string? json)
+    private static JsonElement ParseToolInput(string? json)
     {
         if (string.IsNullOrEmpty(json))
         {
-            return JsonDocument.Parse("{}").RootElement.Clone();
+            using var emptyDoc = JsonDocument.Parse("{}");
+            return emptyDoc.RootElement.Clone();
         }
 
         try
         {
-            return JsonDocument.Parse(json).RootElement.Clone();
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.Clone();
         }
         catch (JsonException)
         {
-            // If the content isn't valid JSON, wrap it as a raw string fallback
-            return json;
+            // If the content isn't valid JSON, return an empty object so
+            // tool_use.input remains a valid JSON object for the AI layer
+            using var fallbackDoc = JsonDocument.Parse("{}");
+            return fallbackDoc.RootElement.Clone();
         }
     }
 

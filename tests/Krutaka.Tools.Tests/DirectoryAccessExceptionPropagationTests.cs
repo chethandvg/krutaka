@@ -98,4 +98,18 @@ public sealed class DirectoryAccessExceptionPropagationTests : IDisposable
         var act = async () => await tool.ExecuteAsync(input, CancellationToken.None);
         await act.Should().ThrowAsync<DirectoryAccessRequiredException>();
     }
+
+    [Fact]
+    public async Task RunCommandTool_Should_PropagateDirectoryAccessRequiredException()
+    {
+        // Arrange
+        var mockSecurityPolicy = Substitute.For<ISecurityPolicy>();
+        var tool = new RunCommandTool(_testRoot, mockSecurityPolicy, policyEngine: _mockPolicyEngine);
+        // Provide a working_directory to trigger the policy engine evaluation
+        var input = JsonSerializer.SerializeToElement(new { executable = "git", arguments = new[] { "status" }, working_directory = _testRoot });
+
+        // Act & Assert
+        var act = async () => await tool.ExecuteAsync(input, CancellationToken.None);
+        await act.Should().ThrowAsync<DirectoryAccessRequiredException>();
+    }
 }
