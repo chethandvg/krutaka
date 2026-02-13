@@ -92,8 +92,21 @@ public static class PathResolver
     /// Resolves a path by walking each segment from root to leaf.
     /// Returns null if the path doesn't exist.
     /// </summary>
-    private static string? ResolvePathSegmentBySegment(string fullPath, HashSet<string> visitedPaths)
+    /// <param name="fullPath">The full path to resolve.</param>
+    /// <param name="visitedPaths">Set of visited paths for circular link detection.</param>
+    /// <param name="depth">Current recursion depth (default: 0). Used to prevent stack overflow.</param>
+    /// <returns>The resolved path, or null if the path doesn't exist.</returns>
+    /// <exception cref="IOException">Thrown if circular symlink detected or maximum depth exceeded.</exception>
+    private static string? ResolvePathSegmentBySegment(string fullPath, HashSet<string> visitedPaths, int depth = 0)
     {
+        // Prevent stack overflow from deeply nested symlinks
+        const int MaxSymlinkDepth = 32;
+        if (depth > MaxSymlinkDepth)
+        {
+            throw new IOException($"Maximum symlink resolution depth ({MaxSymlinkDepth}) exceeded for path: '{fullPath}'. " +
+                "This typically indicates deeply nested symlinks or a complex circular reference.");
+        }
+
         var root = Path.GetPathRoot(fullPath) ?? string.Empty;
         var remaining = fullPath[root.Length..];
 
@@ -191,7 +204,8 @@ public static class PathResolver
             if (isLastSegment)
             {
                 // Recursively resolve the link target to detect circular references
-                var resolvedTarget = ResolvePathSegmentBySegment(targetFullPath, visitedPaths);
+                // Pass incremented depth to prevent stack overflow
+                var resolvedTarget = ResolvePathSegmentBySegment(targetFullPath, visitedPaths, depth + 1);
                 return resolvedTarget ?? targetFullPath;
             }
 

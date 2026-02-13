@@ -22,6 +22,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
     private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
+    private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
     private string? _pendingToolName; // Tracks the tool name of the pending approval request
@@ -159,6 +160,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <summary>
     /// Approves a pending tool call. This should be called in response to HumanApprovalRequired events.
     /// Unblocks the orchestrator to proceed with tool execution.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     /// <param name="toolUseId">The tool use ID to approve (must match the pending request).</param>
     /// <param name="alwaysApprove">Whether to always approve this tool for the session.</param>
@@ -169,25 +171,37 @@ public sealed class AgentOrchestrator : IDisposable
             throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
         }
 
-        // Validate that the approval matches the currently pending tool request
-        if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+        // Lock to prevent race conditions between approval validation and TCS completion
+        lock (_approvalStateLock)
         {
-            throw new InvalidOperationException(
-                $"Approval for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
-        }
+            // Validate that the approval matches the currently pending tool request
+            if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+            {
+                throw new InvalidOperationException(
+                    $"Approval for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
+            }
 
-        if (alwaysApprove && _pendingToolName != null)
-        {
-            _approvalCache[_pendingToolName] = true;
-        }
+            // Check if there's actually a pending approval (could be cancelled or already handled)
+            if (_pendingApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
 
-        // Signal the pending approval to proceed
-        _pendingApproval?.TrySetResult(true);
+            if (alwaysApprove && _pendingToolName != null)
+            {
+                _approvalCache[_pendingToolName] = true;
+            }
+
+            // Signal the pending approval to proceed
+            _pendingApproval.TrySetResult(true);
+        }
     }
 
     /// <summary>
     /// Denies a pending tool call. This should be called in response to HumanApprovalRequired events.
     /// The tool will not be executed and a denial message is returned to Claude.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     /// <param name="toolUseId">The tool use ID to deny (must match the pending request).</param>
     public void DenyTool(string toolUseId)
@@ -197,37 +211,72 @@ public sealed class AgentOrchestrator : IDisposable
             throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
         }
 
-        // Validate that the denial matches the currently pending tool request
-        if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+        // Lock to prevent race conditions between denial validation and TCS completion
+        lock (_approvalStateLock)
         {
-            throw new InvalidOperationException(
-                $"Denial for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
-        }
+            // Validate that the denial matches the currently pending tool request
+            if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+            {
+                throw new InvalidOperationException(
+                    $"Denial for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
+            }
 
-        // Signal the pending approval as denied
-        _pendingApproval?.TrySetResult(false);
+            // Check if there's actually a pending approval (could be cancelled or already handled)
+            if (_pendingApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending approval as denied
+            _pendingApproval.TrySetResult(false);
+        }
     }
 
     /// <summary>
     /// Approves a pending directory access request. This should be called in response to DirectoryAccessRequested events.
     /// Unblocks the orchestrator to retry tool execution with the granted access.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     /// <param name="grantedLevel">The access level to grant (may be downgraded from requested).</param>
     /// <param name="createSessionGrant">Whether to create a session-wide grant for this path.</param>
     public void ApproveDirectoryAccess(AccessLevel grantedLevel, bool createSessionGrant = false)
     {
-        // Signal the pending directory approval to proceed
-        _pendingDirectoryApproval?.TrySetResult(new DirectoryAccessApprovalResult(true, grantedLevel, createSessionGrant));
+        // Lock to prevent race conditions with cancellation
+        lock (_approvalStateLock)
+        {
+            // Check if there's actually a pending directory approval
+            if (_pendingDirectoryApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending directory approval to proceed
+            _pendingDirectoryApproval.TrySetResult(new DirectoryAccessApprovalResult(true, grantedLevel, createSessionGrant));
+        }
     }
 
     /// <summary>
     /// Denies a pending directory access request. This should be called in response to DirectoryAccessRequested events.
     /// The tool will fail with a denial message.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     public void DenyDirectoryAccess()
     {
-        // Signal the pending directory approval as denied
-        _pendingDirectoryApproval?.TrySetResult(new DirectoryAccessApprovalResult(false, null, false));
+        // Lock to prevent race conditions with cancellation
+        lock (_approvalStateLock)
+        {
+            // Check if there's actually a pending directory approval
+            if (_pendingDirectoryApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending directory approval as denied
+            _pendingDirectoryApproval.TrySetResult(new DirectoryAccessApprovalResult(false, null, false));
+        }
     }
 
     /// <summary>
@@ -313,9 +362,15 @@ public sealed class AgentOrchestrator : IDisposable
                 if (approvalRequired && !alwaysApprove)
                 {
                     // Create a TaskCompletionSource to block until the caller approves or denies
-                    _pendingApproval = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    _pendingToolUseId = toolCall.Id;
-                    _pendingToolName = toolCall.Name;
+                    // Lock to ensure atomic assignment of pending state
+                    TaskCompletionSource<bool> approvalTcs;
+                    lock (_approvalStateLock)
+                    {
+                        approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        _pendingApproval = approvalTcs;
+                        _pendingToolUseId = toolCall.Id;
+                        _pendingToolName = toolCall.Name;
+                    }
                     
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
                     
@@ -324,13 +379,17 @@ public sealed class AgentOrchestrator : IDisposable
                     bool approved;
                     try
                     {
-                        approved = await _pendingApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
                     }
                     finally
                     {
-                        _pendingApproval = null;
-                        _pendingToolUseId = null;
-                        _pendingToolName = null;
+                        // Lock to prevent race with concurrent approval/denial
+                        lock (_approvalStateLock)
+                        {
+                            _pendingApproval = null;
+                            _pendingToolUseId = null;
+                            _pendingToolName = null;
+                        }
                     }
                     
                     if (!approved)
@@ -375,7 +434,13 @@ public sealed class AgentOrchestrator : IDisposable
                     }
 
                     // Create a TaskCompletionSource to block until the caller approves or denies
-                    _pendingDirectoryApproval = new TaskCompletionSource<DirectoryAccessApprovalResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    // Lock to ensure atomic assignment of pending state
+                    TaskCompletionSource<DirectoryAccessApprovalResult> dirApprovalTcs;
+                    lock (_approvalStateLock)
+                    {
+                        dirApprovalTcs = new TaskCompletionSource<DirectoryAccessApprovalResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        _pendingDirectoryApproval = dirApprovalTcs;
+                    }
 
                     // Yield DirectoryAccessRequested event
                     yield return new DirectoryAccessRequested(dirAccessException.Path, dirAccessException.RequestedLevel, dirAccessException.Justification);
@@ -384,11 +449,15 @@ public sealed class AgentOrchestrator : IDisposable
                     DirectoryAccessApprovalResult approvalResult;
                     try
                     {
-                        approvalResult = await _pendingDirectoryApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        approvalResult = await dirApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
                     }
                     finally
                     {
-                        _pendingDirectoryApproval = null;
+                        // Lock to prevent race with concurrent approval/denial
+                        lock (_approvalStateLock)
+                        {
+                            _pendingDirectoryApproval = null;
+                        }
                     }
 
                     if (!approvalResult.Approved || approvalResult.GrantedLevel == null)
