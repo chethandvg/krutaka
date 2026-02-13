@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (Release documentation complete - Issue v0.2.0-11; all 853 tests passing)
+> **Last updated:** 2026-02-13 (Bug fixes: ConsoleUI crash fix, configurable MaxToolResultCharacters — 891 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -106,6 +106,24 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
   - `GlobPatternAdversarialTests.cs`: 21 test methods covering overly broad patterns, relative traversal, blocked directories, null/empty patterns
 - **Testing:** All 515 tests in Krutaka.Tools.Tests pass (87 new), total 854 tests pass (1 skipped)
 - **Build:** Zero warnings, zero errors
+
+---
+
+## v0.2.1 — Bug Fixes
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| — | ConsoleUI crash on empty status string | Bug Fix | 🟢 Complete | 2026-02-13 |
+| — | Configurable MaxToolResultCharacters | Enhancement | 🟢 Complete | 2026-02-13 |
+| — | ApprovalTimeoutSeconds configurable via appsettings | Enhancement | 🟢 Complete | 2026-02-13 |
+
+**Bug Fix Details:**
+- **ConsoleUI crash:** `ctx.Status(string.Empty)` threw `InvalidOperationException` ("Task name cannot be empty") from Spectre.Console when streaming text deltas. Fixed by passing a non-empty placeholder string.
+- **Configurable MaxToolResultCharacters:** Previously hardcoded at 200,000 characters. Now configurable via `Agent:MaxToolResultCharacters` in `appsettings.json`. When set to 0 (default), derived dynamically from `Claude:MaxTokens × 4`, capped at minimum 100,000.
+- **ApprovalTimeoutSeconds:** Previously hardcoded to 300 seconds. Now read from `Agent:ApprovalTimeoutSeconds` in `appsettings.json`.
+- **Testing:** Added 6 new tests for MaxToolResultCharacters configuration; all 891 tests passing.
 
 ---
 
