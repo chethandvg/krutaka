@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 core abstractions — Issue v0.3.0-1 complete — 927 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 default command risk rules — Issue v0.3.0-2 complete — 1,061 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -133,7 +133,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 
 ## v0.3.0 — Graduated Command Execution (In Progress)
 
-> **Status:** 🟡 **In Progress** (Issue v0.3.0-1 complete — 2026-02-13)  
+> **Status:** 🟡 **In Progress** (Issue v0.3.0-2 complete — 2026-02-13)  
 > **Reference:** See `docs/versions/v0.3.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
@@ -145,6 +145,39 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | # | Issue | Type | Status | Date Completed |
 |---|---|---|---|
 | v0.3.0-1 | Core abstractions — CommandRiskTier, ICommandRiskClassifier, ICommandPolicy, and model records | Architecture | 🟢 Complete | 2026-02-13 |
+| v0.3.0-2 | Default command risk rules and CommandRiskClassifier implementation | Implementation | 🟢 Complete | 2026-02-13 |
+
+**Issue v0.3.0-2 Details:**
+- **Created:** `CommandRiskClassifier` in `src/Krutaka.Tools/CommandRiskClassifier.cs`:
+  - Implements `ICommandRiskClassifier` interface
+  - Classification algorithm: BlockedExecutables check (shared with CommandPolicy) → path separator check → executable lookup → argument pattern matching → default tier fallback
+  - Executable name normalization: case-insensitive, .exe suffix stripping
+  - Argument matching: first argument (case-insensitive) for most executables; for dotnet, supports matching first TWO arguments as a combined pattern (e.g., "nuget push") before falling back to single-argument matching
+  - Default tier logic: highest non-Safe tier for executable when no pattern matches
+  - Fail-closed: unknown executables → Dangerous, executables with path separators → Dangerous
+- **Default tier rules implemented:**
+  - **Safe tier:** git (5 read-only ops: status, log, diff, show, rev-parse), dotnet (4 info queries), node/npm/python/pip (version checks + read-only), 14 read-only commands (cat, grep, etc.)
+  - **Moderate tier:** git (6 local ops), dotnet (6 build/test ops), npm/npx (5 script ops), python/python3 (default), mkdir
+  - **Elevated tier:** git (10 ops: push, pull, fetch, clone, rebase, reset, cherry-pick, branch, tag, remote - moved branch/tag/remote from Safe due to mutation risk), dotnet (5 package ops), npm (5 dependency ops), pip (3 dependency ops)
+  - **Dangerous tier:** All 30 blocklisted executables from CommandPolicy (shared reference) + unknown executables + executables with path separators
+- **Testing:** Created `CommandRiskClassifierTests.cs` with 138 tests (was 134, added 4 path separator tests, adjusted git tier tests):
+  - Safe tier: 41 tests (git: 5 read-only, dotnet: 4, node/npm/python/pip: 8, read-only cmds: 16, empty args: 2, misc: 6)
+  - Moderate tier: 24 tests (git: 6, dotnet: 6, npm/npx: 6, python: 2, mkdir: 1, misc: 3)
+  - Elevated tier: 21 tests (git: 10 including branch/tag/remote, dotnet: 5, npm: 5, pip: 3)
+  - Dangerous tier: 38 tests (30 blocklisted, 4 unknown, 4 path separators)
+  - Edge cases: 14 tests (case insensitivity: 4, .exe suffix: 6, default tier: 3, null request: 1, dotnet two-arg: 1)
+  - All 138 tests passing, zero failures
+- **Build:** Zero warnings, zero errors
+- **Total tests:** 1,065 (was 927, +138 new tests)
+- **Security:**
+  - BlockedExecutables shared with CommandPolicy (prevents sync drift)
+  - Path separator check prevents bypass via executable paths
+  - Git branch/tag/remote moved to Elevated tier (can mutate: `git branch -d`, `git tag -d`, `git remote add`)
+  - Unknown executables return Dangerous (fail-closed, verified by tests)
+  - Case-insensitive matching prevents bypass via casing
+  - Static readonly arrays for patterns (CA1861 compliance, performance)
+  - Proper return types (CA1859 compliance, ReadOnlyCollection for BuildDefaultRules, Dictionary for BuildRuleIndex)
+  - Code analysis: All IDE2003, CA1861, CA1859 warnings resolved
 
 **Issue v0.3.0-1 Details:**
 - **Created:** 7 new types in `src/Krutaka.Core/`:
