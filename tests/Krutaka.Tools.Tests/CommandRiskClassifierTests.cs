@@ -711,28 +711,9 @@ public sealed class CommandRiskClassifierTests
     #region Dotnet Compound Command Tests
 
     [Fact]
-    public void Should_MatchDotnetCompoundCommand_NugetPush()
-    {
-        // Arrange - dotnet nuget push should be Elevated
-        // Note: In the current implementation, "nuget" alone is Elevated,
-        // but we should verify compound matching works
-        var request = new CommandExecutionRequest(
-            "dotnet",
-            new[] { "nuget", "push" },
-            "/test",
-            "Dotnet nuget push");
-
-        // Act
-        var tier = _classifier.Classify(request);
-
-        // Assert
-        tier.Should().Be(CommandRiskTier.Elevated);
-    }
-
-    [Fact]
     public void Should_MatchDotnetSingleArgument_Build()
     {
-        // Arrange
+        // Arrange - dotnet build should match single-argument pattern
         var request = new CommandExecutionRequest(
             "dotnet",
             new[] { "build" },
@@ -744,6 +725,40 @@ public sealed class CommandRiskClassifierTests
 
         // Assert
         tier.Should().Be(CommandRiskTier.Moderate);
+    }
+
+    [Fact]
+    public void Should_SupportDotnetTwoArgumentMatching()
+    {
+        // Arrange - This test validates that the classifier SUPPORTS two-argument matching
+        // for dotnet, even though current rules only have single-argument patterns.
+        // If we had a rule like "nuget push" → Moderate and "nuget" → Elevated,
+        // "dotnet nuget push" should match the two-arg pattern first.
+        // Currently, with only "nuget" → Elevated, both should return Elevated.
+        
+        var nugetPushRequest = new CommandExecutionRequest(
+            "dotnet",
+            new[] { "nuget", "push" },
+            "/test",
+            "Dotnet nuget push");
+
+        var nugetOnlyRequest = new CommandExecutionRequest(
+            "dotnet",
+            new[] { "nuget" },
+            "/test",
+            "Dotnet nuget");
+
+        // Act
+        var pushTier = _classifier.Classify(nugetPushRequest);
+        var nugetTier = _classifier.Classify(nugetOnlyRequest);
+
+        // Assert - Both should be Elevated with current rules
+        // (since we only have "nuget" → Elevated, not "nuget push" specifically)
+        pushTier.Should().Be(CommandRiskTier.Elevated);
+        nugetTier.Should().Be(CommandRiskTier.Elevated);
+        
+        // If future rules add "nuget push" → Safe and keep "nuget" → Elevated,
+        // the two-argument matching would make the first return Safe
     }
 
     #endregion

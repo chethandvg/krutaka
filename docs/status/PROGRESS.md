@@ -150,27 +150,29 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 **Issue v0.3.0-2 Details:**
 - **Created:** `CommandRiskClassifier` in `src/Krutaka.Tools/CommandRiskClassifier.cs`:
   - Implements `ICommandRiskClassifier` interface
-  - Classification algorithm: BlockedExecutables check → executable lookup → argument pattern matching → default tier fallback
+  - Classification algorithm: BlockedExecutables check (shared with CommandPolicy) → path separator check → executable lookup → argument pattern matching → default tier fallback
   - Executable name normalization: case-insensitive, .exe suffix stripping
-  - Argument matching: first argument (case-insensitive) for all executables
+  - Argument matching: first argument (case-insensitive) for most executables; for dotnet, supports matching first TWO arguments as a combined pattern (e.g., "nuget push") before falling back to single-argument matching
   - Default tier logic: highest non-Safe tier for executable when no pattern matches
-  - Fail-closed: unknown executables → Dangerous
+  - Fail-closed: unknown executables → Dangerous, executables with path separators → Dangerous
 - **Default tier rules implemented:**
-  - **Safe tier:** git (8 read-only ops), dotnet (4 info queries), node/npm/python/pip (version checks + read-only), 14 read-only commands (cat, grep, etc.)
+  - **Safe tier:** git (5 read-only ops: status, log, diff, show, rev-parse), dotnet (4 info queries), node/npm/python/pip (version checks + read-only), 14 read-only commands (cat, grep, etc.)
   - **Moderate tier:** git (6 local ops), dotnet (6 build/test ops), npm/npx (5 script ops), python/python3 (default), mkdir
-  - **Elevated tier:** git (7 remote ops), dotnet (5 package ops), npm (5 dependency ops), pip (3 dependency ops)
-  - **Dangerous tier:** All 30 blocklisted executables from CommandPolicy + unknown executables
-- **Testing:** Created `CommandRiskClassifierTests.cs` with 134 tests:
-  - Safe tier: 44 tests (git: 10, dotnet: 4, node/npm/python/pip: 8, read-only cmds: 16, empty args: 2, misc: 4)
+  - **Elevated tier:** git (10 ops: push, pull, fetch, clone, rebase, reset, cherry-pick, branch, tag, remote - moved branch/tag/remote from Safe due to mutation risk), dotnet (5 package ops), npm (5 dependency ops), pip (3 dependency ops)
+  - **Dangerous tier:** All 30 blocklisted executables from CommandPolicy (shared reference) + unknown executables + executables with path separators
+- **Testing:** Created `CommandRiskClassifierTests.cs` with 138 tests (was 134, added 4 path separator tests, adjusted git tier tests):
+  - Safe tier: 41 tests (git: 5 read-only, dotnet: 4, node/npm/python/pip: 8, read-only cmds: 16, empty args: 2, misc: 6)
   - Moderate tier: 24 tests (git: 6, dotnet: 6, npm/npx: 6, python: 2, mkdir: 1, misc: 3)
-  - Elevated tier: 18 tests (git: 7, dotnet: 5, npm: 5, pip: 3)
-  - Dangerous tier: 34 tests (30 blocklisted, 4 unknown)
-  - Edge cases: 14 tests (case insensitivity: 4, .exe suffix: 6, default tier: 3, null request: 1)
-  - All 134 tests passing, zero failures
+  - Elevated tier: 21 tests (git: 10 including branch/tag/remote, dotnet: 5, npm: 5, pip: 3)
+  - Dangerous tier: 38 tests (30 blocklisted, 4 unknown, 4 path separators)
+  - Edge cases: 14 tests (case insensitivity: 4, .exe suffix: 6, default tier: 3, null request: 1, dotnet two-arg: 1)
+  - All 138 tests passing, zero failures
 - **Build:** Zero warnings, zero errors
-- **Total tests:** 1,061 (was 927, +134 new tests)
+- **Total tests:** 1,065 (was 927, +138 new tests)
 - **Security:**
-  - All BlockedExecutables from CommandPolicy classified as Dangerous (verified by tests)
+  - BlockedExecutables shared with CommandPolicy (prevents sync drift)
+  - Path separator check prevents bypass via executable paths
+  - Git branch/tag/remote moved to Elevated tier (can mutate: `git branch -d`, `git tag -d`, `git remote add`)
   - Unknown executables return Dangerous (fail-closed, verified by tests)
   - Case-insensitive matching prevents bypass via casing
   - Static readonly arrays for patterns (CA1861 compliance, performance)

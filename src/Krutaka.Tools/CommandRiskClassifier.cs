@@ -126,14 +126,36 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
     }
 
     /// <summary>
-    /// Special handling for dotnet commands: matches first TWO arguments.
-    /// E.g., "dotnet nuget push" matches "nuget" and "push" together.
+    /// Special handling for dotnet commands: supports matching first TWO arguments.
+    /// E.g., "dotnet nuget push" can match pattern "nuget push" or pattern "nuget".
+    /// Tries two-argument matching first, then falls back to single-argument matching.
     /// </summary>
     private static CommandRiskTier MatchDotnetArguments(
         IReadOnlyList<string> arguments,
         IReadOnlyList<CommandRiskRule> rules)
     {
-        // Try matching first argument only first
+        // When there are at least two arguments, try matching "arg0 arg1" first
+        if (arguments.Count >= 2)
+        {
+            var firstTwoArgs = $"{arguments[0]} {arguments[1]}";
+            foreach (var rule in rules)
+            {
+                if (rule.ArgumentPatterns is null)
+                {
+                    // This rule matches any arguments for this executable
+                    return rule.Tier;
+                }
+
+                // Check if combined first two arguments match any pattern in the list
+                if (rule.ArgumentPatterns.Any(pattern =>
+                    pattern.Equals(firstTwoArgs, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return rule.Tier;
+                }
+            }
+        }
+
+        // If no two-argument pattern matched (or only one argument present), try first-argument matching
         if (arguments.Count > 0)
         {
             var firstArg = arguments[0];

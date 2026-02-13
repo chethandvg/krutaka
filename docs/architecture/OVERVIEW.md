@@ -313,18 +313,18 @@ Tool implementations with security policy enforcement.
 
 **Command Risk Classification (v0.3.0):**
 - **CommandRiskClassifier** (v0.3.0-2): Implements `ICommandRiskClassifier` to classify commands into risk tiers:
-  - **Classification algorithm**: BlockedExecutables check → executable lookup → argument pattern matching → default tier fallback → fail-closed (unknown → Dangerous)
-  - **Executable normalization**: Case-insensitive comparison, strips `.exe` suffix
-  - **Argument matching**: First argument matched against patterns (case-insensitive)
+  - **Classification algorithm**: BlockedExecutables check (shared with CommandPolicy) → path separator check → executable lookup → argument pattern matching → default tier fallback → fail-closed (unknown → Dangerous)
+  - **Executable normalization**: Case-insensitive comparison, strips `.exe` suffix, rejects paths with directory separators
+  - **Argument matching**: For most executables, the first argument is matched against patterns (case-insensitive); for dotnet compound commands, supports matching first TWO arguments as a combined pattern (e.g., "nuget push") before falling back to single-argument matching
   - **Default tier logic**: When no pattern matches, returns highest non-Safe tier for that executable
-  - **Fail-closed security**: Unknown executables return `CommandRiskTier.Dangerous`
+  - **Fail-closed security**: Unknown executables return `CommandRiskTier.Dangerous`, executables with path separators return `Dangerous`
   - **Tier assignments**:
-    - **Safe (auto-approved)**: git read-only ops (status, log, diff, show, branch, tag, remote, rev-parse), dotnet info queries (--version, --info, --list-sdks/runtimes), node/npm/python/pip version checks, 14 read-only commands (cat, grep, find, dir, etc.)
+    - **Safe (auto-approved)**: git read-only ops (status, log, diff, show, rev-parse - removed branch/tag/remote due to mutation risk), dotnet info queries (--version, --info, --list-sdks/runtimes), node/npm/python/pip version checks, 14 read-only commands (cat, grep, find, dir, etc.)
     - **Moderate (context-dependent)**: git local ops (add, commit, stash, checkout, switch, merge), dotnet build/test ops (build, test, run, restore, clean, format), npm/npx scripts (run, test, start, lint, build), python script execution, mkdir
-    - **Elevated (always prompted)**: git remote ops (push, pull, fetch, clone, rebase, reset, cherry-pick), dotnet package management (publish, pack, nuget, new, tool), npm/pip dependency management (install, uninstall, update, publish, link, download)
-    - **Dangerous (always blocked)**: All 30 blocklisted executables (powershell, cmd, reg, certutil, etc.) + unknown executables
+    - **Elevated (always prompted)**: git remote/mutating ops (push, pull, fetch, clone, rebase, reset, cherry-pick, branch, tag, remote), dotnet package management (publish, pack, nuget, new, tool), npm/pip dependency management (install, uninstall, update, publish, link, download)
+    - **Dangerous (always blocked)**: All 30 blocklisted executables (shared with CommandPolicy to prevent sync drift) + unknown executables + executables with path separators
   - **Performance optimizations**: Static readonly arrays for patterns (CA1861), proper return types (CA1859), executable-indexed lookup dictionary
-  - **Test coverage**: 134 comprehensive tests covering all tier assignments, edge cases (case insensitivity, .exe stripping, empty args, unknown executables/args), and GetRules() method
+  - **Test coverage**: 138 comprehensive tests covering all tier assignments, edge cases (case insensitivity, .exe stripping, path separators, empty args, unknown executables/args, dotnet two-argument matching), and GetRules() method
 
 **Tool Registry & DI:**
 - **ToolRegistry**: Centralized collection of all tools with:
