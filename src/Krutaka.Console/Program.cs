@@ -500,6 +500,17 @@ try
                         orchestrator.DenyDirectoryAccess();
                     }
                 },
+                onCommandApprovalDecision: (approved, alwaysApprove) =>
+                {
+                    if (approved)
+                    {
+                        orchestrator.ApproveCommand(alwaysApprove);
+                    }
+                    else
+                    {
+                        orchestrator.DenyCommand();
+                    }
+                },
                 cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
 
             AnsiConsole.WriteLine();

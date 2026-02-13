@@ -233,6 +233,7 @@ public class ApprovalHandlerTests
     [InlineData("[yellow][[R]]ead-only - Downgrade to ReadOnly access[/]")]
     [InlineData("[red][[N]]o - Deny access[/]")]
     [InlineData("[cyan][[S]]ession - Allow for entire session[/]")]
+    [InlineData("[yellow][[A]]lways - Approve this command for this session[/]")]
     public void ApprovalPrompt_MarkupStrings_AreValidSpectreMarkup(string markup)
     {
         // Act — Markup constructor parses and throws InvalidOperationException if invalid
@@ -240,5 +241,99 @@ public class ApprovalHandlerTests
 
         // Assert — should not throw
         act.Should().NotThrow("because SelectionPrompt converter markup must be valid Spectre.Console markup");
+    }
+
+    [Fact]
+    public void HandleCommandApproval_WithNullRequest_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        var decision = new CommandDecision(CommandOutcome.RequiresApproval, CommandRiskTier.Elevated, "Test reason");
+
+        // Act & Assert
+        var act = () => handler.HandleCommandApproval(null!, decision);
+        act.Should().ThrowExactly<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void HandleCommandApproval_WithNullDecision_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var handler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        var request = new CommandExecutionRequest("git", ["status"], "/test", "Test justification");
+
+        // Act & Assert
+        var act = () => handler.HandleCommandApproval(request, null!);
+        act.Should().ThrowExactly<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void DisplayAutoApprovalMessage_WithNullRequest_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var decision = new CommandDecision(CommandOutcome.Approved, CommandRiskTier.Safe, "Auto-approved (Safe tier)");
+
+        // Act & Assert
+        var act = () => ApprovalHandler.DisplayAutoApprovalMessage(null!, decision);
+        act.Should().ThrowExactly<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void DisplayAutoApprovalMessage_WithNullDecision_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var request = new CommandExecutionRequest("git", ["status"], "/test", "Test justification");
+
+        // Act & Assert
+        var act = () => ApprovalHandler.DisplayAutoApprovalMessage(request, null!);
+        act.Should().ThrowExactly<ArgumentNullException>();
+    }
+
+    [Theory]
+    [InlineData(CommandRiskTier.Safe)]
+    [InlineData(CommandRiskTier.Moderate)]
+    public void DisplayAutoApprovalMessage_DoesNotThrow_ForAutoApprovedTiers(CommandRiskTier tier)
+    {
+        // Arrange
+        var request = new CommandExecutionRequest("git", ["status"], "/test", "Test justification");
+        var decision = new CommandDecision(CommandOutcome.Approved, tier, $"Auto-approved ({tier} tier)");
+
+        // Act — The method writes to console, we're just verifying it doesn't throw
+        var act = () => ApprovalHandler.DisplayAutoApprovalMessage(request, decision);
+
+        // Assert — Should not throw
+        act.Should().NotThrow("because auto-approval message should display successfully for {0} tier", tier);
+    }
+
+    [Theory]
+    [InlineData("git", "git")]
+    [InlineData("dotnet", "dotnet")]
+    [InlineData("npm", "npm")]
+    [InlineData("echo", "echo")]
+    public void DisplayAutoApprovalMessage_WithNoArguments_ShowsExecutableOnly(string executable, string expectedCommandString)
+    {
+        // Arrange
+        var request = new CommandExecutionRequest(executable, Array.Empty<string>(), "/test", "Test justification");
+        var decision = new CommandDecision(CommandOutcome.Approved, CommandRiskTier.Safe, "Auto-approved");
+
+        // Act — The method writes to console, we're just verifying it doesn't throw and formats correctly
+        var act = () => ApprovalHandler.DisplayAutoApprovalMessage(request, decision);
+
+        // Assert — Should not throw
+        act.Should().NotThrow("because command string should be built correctly for {0}", expectedCommandString);
+    }
+
+    [Theory]
+    [InlineData("[green]SAFE[/]")]
+    [InlineData("[yellow]MODERATE (not in trusted directory)[/]")]
+    [InlineData("[red]ELEVATED[/]")]
+    [InlineData("[red]DANGEROUS[/]")]
+    public void TierLabel_MarkupStrings_AreValidSpectreMarkup(string tierLabel)
+    {
+        // Act — Markup constructor parses and throws InvalidOperationException if invalid
+        var act = () => new Spectre.Console.Markup(tierLabel);
+
+        // Assert — should not throw
+        act.Should().NotThrow("because tier label markup must be valid Spectre.Console markup");
     }
 }

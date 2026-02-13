@@ -84,11 +84,14 @@ internal sealed class ConsoleUI : IDisposable
     /// Parameters: toolUseId, approved, alwaysApprove.</param>
     /// <param name="onDirectoryAccessDecision">Optional callback invoked when a directory access decision is made.
     /// Parameters: approved, grantedLevel, createSessionGrant.</param>
+    /// <param name="onCommandApprovalDecision">Optional callback invoked when a command approval decision is made.
+    /// Parameters: approved, alwaysApprove.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     public async Task DisplayStreamingResponseAsync(
         IAsyncEnumerable<AgentEvent> events,
         Action<string, bool, bool>? onApprovalDecision = null,
         Action<bool, AccessLevel?, bool>? onDirectoryAccessDecision = null,
+        Action<bool, bool>? onCommandApprovalDecision = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
@@ -120,7 +123,7 @@ internal sealed class ConsoleUI : IDisposable
                             var evt = enumerator.Current;
 
                             // Interactive events must be handled outside the Status context
-                            if (evt is HumanApprovalRequired or DirectoryAccessRequested)
+                            if (evt is HumanApprovalRequired or DirectoryAccessRequested or CommandApprovalRequested)
                             {
                                 pendingInteractiveEvent = evt;
                                 return;
@@ -233,6 +236,25 @@ internal sealed class ConsoleUI : IDisposable
                                 dirDecision.Approved,
                                 dirDecision.GrantedLevel,
                                 dirDecision.SessionGrant);
+
+                            firstToken = false;
+                            break;
+
+                        case CommandApprovalRequested cmdApproval:
+                            if (!firstToken)
+                            {
+                                AnsiConsole.WriteLine();
+                            }
+
+                            // Display command approval prompt and get the user's decision
+                            var cmdDecision = _approvalHandler.HandleCommandApproval(
+                                cmdApproval.Request,
+                                cmdApproval.Decision);
+
+                            // Notify the orchestrator of the command approval decision
+                            onCommandApprovalDecision?.Invoke(
+                                cmdDecision.Approved,
+                                cmdDecision.AlwaysApprove);
 
                             firstToken = false;
                             break;
