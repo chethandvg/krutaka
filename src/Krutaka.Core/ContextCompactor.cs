@@ -98,6 +98,11 @@ public sealed class ContextCompactor
 
         while (current.Count >= absoluteMinimumMessages + pairSize)
         {
+            // After dropping, ensure the first message is not an orphaned tool_result.
+            // A user message with tool_result blocks requires a preceding assistant message
+            // with the corresponding tool_use blocks — drop extra messages to maintain this invariant.
+            DropOrphanedToolResultPrefix(current);
+
             var tokenCount = await _claudeClient.CountTokensAsync(current, systemPrompt, cancellationToken).ConfigureAwait(false);
 
             if (!ExceedsHardLimit(tokenCount))
@@ -108,6 +113,9 @@ public sealed class ContextCompactor
             // Drop the oldest 2 messages (one user-assistant pair) from the front
             current.RemoveRange(0, pairSize);
         }
+
+        // Final cleanup after the loop exits
+        DropOrphanedToolResultPrefix(current);
 
         return current.AsReadOnly();
     }
@@ -143,8 +151,21 @@ public sealed class ContextCompactor
         }
 
         // Keep last N messages
-        var messagesToSummarize = messages.Take(messages.Count - _messagesToKeep).ToList();
-        var messagesToKeep = messages.Skip(messagesToSummarize.Count).ToList();
+        var splitIndex = messages.Count - _messagesToKeep;
+        var messagesToSummarize = messages.Take(splitIndex).ToList();
+        var messagesToKeep = messages.Skip(splitIndex).ToList();
+
+        // If the first kept message is a user message containing tool_result blocks,
+        // it needs a preceding assistant message with the corresponding tool_use.
+        // Pull the preceding assistant message from the summarize set into the keep set.
+        while (messagesToKeep.Count > 0 && HasToolResultContent(messagesToKeep[0])
+            && messagesToSummarize.Count > 0)
+        {
+            // Move the preceding assistant message (tool_use) into the keep set
+            var preceding = messagesToSummarize[^1];
+            messagesToSummarize.RemoveAt(messagesToSummarize.Count - 1);
+            messagesToKeep.Insert(0, preceding);
+        }
 
         // Generate summary using configured model
         var summary = await GenerateSummaryAsync(messagesToSummarize, cancellationToken).ConfigureAwait(false);
@@ -209,6 +230,63 @@ public sealed class ContextCompactor
     {
         var roleProperty = message.GetType().GetProperty("role");
         return roleProperty?.GetValue(message)?.ToString() ?? "user";
+    }
+
+    /// <summary>
+    /// Checks if a message contains tool_result content blocks.
+    /// A user message with tool_result blocks requires a preceding assistant message
+    /// with the corresponding tool_use blocks per Claude API requirements.
+    /// </summary>
+    private static bool HasToolResultContent(object message)
+    {
+        var role = GetMessageRole(message);
+        if (role != "user")
+        {
+            return false;
+        }
+
+        var contentProperty = message.GetType().GetProperty("content");
+        var content = contentProperty?.GetValue(message);
+
+        // If content is a string, it's plain text, not tool_result
+        if (content is null or string)
+        {
+            return false;
+        }
+
+        // Content is a collection of blocks — check if any are tool_result
+        if (content is System.Collections.IEnumerable enumerable)
+        {
+            foreach (var block in enumerable)
+            {
+                var typeProperty = block.GetType().GetProperty("type");
+                var typeValue = typeProperty?.GetValue(block)?.ToString();
+                if (typeValue == "tool_result")
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Drops messages from the front of the list until the first message is not an orphaned
+    /// tool_result. An orphaned tool_result is a user message with tool_result blocks that
+    /// has no preceding assistant message with the corresponding tool_use blocks.
+    /// </summary>
+    private static void DropOrphanedToolResultPrefix(List<object> messages)
+    {
+        while (messages.Count > 0 && HasToolResultContent(messages[0]))
+        {
+            messages.RemoveAt(0);
+            // Also remove the subsequent assistant message to maintain pair structure
+            if (messages.Count > 0 && GetMessageRole(messages[0]) == "assistant")
+            {
+                messages.RemoveAt(0);
+            }
+        }
     }
 
     /// <summary>
