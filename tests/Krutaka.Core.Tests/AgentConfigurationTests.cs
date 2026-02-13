@@ -13,7 +13,7 @@ public class AgentConfigurationTests
 
         // Assert
         config.ModelId.Should().Be("claude-4-sonnet-20250514");
-        config.MaxTokens.Should().Be(8192);
+        config.MaxTokens.Should().Be(10000);
         config.Temperature.Should().Be(0.7);
         config.RequireApprovalForWrite.Should().BeTrue();
         config.RequireApprovalForExecute.Should().BeTrue();
