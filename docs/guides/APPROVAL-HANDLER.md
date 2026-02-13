@@ -39,11 +39,13 @@ The `run_command` tool now uses graduated risk tiers:
 
 | Tier | In Trusted Dir | UI Behavior |
 |------|----------------|-------------|
-| **Safe** | N/A | Auto-approved, shows dim message: `[dim]⚙ Auto-approved (Safe): git status[/]` |
-| **Moderate** | Yes | Auto-approved, shows dim message: `[dim]⚙ Auto-approved (Moderate — trusted dir): dotnet build[/]` |
+| **Safe** | N/A | Auto-approved silently (no UI message currently)* |
+| **Moderate** | Yes | Auto-approved silently (no UI message currently)* |
 | **Moderate** | No | Approval prompt with [Y]es/[N]o/[A]lways options |
 | **Elevated** | N/A | Approval prompt with [Y]es/[N]o only (no "Always") |
 | **Dangerous** | N/A | Blocked before reaching UI |
+
+*Note: The `DisplayAutoApprovalMessage()` method exists for showing dim auto-approval messages like `[dim]⚙ Auto-approved (Safe): git status[/]`, but it is not yet wired into the command execution flow. Auto-approved commands currently execute silently without UI notification. This will be addressed in a future update.*
 
 **Elevated tier approval prompt shows:**
 - 🟡 **ELEVATED** risk tier label
@@ -51,14 +53,19 @@ The `run_command` tool now uses graduated risk tiers:
 - Agent's justification for the command
 - [Y]es and [N]o options only (no "Always" for security)
 
-**Moderate tier approval prompt (untrusted directory) shows:**
-- 🟢 **MODERATE (not in trusted directory)** risk tier label
+**Moderate tier approval prompt shows:**
+- 🟢 **MODERATE** risk tier label with context-specific details:
+  - `MODERATE (not in trusted directory)` when directory is untrusted
+  - `MODERATE (no working directory specified)` when working directory is missing
+  - `MODERATE (auto-approval disabled)` when config disables auto-approval
+  - `MODERATE (directory trust not configured)` when no policy engine available
+  - `MODERATE` (generic) for other cases
 - Working directory
 - Agent's justification for the command
 - [Y]es, [N]o, and [A]lways options
 
 Examples of commands by tier:
-- **Safe**: `git status`, `git log`, `dotnet --version`, `npm --version`, `echo`, `cat`, `dir`
+- **Safe**: `git status`, `git log`, `dotnet --version`, `npm --version`, `where`, `ipconfig`, `whoami`
 - **Moderate**: `git commit`, `git add`, `dotnet build`, `dotnet test`, `npm run`, `npm test`, `python script.py`
 - **Elevated**: `git push`, `git pull`, `dotnet publish`, `npm install`, `pip install`
 - **Dangerous**: `powershell`, `cmd`, `curl`, `wget`, `format`, `diskpart` (always blocked)
@@ -87,7 +94,10 @@ Examples of commands by tier:
   ```
   ⚙ Auto-approving write_file (user selected 'Always' for this session)
   ```
-- **v0.3.0**: Moderate tier commands can be approved with "Always" (specific command signature cached)
+- **v0.3.0**: Moderate tier commands can be approved with "Always" (command signature cached for session)
+  - Command signature includes executable, arguments, and working directory
+  - Subsequent executions of the exact same command auto-approve without prompting
+  - Session cache clears when the application exits
 - **Exception**: Elevated tier `run_command` NEVER supports "Always" per security policy (requires explicit approval every time)
 
 ### Denial Handling
