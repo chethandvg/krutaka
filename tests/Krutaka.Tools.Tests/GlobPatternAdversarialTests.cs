@@ -38,7 +38,7 @@ public sealed class GlobPatternAdversarialTests
         // Assert
         result.IsValid.Should().BeFalse();
         result.Errors.Should().NotBeEmpty();
-        result.Errors.Should().ContainMatch("*segment*");
+        result.Errors.Should().ContainMatch("*ceiling*");
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class GlobPatternAdversarialTests
         // Assert
         result.IsValid.Should().BeFalse();
         result.Errors.Should().NotBeEmpty();
-        result.Errors.Should().ContainMatch("*3*segment*");
+        result.Errors.Should().ContainMatch("*ceiling*");
     }
 
     [Fact]

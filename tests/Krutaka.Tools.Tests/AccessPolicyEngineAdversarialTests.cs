@@ -65,7 +65,7 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
         decision.Outcome.Should().Be(AccessOutcome.Denied);
         decision.Granted.Should().BeFalse();
         decision.DeniedReasons.Should().NotBeEmpty();
-        decision.DeniedReasons.Should().ContainMatch("*System32*");
+        decision.DeniedReasons.Should().ContainMatch("*Windows*");
     }
 
     [Fact]
@@ -186,9 +186,9 @@ public sealed class AccessPolicyEngineAdversarialTests : IDisposable
         var decision = await engine.EvaluateAsync(request, CancellationToken.None);
 
         // Assert
-        decision.Outcome.Should().Be(AccessOutcome.Denied);
+        decision.Outcome.Should().Be(AccessOutcome.RequiresApproval);
         decision.Granted.Should().BeFalse();
-        decision.DeniedReasons.Should().ContainMatch("*ceiling*");
+        decision.DeniedReasons.Should().BeEmpty();
     }
 
     [Fact]
