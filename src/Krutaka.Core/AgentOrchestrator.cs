@@ -949,13 +949,19 @@ public sealed class AgentOrchestrator : IDisposable
         // to preserve prompt-injection mitigation
         if (isWrapped)
         {
-            // Strip the open tag if it's in the truncated content (it will be)
+            // Strip both open and close tags from the truncated content
+            // (open tag will always be present; close tag may also appear if truncation
+            // happens to land past where it was in the original)
             if (truncatedContent.StartsWith(openTag, StringComparison.Ordinal))
             {
                 truncatedContent = truncatedContent[openTag.Length..];
             }
 
-            return $"{openTag}\n{truncatedContent}\n{closeTag}{truncationNotice}";
+            // Remove any close tag that may be in the truncated content
+            truncatedContent = truncatedContent.Replace(closeTag, "", StringComparison.Ordinal);
+
+            // Place both truncated content and truncation notice inside the wrapper
+            return $"{openTag}\n{truncatedContent}{truncationNotice}\n{closeTag}";
         }
 
         return $"{truncatedContent}{truncationNotice}";
