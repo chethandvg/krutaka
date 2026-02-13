@@ -97,51 +97,105 @@ internal sealed class ConsoleUI : IDisposable
         bool firstToken = true;
         bool hasError = false;
 
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync("[dim]Thinking...[/]", async ctx =>
+        // Use a manual enumerator so we can pause the Status context for interactive
+        // prompts and resume afterward. Spectre.Console's Status uses an exclusive live
+        // rendering mode that prevents SelectionPrompt from capturing keyboard input.
+        AgentEvent? pendingInteractiveEvent = null;
+        bool streamComplete = false;
+
+        var enumerator = events.GetAsyncEnumerator(cancellationToken);
+        try
+        {
+            while (!streamComplete)
             {
-                await foreach (var evt in events.WithCancellation(cancellationToken))
-                {
-                    switch (evt)
+                // Process non-interactive events inside a Status context (spinner).
+                // When an interactive event arrives, we exit the Status context so that
+                // Spectre.Console's SelectionPrompt can properly manage console input.
+                await AnsiConsole.Status()
+                    .Spinner(firstToken ? Spinner.Known.Dots : Spinner.Known.Default)
+                    .StartAsync(firstToken ? "[dim]Thinking...[/]" : "\u200B", async ctx =>
                     {
-                        case TextDelta delta:
-                            if (firstToken)
-                            {
-                                // Stop spinner and start streaming text
-                                ctx.Status(string.Empty);
-                                ctx.Spinner(Spinner.Known.Default);
-                                AnsiConsole.WriteLine();
-                                firstToken = false;
-                            }
-                            // Raw console write for streaming speed
-                            System.Console.Write(delta.Text);
-                            fullText.Append(delta.Text);
-                            break;
+                        while (await enumerator.MoveNextAsync().ConfigureAwait(false))
+                        {
+                            var evt = enumerator.Current;
 
-                        case ToolCallStarted tool:
-                            if (!firstToken)
+                            // Interactive events must be handled outside the Status context
+                            if (evt is HumanApprovalRequired or DirectoryAccessRequested)
                             {
-                                AnsiConsole.WriteLine();
+                                pendingInteractiveEvent = evt;
+                                return;
                             }
 
-                            AnsiConsole.MarkupLine(
-                                $"[dim]⚙ Calling [bold]{Markup.Escape(tool.ToolName)}[/]...[/]");
+                            switch (evt)
+                            {
+                                case TextDelta delta:
+                                    if (firstToken)
+                                    {
+                                        // Stop spinner and start streaming text.
+                                        // Spectre.Console rejects empty or whitespace-only status strings
+                                        // (ProgressTask.Update throws InvalidOperationException).
+                                        // Use a zero-width space (U+200B) which is NOT whitespace per
+                                        // char.IsWhiteSpace, so it passes validation while being invisible.
+                                        ctx.Status("\u200B");
+                                        ctx.Spinner(Spinner.Known.Default);
+                                        AnsiConsole.WriteLine();
+                                        firstToken = false;
+                                    }
+                                    // Raw console write for streaming speed
+                                    System.Console.Write(delta.Text);
+                                    fullText.Append(delta.Text);
+                                    break;
 
-                            firstToken = false;
-                            break;
+                                case ToolCallStarted tool:
+                                    if (!firstToken)
+                                    {
+                                        AnsiConsole.WriteLine();
+                                    }
 
-                        case ToolCallCompleted tool:
-                            AnsiConsole.MarkupLine(
-                                $"[green]✓ {Markup.Escape(tool.ToolName)} complete[/]");
-                            break;
+                                    AnsiConsole.MarkupLine(
+                                        $"[dim]⚙ Calling [bold]{Markup.Escape(tool.ToolName)}[/]...[/]");
 
-                        case ToolCallFailed tool:
-                            AnsiConsole.MarkupLine(
-                                $"[red]✗ {Markup.Escape(tool.ToolName)} failed: {Markup.Escape(tool.Error)}[/]");
-                            hasError = true;
-                            break;
+                                    firstToken = false;
+                                    break;
 
+                                case ToolCallCompleted tool:
+                                    AnsiConsole.MarkupLine(
+                                        $"[green]✓ {Markup.Escape(tool.ToolName)} complete[/]");
+                                    break;
+
+                                case ToolCallFailed tool:
+                                    AnsiConsole.MarkupLine(
+                                        $"[red]✗ {Markup.Escape(tool.ToolName)} failed: {Markup.Escape(tool.Error)}[/]");
+                                    hasError = true;
+                                    break;
+
+                                case FinalResponse final:
+                                    if (!firstToken && fullText.Length > 0)
+                                    {
+                                        // Re-render with Markdown formatting
+                                        AnsiConsole.WriteLine();
+                                        AnsiConsole.WriteLine();
+                                        _markdownRenderer.Render(fullText.ToString());
+                                    }
+                                    else if (!string.IsNullOrWhiteSpace(final.Content))
+                                    {
+                                        AnsiConsole.WriteLine();
+                                        _markdownRenderer.Render(final.Content);
+                                    }
+
+                                    break;
+                            }
+                        }
+
+                        streamComplete = true;
+                    }).ConfigureAwait(false);
+
+                // Handle interactive events outside the Status context so that
+                // Spectre.Console's SelectionPrompt can properly manage console input.
+                if (pendingInteractiveEvent != null)
+                {
+                    switch (pendingInteractiveEvent)
+                    {
                         case HumanApprovalRequired approval:
                             if (!firstToken)
                             {
@@ -160,22 +214,6 @@ internal sealed class ConsoleUI : IDisposable
                                 decision.AlwaysApprove);
 
                             firstToken = false;
-                            break;
-
-                        case FinalResponse final:
-                            if (!firstToken && fullText.Length > 0)
-                            {
-                                // Re-render with Markdown formatting
-                                AnsiConsole.WriteLine();
-                                AnsiConsole.WriteLine();
-                                _markdownRenderer.Render(fullText.ToString());
-                            }
-                            else if (!string.IsNullOrWhiteSpace(final.Content))
-                            {
-                                AnsiConsole.WriteLine();
-                                _markdownRenderer.Render(final.Content);
-                            }
-
                             break;
 
                         case DirectoryAccessRequested dirAccess:
@@ -199,12 +237,19 @@ internal sealed class ConsoleUI : IDisposable
                             firstToken = false;
                             break;
                     }
-                }
-            }).ConfigureAwait(false);
 
-        if (hasError)
+                    pendingInteractiveEvent = null;
+                }
+            }
+
+            if (hasError)
+            {
+                AnsiConsole.WriteLine();
+            }
+        }
+        finally
         {
-            AnsiConsole.WriteLine();
+            await enumerator.DisposeAsync().ConfigureAwait(false);
         }
     }
 

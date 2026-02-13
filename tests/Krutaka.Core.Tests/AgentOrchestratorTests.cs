@@ -619,6 +619,164 @@ public sealed class AgentOrchestratorTests
             "CountTokensAsync must be called to evaluate whether compaction is needed");
     }
 
+    [Fact]
+    public async Task RunAsync_Should_UseDefaultLimit_WhenMaxToolResultCharactersNotSpecified()
+    {
+        // Arrange - tool result just under the default limit should NOT be truncated
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var resultUnderDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters - 1);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultUnderDefault);
+
+        claudeClient.AddToolCallStarted("search", "tool_def", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(claudeClient, toolRegistry, new MockSecurityPolicy());
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - result should pass through without truncation
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().NotContain("[Output truncated:");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_TruncateAtDefaultLimit_WhenMaxToolResultCharactersNotSpecified()
+    {
+        // Arrange - tool result above the default limit should be truncated
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var resultOverDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters + 100);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultOverDefault);
+
+        claudeClient.AddToolCallStarted("search", "tool_def2", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(claudeClient, toolRegistry, new MockSecurityPolicy());
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - result should be truncated at the default limit
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().Contain("[Output truncated:");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_FallBackToDefault_WhenMaxToolResultCharactersIsZero()
+    {
+        // Arrange - zero should fall back to default; result over default should be truncated
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var resultOverDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters + 100);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultOverDefault);
+
+        claudeClient.AddToolCallStarted("search", "tool_zero", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, toolRegistry, new MockSecurityPolicy(),
+            maxToolResultCharacters: 0);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - should truncate at default limit (not at 0)
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().Contain("[Output truncated:");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_FallBackToDefault_WhenMaxToolResultCharactersIsNegative()
+    {
+        // Arrange - negative should fall back to default; result over default should be truncated
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var resultOverDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters + 100);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultOverDefault);
+
+        claudeClient.AddToolCallStarted("search", "tool_neg", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, toolRegistry, new MockSecurityPolicy(),
+            maxToolResultCharacters: -100);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - should truncate at default limit (not negative)
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().Contain("[Output truncated:");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_TruncateToolResult_WhenExceedsCustomLimit()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var customLimit = 100; // Very small limit for testing
+
+        // Tool returns a result larger than the custom limit
+        var largeResult = new string('x', 200);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", largeResult);
+
+        // First response: tool use
+        claudeClient.AddToolCallStarted("search", "tool_trunc", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+
+        // Second response: final answer
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            maxToolResultCharacters: customLimit);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search test", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - the tool call should complete (not fail) but with truncated content
+        var completedEvents = events.OfType<ToolCallCompleted>().ToList();
+        completedEvents.Should().ContainSingle();
+        completedEvents[0].Result.Should().Contain("[Output truncated:");
+        completedEvents[0].Result.Length.Should().BeLessThan(largeResult.Length + 200); // Allow room for truncation notice
+    }
+
+    [Fact]
+    public void DefaultMaxToolResultCharacters_ShouldBe200000()
+    {
+        // Assert - verify the default constant value
+        AgentOrchestrator.DefaultMaxToolResultCharacters.Should().Be(200_000);
+    }
+
     private static AgentOrchestrator CreateOrchestrator(
         MockClaudeClient? claudeClient = null,
         MockToolRegistry? toolRegistry = null,

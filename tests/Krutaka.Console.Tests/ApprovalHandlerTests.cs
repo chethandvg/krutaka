@@ -219,4 +219,26 @@ public class ApprovalHandlerTests
     // Note: Interactive tests that require user input are not included here.
     // The approval handler's interactive functionality will be tested through
     // integration tests or manual verification.
+
+    [Theory]
+    [InlineData("[green][[Y]]es - Execute this command[/]")]
+    [InlineData("[red][[N]]o - Deny this command[/]")]
+    [InlineData("[green][[Y]]es - Write this file[/]")]
+    [InlineData("[red][[N]]o - Deny this operation[/]")]
+    [InlineData("[yellow][[A]]lways - Approve all write_file operations this session[/]")]
+    [InlineData("[cyan][[V]]iew - View full content[/]")]
+    [InlineData("[green][[Y]]es - Approve this operation[/]")]
+    [InlineData("[yellow][[A]]lways - Approve all operations of this type this session[/]")]
+    [InlineData("[green][[Y]]es - Allow at ReadOnly level[/]")]
+    [InlineData("[yellow][[R]]ead-only - Downgrade to ReadOnly access[/]")]
+    [InlineData("[red][[N]]o - Deny access[/]")]
+    [InlineData("[cyan][[S]]ession - Allow for entire session[/]")]
+    public void ApprovalPrompt_MarkupStrings_AreValidSpectreMarkup(string markup)
+    {
+        // Act — Markup constructor parses and throws InvalidOperationException if invalid
+        var act = () => new Spectre.Console.Markup(markup);
+
+        // Assert — should not throw
+        act.Should().NotThrow("because SelectionPrompt converter markup must be valid Spectre.Console markup");
+    }
 }

@@ -238,6 +238,16 @@ try
 
     // Register AgentOrchestrator
     var toolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
+    var approvalTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ApprovalTimeoutSeconds", 300);
+    var maxTokens = builder.Configuration.GetValue<int>("Claude:MaxTokens", 8192);
+    var configuredMaxToolResultChars = builder.Configuration.GetValue<int>("Agent:MaxToolResultCharacters", 0);
+    // Derive MaxToolResultCharacters from MaxTokens if not explicitly set (0 = derive).
+    // Heuristic: 1 token ≈ 4 characters, so MaxTokens × 4 gives a proportional limit.
+    // Capped at a minimum of 100,000 to ensure usability even with small MaxTokens values.
+    var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
+    var maxToolResultCharacters = configuredMaxToolResultChars > 0
+        ? configuredMaxToolResultChars
+        : (int)derivedMaxToolResultChars;
 
     builder.Services.AddSingleton(sp =>
     {
@@ -254,7 +264,8 @@ try
             toolRegistry,
             securityPolicy,
             toolTimeoutSeconds,
-            approvalTimeoutSeconds: 300, // 5 minutes default
+            approvalTimeoutSeconds,
+            maxToolResultCharacters,
             sessionAccessStore,
             auditLogger,
             correlationContext,
