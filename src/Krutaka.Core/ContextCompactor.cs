@@ -46,6 +46,12 @@ public sealed class ContextCompactor
     }
 
     /// <summary>
+    /// Gets the configured maximum token limit for the context window.
+    /// Used by the orchestrator for hard-limit enforcement after compaction.
+    /// </summary>
+    public int MaxTokens => _maxTokens;
+
+    /// <summary>
     /// Checks if compaction is needed based on current token count.
     /// </summary>
     /// <param name="currentTokenCount">The current token count.</param>
@@ -54,6 +60,55 @@ public sealed class ContextCompactor
     {
         var threshold = (int)(_maxTokens * _compactionThreshold);
         return currentTokenCount > threshold;
+    }
+
+    /// <summary>
+    /// Checks if the token count exceeds the absolute hard limit for the context window.
+    /// This is used as a safety net after compaction to prevent API errors.
+    /// </summary>
+    /// <param name="tokenCount">The current token count.</param>
+    /// <returns>True if the token count exceeds the hard limit.</returns>
+    public bool ExceedsHardLimit(int tokenCount)
+    {
+        return tokenCount > _maxTokens;
+    }
+
+    /// <summary>
+    /// Performs emergency truncation by progressively dropping the oldest messages
+    /// (keeping the most recent ones) until the token count is under the hard limit.
+    /// This is a last-resort safety net when compaction alone is not enough.
+    /// </summary>
+    /// <param name="messages">The current conversation messages.</param>
+    /// <param name="systemPrompt">The system prompt used for the conversation.</param>
+    /// <param name="cancellationToken">Cancellation token for async operation.</param>
+    /// <returns>The truncated message list that fits within the hard limit.</returns>
+    public async Task<IReadOnlyList<object>> TruncateToFitAsync(
+        IReadOnlyList<object> messages,
+        string systemPrompt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(systemPrompt);
+
+        // Minimum: keep at least 2 messages (one user + one assistant) for a valid conversation
+        const int absoluteMinimumMessages = 2;
+        var current = messages.ToList();
+
+        while (current.Count > absoluteMinimumMessages)
+        {
+            var tokenCount = await _claudeClient.CountTokensAsync(current, systemPrompt, cancellationToken).ConfigureAwait(false);
+
+            if (!ExceedsHardLimit(tokenCount))
+            {
+                return current.AsReadOnly();
+            }
+
+            // Drop the oldest 2 messages (one user-assistant pair) from the front
+            var dropCount = Math.Min(2, current.Count - absoluteMinimumMessages);
+            current.RemoveRange(0, dropCount);
+        }
+
+        return current.AsReadOnly();
     }
 
     /// <summary>

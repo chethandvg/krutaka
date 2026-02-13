@@ -702,6 +702,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <summary>
     /// Checks if context compaction is needed and performs it if so.
     /// Replaces conversation history with compacted version.
+    /// Enforces a hard token limit after compaction as a safety net.
     /// </summary>
     private async Task CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
     {
@@ -732,10 +733,48 @@ public sealed class AgentOrchestrator : IDisposable
                 tokenCount,
                 cancellationToken).ConfigureAwait(false);
 
+            var compactedMessages = result.CompactedMessages;
+
+            // Safety net: if compaction didn't bring tokens under the hard limit,
+            // perform emergency truncation to prevent API errors
+            if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
+            {
+                compactedMessages = await _contextCompactor.TruncateToFitAsync(
+                    compactedMessages.ToList(),
+                    systemPrompt,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             lock (_conversationHistoryLock)
             {
                 _conversationHistory.Clear();
-                _conversationHistory.AddRange(result.CompactedMessages);
+                _conversationHistory.AddRange(compactedMessages);
+            }
+        }
+        else if (_contextCompactor.ExceedsHardLimit(tokenCount))
+        {
+            // Tokens are above absolute max but below compaction threshold shouldn't happen
+            // in normal operation, but handle it as a safety net
+            var result = await _contextCompactor.CompactAsync(
+                historySnapshot,
+                systemPrompt,
+                tokenCount,
+                cancellationToken).ConfigureAwait(false);
+
+            var compactedMessages = result.CompactedMessages;
+
+            if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
+            {
+                compactedMessages = await _contextCompactor.TruncateToFitAsync(
+                    compactedMessages.ToList(),
+                    systemPrompt,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+                _conversationHistory.AddRange(compactedMessages);
             }
         }
     }

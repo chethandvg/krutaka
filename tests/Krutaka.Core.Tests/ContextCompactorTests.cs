@@ -200,6 +200,108 @@ public sealed class ContextCompactorTests
         result.MessagesRemoved.Should().Be(expectedRemoved);
     }
 
+    [Fact]
+    public void ExceedsHardLimit_Should_ReturnTrue_WhenOverMax()
+    {
+        // The default maxTokens is 200,000
+        _compactor.ExceedsHardLimit(210_000).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExceedsHardLimit_Should_ReturnFalse_WhenUnderMax()
+    {
+        _compactor.ExceedsHardLimit(190_000).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ExceedsHardLimit_Should_ReturnFalse_WhenExactlyAtMax()
+    {
+        _compactor.ExceedsHardLimit(200_000).Should().BeFalse();
+    }
+
+    [Fact]
+    public void MaxTokens_Should_ReturnConfiguredValue()
+    {
+        _compactor.MaxTokens.Should().Be(200_000);
+
+        var customCompactor = new ContextCompactor(_mockClaudeClient, maxTokens: 100_000);
+        customCompactor.MaxTokens.Should().Be(100_000);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_DropOldestMessagesUntilUnderLimit()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+
+        // First call: still over limit (10 messages → 210K)
+        // Second call: still over limit (8 messages → 205K)
+        // Third call: under limit (6 messages → 150K)
+        var callCount = 0;
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                return callCount switch
+                {
+                    1 => Task.FromResult(210_000),
+                    2 => Task.FromResult(205_000),
+                    _ => Task.FromResult(150_000)
+                };
+            });
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — should have dropped 4 messages (2 pairs) from the front
+        result.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_ReturnImmediately_WhenAlreadyUnderLimit()
+    {
+        // Arrange
+        var messages = CreateMessageList(8);
+        var systemPrompt = "You are a helpful assistant.";
+
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(150_000));
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — no truncation needed
+        result.Should().HaveCount(8);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_StopAtMinimumTwoMessages()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+
+        // Always over limit — should stop at 2 messages
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(250_000));
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — should never go below 2 messages
+        result.Should().HaveCount(2);
+    }
+
     private static List<object> CreateMessageList(int count)
     {
         var messages = new List<object>();
