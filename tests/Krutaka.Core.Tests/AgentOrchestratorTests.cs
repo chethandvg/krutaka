@@ -1,4 +1,5 @@
 #pragma warning disable CA2007 // Do not directly await a Task in tests
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using FluentAssertions;
@@ -461,6 +462,75 @@ public sealed class AgentOrchestratorTests
         events.OfType<ToolCallStarted>().Should().HaveCount(2);
         events.OfType<ToolCallCompleted>().Should().HaveCount(2);
         toolRegistry.ExecutedTools.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_TruncateOversizedToolResults()
+    {
+        // Arrange — tool returns a result larger than the 200K character limit
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+
+        var oversizedResult = new string('x', 300_000); // 300K characters
+        toolRegistry.AddTool("search_files", "{\"pattern\":\"TODO\"}", oversizedResult);
+
+        // First response: tool use
+        claudeClient.AddToolCallStarted("search_files", "tool_big", "{\"pattern\":\"TODO\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+
+        // Second response: final answer
+        claudeClient.AddFinalResponse("Search complete", "end_turn");
+
+        using var orchestrator = CreateOrchestrator(claudeClient, toolRegistry);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search for TODO", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert — tool completed (not failed) but result was truncated
+        var completed = events.OfType<ToolCallCompleted>().Should().ContainSingle().Subject;
+        completed.Result.Length.Should().BeLessThan(oversizedResult.Length,
+            "oversized tool result should be truncated");
+        completed.Result.Should().Contain("[Output truncated:",
+            "truncation message should be appended");
+        // Use invariant culture formatting to match production code
+        var expectedSize = string.Create(CultureInfo.InvariantCulture, $"{300_000:N0}");
+        completed.Result.Should().Contain($"{expectedSize} characters",
+            "truncation message should include original size");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_NotTruncateNormalToolResults()
+    {
+        // Arrange — tool returns a normal-sized result
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+
+        var normalResult = "File contents here";
+        toolRegistry.AddTool("read_file", "{\"path\":\"test.txt\"}", normalResult);
+
+        // First response: tool use
+        claudeClient.AddToolCallStarted("read_file", "tool_normal", "{\"path\":\"test.txt\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+
+        // Second response: final answer
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = CreateOrchestrator(claudeClient, toolRegistry);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Read test.txt", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert — result should not be truncated
+        var completed = events.OfType<ToolCallCompleted>().Should().ContainSingle().Subject;
+        completed.Result.Should().Be(normalResult);
     }
 
     [Fact]

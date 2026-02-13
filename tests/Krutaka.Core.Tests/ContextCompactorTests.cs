@@ -200,6 +200,230 @@ public sealed class ContextCompactorTests
         result.MessagesRemoved.Should().Be(expectedRemoved);
     }
 
+    [Fact]
+    public void ExceedsHardLimit_Should_ReturnTrue_WhenOverMax()
+    {
+        // The default maxTokens is 200,000
+        _compactor.ExceedsHardLimit(210_000).Should().BeTrue();
+    }
+
+    [Fact]
+    public void ExceedsHardLimit_Should_ReturnFalse_WhenUnderMax()
+    {
+        _compactor.ExceedsHardLimit(190_000).Should().BeFalse();
+    }
+
+    [Fact]
+    public void ExceedsHardLimit_Should_ReturnFalse_WhenExactlyAtMax()
+    {
+        _compactor.ExceedsHardLimit(200_000).Should().BeFalse();
+    }
+
+    [Fact]
+    public void MaxTokens_Should_ReturnConfiguredValue()
+    {
+        _compactor.MaxTokens.Should().Be(200_000);
+
+        var customCompactor = new ContextCompactor(_mockClaudeClient, maxTokens: 100_000);
+        customCompactor.MaxTokens.Should().Be(100_000);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_DropOldestMessagesUntilUnderLimit()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+
+        // First call: still over limit (10 messages → 210K)
+        // Second call: still over limit (8 messages → 205K)
+        // Third call: under limit (6 messages → 150K)
+        var callCount = 0;
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                return callCount switch
+                {
+                    1 => Task.FromResult(210_000),
+                    2 => Task.FromResult(205_000),
+                    _ => Task.FromResult(150_000)
+                };
+            });
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — should have dropped 4 messages (2 pairs) from the front
+        result.Should().HaveCount(6);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_ReturnImmediately_WhenAlreadyUnderLimit()
+    {
+        // Arrange
+        var messages = CreateMessageList(8);
+        var systemPrompt = "You are a helpful assistant.";
+
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(150_000));
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — no truncation needed
+        result.Should().HaveCount(8);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_StopAtMinimumTwoMessages()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+
+        // Always over limit — should stop at 2 messages
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(250_000));
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — should never go below 2 messages
+        result.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task TruncateToFitAsync_Should_DropOrphanedToolResultAfterTruncation()
+    {
+        // Arrange — simulate a conversation where truncation leaves a tool_result at front:
+        // [user, assistant(tool_use), user(tool_result), assistant, user, assistant, user, assistant]
+        // After dropping first 2 → [user(tool_result), assistant, user, assistant, user, assistant]
+        // The orphaned tool_result should be dropped too → [user, assistant, user, assistant]
+        var messages = new List<object>
+        {
+            new { role = "user", content = "Do something" },
+            new { role = "assistant", content = new object[] {
+                new { type = "text", text = "I'll search" },
+                new { type = "tool_use", id = "toolu_001", name = "search", input = "{}" }
+            }},
+            new { role = "user", content = new object[] {
+                new { type = "tool_result", tool_use_id = "toolu_001", content = "results" }
+            }},
+            new { role = "assistant", content = "Here are the results." },
+            new { role = "user", content = "Thanks" },
+            new { role = "assistant", content = "You're welcome." },
+            new { role = "user", content = "One more question" },
+            new { role = "assistant", content = "Sure, ask away." },
+        };
+        var systemPrompt = "You are a helpful assistant.";
+
+        // First call (8 msgs): over limit → drop 2 → leaves tool_result at front → drop 2 more
+        // Second call (4 msgs): under limit
+        var callCount = 0;
+        _mockClaudeClient.CountTokensAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                return callCount switch
+                {
+                    1 => Task.FromResult(210_000),
+                    _ => Task.FromResult(150_000)
+                };
+            });
+
+        // Act
+        var result = await _compactor.TruncateToFitAsync(messages, systemPrompt);
+
+        // Assert — the orphaned tool_result + its assistant response should be dropped
+        result.Should().HaveCount(4);
+        // First message should be a clean user message, not a tool_result
+        var firstRole = result[0].GetType().GetProperty("role")?.GetValue(result[0])?.ToString();
+        firstRole.Should().Be("user");
+        var firstContent = result[0].GetType().GetProperty("content")?.GetValue(result[0]);
+        firstContent.Should().BeOfType<string>(); // Not an array with tool_result blocks
+    }
+
+    [Fact]
+    public async Task CompactAsync_Should_IncludeToolUseWhenKeptMessagesStartWithToolResult()
+    {
+        // Arrange — create a conversation where the last 6 messages start with tool_result
+        // Messages: [user, assistant, user, assistant(tool_use), user(tool_result), assistant,
+        //            user, assistant, user, assistant]
+        // Keep last 6: [user(tool_result), assistant, user, assistant, user, assistant]
+        // → Should pull assistant(tool_use) into kept set
+        var messages = new List<object>
+        {
+            new { role = "user", content = "Start" },
+            new { role = "assistant", content = "OK" },
+            new { role = "user", content = "Search for something" },
+            new { role = "assistant", content = new object[] {
+                new { type = "text", text = "Searching" },
+                new { type = "tool_use", id = "toolu_002", name = "search", input = "{}" }
+            }},
+            new { role = "user", content = new object[] {
+                new { type = "tool_result", tool_use_id = "toolu_002", content = "found it" }
+            }},
+            new { role = "assistant", content = "Found results." },
+            new { role = "user", content = "Great" },
+            new { role = "assistant", content = "Anything else?" },
+            new { role = "user", content = "No thanks" },
+            new { role = "assistant", content = "Goodbye!" },
+        };
+        var systemPrompt = "You are a helpful assistant.";
+
+        SetupMockForSummarization("Summary of early conversation.");
+        _mockClaudeClient.CountTokensAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(80_000));
+
+        // Act
+        var result = await _compactor.CompactAsync(messages, systemPrompt, 165_000);
+
+        // Assert — the kept messages should include the tool_use assistant message
+        // Compacted: [summary(user), ack(assistant), assistant(tool_use), user(tool_result), ...]
+        // First message should be summary
+        var first = result.CompactedMessages[0];
+        GetMessageRole(first).Should().Be("user");
+        GetMessageContent(first).Should().Contain("[Previous conversation summary]");
+
+        // The compacted conversation should NOT have any orphaned tool_result
+        // (i.e., every tool_result should have a preceding tool_use)
+        for (int i = 0; i < result.CompactedMessages.Count; i++)
+        {
+            var msg = result.CompactedMessages[i];
+            var role = GetMessageRole(msg);
+            var contentProp = msg.GetType().GetProperty("content")?.GetValue(msg);
+
+            if (role == "user" && contentProp is System.Collections.IEnumerable blocks and not string)
+            {
+                // This is a user message with complex content — check for tool_result
+                foreach (var block in blocks)
+                {
+                    var typeVal = block.GetType().GetProperty("type")?.GetValue(block)?.ToString();
+                    if (typeVal == "tool_result")
+                    {
+                        // Must have a preceding assistant message (i-1) with tool_use
+                        i.Should().BeGreaterThan(0, "tool_result must not be the first message");
+                        var prevRole = GetMessageRole(result.CompactedMessages[i - 1]);
+                        prevRole.Should().Be("assistant", "message before tool_result must be assistant");
+                    }
+                }
+            }
+        }
+    }
+
     private static List<object> CreateMessageList(int count)
     {
         var messages = new List<object>();

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -702,6 +703,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <summary>
     /// Checks if context compaction is needed and performs it if so.
     /// Replaces conversation history with compacted version.
+    /// Enforces a hard token limit after compaction as a safety net.
     /// </summary>
     private async Task CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
     {
@@ -724,19 +726,44 @@ public sealed class AgentOrchestrator : IDisposable
 
         var tokenCount = await _claudeClient.CountTokensAsync(historySnapshot, systemPrompt, cancellationToken).ConfigureAwait(false);
 
-        if (_contextCompactor.ShouldCompact(tokenCount))
+        if (_contextCompactor.ShouldCompact(tokenCount) || _contextCompactor.ExceedsHardLimit(tokenCount))
         {
-            var result = await _contextCompactor.CompactAsync(
-                historySnapshot,
-                systemPrompt,
-                tokenCount,
-                cancellationToken).ConfigureAwait(false);
+            await CompactAndEnforceHardLimitAsync(historySnapshot, systemPrompt, tokenCount, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
-            lock (_conversationHistoryLock)
-            {
-                _conversationHistory.Clear();
-                _conversationHistory.AddRange(result.CompactedMessages);
-            }
+    /// <summary>
+    /// Performs context compaction and enforces the hard token limit as a safety net.
+    /// If compaction alone doesn't bring tokens under the max, performs emergency truncation.
+    /// </summary>
+    private async Task CompactAndEnforceHardLimitAsync(
+        List<object> historySnapshot,
+        string systemPrompt,
+        int tokenCount,
+        CancellationToken cancellationToken)
+    {
+        var result = await _contextCompactor!.CompactAsync(
+            historySnapshot,
+            systemPrompt,
+            tokenCount,
+            cancellationToken).ConfigureAwait(false);
+
+        var compactedMessages = result.CompactedMessages;
+
+        // Safety net: if compaction didn't bring tokens under the hard limit,
+        // perform emergency truncation to prevent API errors
+        if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
+        {
+            compactedMessages = await _contextCompactor.TruncateToFitAsync(
+                compactedMessages,
+                systemPrompt,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        lock (_conversationHistoryLock)
+        {
+            _conversationHistory.Clear();
+            _conversationHistory.AddRange(compactedMessages);
         }
     }
 
@@ -796,6 +823,11 @@ public sealed class AgentOrchestrator : IDisposable
 
             var result = await _toolRegistry.ExecuteAsync(toolCall.Name, inputElement, timeoutCts.Token).ConfigureAwait(false);
             stopwatch.Stop();
+
+            // Truncate oversized tool results to prevent them from exceeding the context window.
+            // A single tool result (e.g., search_files matching thousands of lines) can produce
+            // millions of characters (~1M+ tokens) that would immediately blow the API limit.
+            result = TruncateToolResult(result, toolCall.Name);
             
             // Log successful tool execution (only if audit logger and correlation context are provided)
             if (_auditLogger != null && _correlationContext != null)
@@ -870,6 +902,70 @@ public sealed class AgentOrchestrator : IDisposable
     /// Represents the result of a tool execution.
     /// </summary>
     private sealed record ToolResult(string Content, bool IsError);
+
+    /// <summary>
+    /// Maximum number of characters allowed in a single tool result before truncation.
+    /// Approximately 200K characters ≈ 50K tokens, leaving ample room for the rest of the
+    /// conversation, system prompt, and tool definitions within the 200K token API limit.
+    /// </summary>
+    private const int MaxToolResultCharacters = 200_000;
+
+    /// <summary>
+    /// Truncates a tool result that exceeds <see cref="MaxToolResultCharacters"/>.
+    /// Returns the original result if it fits within the limit.
+    /// When truncated, includes a clear message indicating truncation with the original size.
+    /// Preserves <c>&lt;untrusted_content&gt;</c> wrapper tags when present to maintain prompt-injection mitigation.
+    /// </summary>
+    private static string TruncateToolResult(string result, string toolName)
+    {
+        if (result.Length <= MaxToolResultCharacters)
+        {
+            return result;
+        }
+
+        // Detect if the result is wrapped in <untrusted_content> tags
+        const string openTag = "<untrusted_content>";
+        const string closeTag = "</untrusted_content>";
+        var isWrapped = result.StartsWith(openTag, StringComparison.Ordinal)
+            && result.TrimEnd().EndsWith(closeTag, StringComparison.Ordinal);
+
+        var truncatedContent = result[..MaxToolResultCharacters];
+
+        // Try to cut at the last newline to avoid breaking a line mid-way.
+        // Only use the newline break if it's in the latter half of the content,
+        // to avoid losing too much useful output.
+        var lastNewline = truncatedContent.LastIndexOf('\n');
+        if (lastNewline > MaxToolResultCharacters / 2)
+        {
+            truncatedContent = truncatedContent[..lastNewline];
+        }
+
+        var truncationNotice = string.Create(CultureInfo.InvariantCulture,
+            $"\n\n[Output truncated: tool '{toolName}' returned {result.Length:N0} characters, " +
+            $"which exceeds the {MaxToolResultCharacters:N0} character limit. " +
+            $"Results have been truncated. Consider using more specific search criteria or narrowing the scope.]");
+
+        // Re-wrap in <untrusted_content> tags if the original result was wrapped,
+        // to preserve prompt-injection mitigation
+        if (isWrapped)
+        {
+            // Strip both open and close tags from the truncated content
+            // (open tag will always be present; close tag may also appear if truncation
+            // happens to land past where it was in the original)
+            if (truncatedContent.StartsWith(openTag, StringComparison.Ordinal))
+            {
+                truncatedContent = truncatedContent[openTag.Length..];
+            }
+
+            // Remove any close tag that may be in the truncated content
+            truncatedContent = truncatedContent.Replace(closeTag, "", StringComparison.Ordinal);
+
+            // Place both truncated content and truncation notice inside the wrapper
+            return $"{openTag}\n{truncatedContent}{truncationNotice}\n{closeTag}";
+        }
+
+        return $"{truncatedContent}{truncationNotice}";
+    }
 
     /// <summary>
     /// Represents the result of a directory access approval request.

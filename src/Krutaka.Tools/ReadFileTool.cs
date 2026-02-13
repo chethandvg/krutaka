@@ -133,6 +133,11 @@ public class ReadFileTool : ToolBase
             // Wrap content in untrusted_content tags to prevent prompt injection
             return $"<untrusted_content>\n{content}\n</untrusted_content>";
         }
+        catch (DirectoryAccessRequiredException)
+        {
+            // Must propagate to AgentOrchestrator for interactive approval flow
+            throw;
+        }
         catch (SecurityException ex)
         {
             return $"Error: Security validation failed - {ex.Message}";

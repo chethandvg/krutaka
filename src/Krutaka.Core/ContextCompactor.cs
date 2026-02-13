@@ -46,6 +46,12 @@ public sealed class ContextCompactor
     }
 
     /// <summary>
+    /// Gets the configured maximum token limit for the context window.
+    /// Used by the orchestrator for hard-limit enforcement after compaction.
+    /// </summary>
+    public int MaxTokens => _maxTokens;
+
+    /// <summary>
     /// Checks if compaction is needed based on current token count.
     /// </summary>
     /// <param name="currentTokenCount">The current token count.</param>
@@ -54,6 +60,70 @@ public sealed class ContextCompactor
     {
         var threshold = (int)(_maxTokens * _compactionThreshold);
         return currentTokenCount > threshold;
+    }
+
+    /// <summary>
+    /// Checks if the token count exceeds the absolute hard limit for the context window.
+    /// This is used as a safety net after compaction to prevent API errors.
+    /// </summary>
+    /// <param name="tokenCount">The current token count.</param>
+    /// <returns>True if the token count exceeds the hard limit.</returns>
+    public bool ExceedsHardLimit(int tokenCount)
+    {
+        return tokenCount > _maxTokens;
+    }
+
+    /// <summary>
+    /// Performs emergency truncation by progressively dropping the oldest messages
+    /// (keeping the most recent ones) until the token count is under the hard limit.
+    /// This is a last-resort safety net when compaction alone is not enough.
+    /// </summary>
+    /// <param name="messages">The current conversation messages.</param>
+    /// <param name="systemPrompt">The system prompt used for the conversation.</param>
+    /// <param name="cancellationToken">Cancellation token for async operation.</param>
+    /// <returns>The truncated message list that fits within the hard limit.</returns>
+    public async Task<IReadOnlyList<object>> TruncateToFitAsync(
+        IReadOnlyList<object> messages,
+        string systemPrompt,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        ArgumentNullException.ThrowIfNull(systemPrompt);
+
+        // Minimum: keep at least 2 messages (one user + one assistant) for a valid conversation
+        // Only drop complete pairs to maintain the alternating role pattern
+        const int absoluteMinimumMessages = 2;
+        const int pairSize = 2;
+        var current = messages.ToList();
+
+        while (current.Count >= absoluteMinimumMessages + pairSize)
+        {
+            // After dropping, ensure the first message is not an orphaned tool_result.
+            // A user message with tool_result blocks requires a preceding assistant message
+            // with the corresponding tool_use blocks — drop extra messages to maintain this invariant.
+            DropOrphanedToolResultPrefix(current);
+
+            // Re-check count after orphan drop — it may have reduced below the threshold
+            if (current.Count < absoluteMinimumMessages + pairSize)
+            {
+                break;
+            }
+
+            var tokenCount = await _claudeClient.CountTokensAsync(current, systemPrompt, cancellationToken).ConfigureAwait(false);
+
+            if (!ExceedsHardLimit(tokenCount))
+            {
+                return current.AsReadOnly();
+            }
+
+            // Drop the oldest 2 messages (one user-assistant pair) from the front
+            current.RemoveRange(0, pairSize);
+        }
+
+        // Final cleanup after the loop exits
+        DropOrphanedToolResultPrefix(current);
+
+        return current.AsReadOnly();
     }
 
     /// <summary>
@@ -87,8 +157,21 @@ public sealed class ContextCompactor
         }
 
         // Keep last N messages
-        var messagesToSummarize = messages.Take(messages.Count - _messagesToKeep).ToList();
-        var messagesToKeep = messages.Skip(messagesToSummarize.Count).ToList();
+        var splitIndex = messages.Count - _messagesToKeep;
+        var messagesToSummarize = messages.Take(splitIndex).ToList();
+        var messagesToKeep = messages.Skip(splitIndex).ToList();
+
+        // If the first kept message is a user message containing tool_result blocks,
+        // it needs a preceding assistant message with the corresponding tool_use.
+        // Pull the preceding assistant message from the summarize set into the keep set.
+        while (messagesToKeep.Count > 0 && HasToolResultContent(messagesToKeep[0])
+            && messagesToSummarize.Count > 0)
+        {
+            // Move the preceding assistant message (tool_use) into the keep set
+            var preceding = messagesToSummarize[^1];
+            messagesToSummarize.RemoveAt(messagesToSummarize.Count - 1);
+            messagesToKeep.Insert(0, preceding);
+        }
 
         // Generate summary using configured model
         var summary = await GenerateSummaryAsync(messagesToSummarize, cancellationToken).ConfigureAwait(false);
@@ -153,6 +236,66 @@ public sealed class ContextCompactor
     {
         var roleProperty = message.GetType().GetProperty("role");
         return roleProperty?.GetValue(message)?.ToString() ?? "user";
+    }
+
+    /// <summary>
+    /// Checks if a message contains tool_result content blocks.
+    /// A user message with tool_result blocks requires a preceding assistant message
+    /// with the corresponding tool_use blocks per Claude API requirements.
+    /// </summary>
+    private static bool HasToolResultContent(object message)
+    {
+        var role = GetMessageRole(message);
+        if (role != "user")
+        {
+            return false;
+        }
+
+        var contentProperty = message.GetType().GetProperty("content");
+        var content = contentProperty?.GetValue(message);
+
+        // If content is a string, it's plain text, not tool_result
+        if (content is null or string)
+        {
+            return false;
+        }
+
+        // Content is a collection of blocks — check if any are tool_result
+        if (content is System.Collections.IEnumerable enumerable)
+        {
+            foreach (var block in enumerable)
+            {
+                var typeProperty = block.GetType().GetProperty("type");
+                var typeValue = typeProperty?.GetValue(block)?.ToString();
+                if (typeValue == "tool_result")
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Drops messages from the front of the list until the first message is not an orphaned
+    /// tool_result. An orphaned tool_result is a user message with tool_result blocks that
+    /// has no preceding assistant message with the corresponding tool_use blocks.
+    /// Note: The subsequent assistant message is also dropped because in Claude's protocol,
+    /// the assistant always responds immediately after receiving tool results, so the assistant
+    /// message following a tool_result is always its direct response.
+    /// </summary>
+    private static void DropOrphanedToolResultPrefix(List<object> messages)
+    {
+        while (messages.Count > 0 && HasToolResultContent(messages[0]))
+        {
+            messages.RemoveAt(0);
+            // Also remove the subsequent assistant message to maintain pair structure
+            if (messages.Count > 0 && GetMessageRole(messages[0]) == "assistant")
+            {
+                messages.RemoveAt(0);
+            }
+        }
     }
 
     /// <summary>

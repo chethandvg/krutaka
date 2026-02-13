@@ -149,6 +149,10 @@ try
     // Register Tools with options
     builder.Services.AddAgentTools(options =>
     {
+        // Bind ToolOptions from configuration (CeilingDirectory, AutoGrantPatterns, etc.)
+        builder.Configuration.GetSection("ToolOptions").Bind(options);
+
+        // Override DefaultWorkingDirectory from Agent section for backward compatibility
         options.DefaultWorkingDirectory = workingDirectory;
     });
 
@@ -470,6 +474,17 @@ try
                     else
                     {
                         orchestrator.DenyTool(toolUseId);
+                    }
+                },
+                onDirectoryAccessDecision: (approved, grantedLevel, createSessionGrant) =>
+                {
+                    if (approved && grantedLevel.HasValue)
+                    {
+                        orchestrator.ApproveDirectoryAccess(grantedLevel.Value, createSessionGrant);
+                    }
+                    else
+                    {
+                        orchestrator.DenyDirectoryAccess();
                     }
                 },
                 cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
