@@ -103,6 +103,21 @@ public static class ServiceExtensions
                 sessionStore);
         });
 
+        // Register command risk classifier (singleton - v0.3.0 graduated command execution)
+        services.AddSingleton<ICommandRiskClassifier>(sp =>
+        {
+            return new CommandRiskClassifier();
+        });
+
+        // Register graduated command policy (singleton - v0.3.0 graduated command execution)
+        services.AddSingleton<ICommandPolicy>(sp =>
+        {
+            var classifier = sp.GetRequiredService<ICommandRiskClassifier>();
+            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+            var policyEngine = sp.GetService<IAccessPolicyEngine>();
+            return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, options.CommandPolicy);
+        });
+
         // Register tool registry (singleton - holds registered tools)
         var registry = new ToolRegistry();
 
@@ -148,12 +163,13 @@ public static class ServiceExtensions
             return new EditFileTool(defaultWorkingDir, fileOperations, policyEngine);
         });
 
-        // Command execution tool (always requires approval)
+        // Command execution tool (v0.3.0: approval now determined by ICommandPolicy)
         services.AddSingleton<ITool>(sp =>
         {
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
             var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine);
+            var commandPolicy = sp.GetRequiredService<ICommandPolicy>();
+            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools

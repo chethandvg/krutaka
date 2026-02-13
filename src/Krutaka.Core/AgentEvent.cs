@@ -71,3 +71,10 @@ public sealed record RequestIdCaptured(string RequestId) : AgentEvent;
 /// <param name="AccessLevel">The level of access being requested (ReadOnly, ReadWrite, or Execute).</param>
 /// <param name="Justification">The agent's justification for requesting access to this directory.</param>
 public sealed record DirectoryAccessRequested(string Path, AccessLevel AccessLevel, string Justification) : AgentEvent;
+
+/// <summary>
+/// Represents a request for human approval before executing a command.
+/// </summary>
+/// <param name="Request">The command execution request requiring approval.</param>
+/// <param name="Decision">The policy decision containing tier and reason.</param>
+public sealed record CommandApprovalRequested(CommandExecutionRequest Request, CommandDecision Decision) : AgentEvent;

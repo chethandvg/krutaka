@@ -39,7 +39,8 @@ public class CommandPolicy : ISecurityPolicy
 
     private static readonly HashSet<string> ToolsRequiringApproval = new(StringComparer.OrdinalIgnoreCase)
     {
-        "write_file", "edit_file", "run_command"
+        "write_file", "edit_file"
+        // Note: run_command removed in v0.3.0 - approval is now determined dynamically by ICommandPolicy
     };
 
     /// <summary>
