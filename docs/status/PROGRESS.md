@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-12 (Adversarial security tests - Issue v0.2.0-10; all 854 tests passing)
+> **Last updated:** 2026-02-13 (Release documentation complete - Issue v0.2.0-11; all 853 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -66,9 +66,9 @@
 
 ---
 
-## v0.2.0 — Dynamic Directory Scoping
+## v0.2.0 — Dynamic Directory Scoping (Complete)
 
-> **Status:** 🟡 Planning  
+> **Status:** 🟢 **Complete** (All 11 issues complete — 2026-02-13)  
 > **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
@@ -89,7 +89,15 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 | v0.2.0-8 | Tool refactoring (All 6 tools use IAccessPolicyEngine instead of static root) | Refactor | 🟢 Complete | 2026-02-12 |
 | v0.2.0-9 | Approval UI (DirectoryAccessRequested event + interactive prompt) | UI | 🟢 Complete | 2026-02-12 |
 | v0.2.0-10 | Adversarial tests (87 tests across 3 new test classes) | Testing | 🟢 Complete | 2026-02-12 |
-| v0.2.0-11 | Release documentation (README, CHANGELOG, final doc consistency pass) | Docs | 🔴 Not Started | — |
+| v0.2.0-11 | Release documentation (README, CHANGELOG, final doc consistency pass) | Docs | 🟢 Complete | 2026-02-13 |
+
+**Issue v0.2.0-11 Details:**
+- **Created:** `CHANGELOG.md` following Keep a Changelog format with v0.2.0 entry
+- **Updated:** `README.md` with v0.2.0 status, dynamic directory scoping features, updated test count (853), security enhancements
+- **Updated:** `.github/copilot-instructions.md` with v0.2.0 implementation status and IAccessPolicyEngine security guidance
+- **Updated:** `AGENTS.md` with v0.2.0 implementation status, updated security rules, CHANGELOG.md in Key Files Reference
+- **Updated:** `docs/status/PROGRESS.md` with issue v0.2.0-11 completion and updated timestamp
+- **All 11 v0.2.0 issues marked complete**
 
 **Issue v0.2.0-10 Details:**
 - **Created:** 3 new adversarial test files with 60 test methods (87 total test cases with Theory parameters)

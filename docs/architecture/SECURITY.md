@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-10 (Issue #12 fully complete — RunCommandTool with full Job Object sandboxing)
+> **Last updated:** 2026-02-13 (v0.2.0 release documentation complete — all dynamic directory scoping security features implemented)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -352,26 +352,32 @@ This enables:
 
 ## Dynamic Directory Access Policy (v0.2.0)
 
-> **Status:** 🟡 Partially Implemented (Issue v0.2.0-5 complete — LayeredAccessPolicyEngine)  
+> **Status:** ✅ **Complete** (All issues v0.2.0-1 through v0.2.0-11 complete — 2026-02-13)  
 > **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design and implementation details.
 
 ### Overview
 
 v0.2.0 introduces a **four-layer access policy engine** that evaluates directory access requests at runtime. This replaces the static, single-directory `WorkingDirectory` configuration from v0.1.0 while preserving all existing security guarantees.
 
-**Implementation Status (Issue v0.2.0-5 — 2026-02-12):**
-- ✅ `ISessionAccessStore` placeholder interface in `Krutaka.Core` (full implementation in Issue v0.2.0-6)
-- ✅ `LayeredAccessPolicyEngine` class in `Krutaka.Tools` implementing `IAccessPolicyEngine`
+**Implementation Status (All v0.2.0 issues complete — 2026-02-13):**
+- ✅ `IAccessPolicyEngine` interface in `Krutaka.Core` (Issue v0.2.0-4)
+- ✅ `ISessionAccessStore` interface in `Krutaka.Core` (Issue v0.2.0-4)
+- ✅ `LayeredAccessPolicyEngine` class in `Krutaka.Tools` implementing `IAccessPolicyEngine` (Issue v0.2.0-5)
+- ✅ `InMemorySessionAccessStore` in `Krutaka.Tools` with TTL, max grants, automatic pruning (Issue v0.2.0-6)
+- ✅ `GlobPatternValidator` with startup validation and abuse prevention (Issue v0.2.0-7)
+- ✅ All 6 tools refactored to use `IAccessPolicyEngine` (Issue v0.2.0-8)
+- ✅ `DirectoryAccessRequested` event + interactive approval UI (Issue v0.2.0-9)
+- ✅ 87 adversarial tests across 3 test classes (Issue v0.2.0-10)
 - ✅ All four policy layers implemented:
-  - **Layer 1 (Hard Deny):** Reuses `SafeFileOperations` blocked directories, AppData, `~/.krutaka`, UNC paths, ceiling enforcement
-  - **Layer 2 (Configurable Allow):** Glob pattern matching with `**` support for auto-grant
-  - **Layer 3 (Session Grants):** Checks `ISessionAccessStore` (optional, placeholder until Issue v0.2.0-6)
-  - **Layer 4 (Heuristic Checks):** Cross-volume detection, path depth heuristics
+  - **Layer 1 (Hard Deny):** Reuses `SafeFileOperations` blocked directories, AppData, `~/.krutaka`, UNC paths, ceiling enforcement, ADS blocking, device names
+  - **Layer 2 (Configurable Allow):** Glob pattern matching with `**` support for auto-grant, validated at startup
+  - **Layer 3 (Session Grants):** Checks `ISessionAccessStore` with TTL expiry, max concurrent grants, automatic pruning
+  - **Layer 4 (Heuristic Checks):** Cross-volume detection, path depth heuristics, returns `RequiresApproval` for user prompts
 - ✅ Deny short-circuiting: denials at Layer 1 cannot be overridden by Layer 2 or Layer 3
 - ✅ Decision caching: same canonical path returns cached decision within a single evaluation
-- ✅ Constructor: `IFileOperations`, ceiling directory, glob patterns, optional `ISessionAccessStore`
+- ✅ Constructor: `IFileOperations`, ceiling directory, glob patterns, `ISessionAccessStore`
 - ✅ DI registration in `ServiceExtensions.AddAgentTools()`
-- ✅ Comprehensive test coverage: 24 tests in `AccessPolicyEngineTests.cs`
+- ✅ Comprehensive test coverage: 24 tests in `AccessPolicyEngineTests.cs` + 87 adversarial tests
 - ✅ ToolOptions configuration: `CeilingDirectory`, `AutoGrantPatterns`, `MaxConcurrentGrants`, `DefaultGrantTtlMinutes`
 
 ### Threat Model

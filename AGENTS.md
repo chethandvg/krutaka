@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents (GitHub Copilot, etc.) work
 
 Krutaka is an OpenClaw-inspired AI agent built in C#/.NET 10 for Windows. It is a console application that uses the Claude API to perform agentic tasks (read/write files, execute commands, search code) with human-in-the-loop approval for destructive operations.
 
-**Implementation Status:** ✅ **v0.1.1 Smart Session Management** — All core features implemented and tested (603 tests passing, 1 skipped). Auto-resume on startup, session discovery, and new commands implemented. The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for details.
+**Implementation Status:** ✅ **v0.2.0 Dynamic Directory Scoping Complete** — All core features and dynamic directory scoping implemented and tested (853 tests passing, 1 skipped). Auto-resume on startup, session discovery, layered access policy engine, and adversarial test coverage complete. The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for details.
 
 **Important:** We use the official `Anthropic` NuGet package (v12.4.0), NOT the community `Anthropic.SDK` package. Always refer to it as the "official Anthropic package" or "Anthropic NuGet package" to avoid confusion. See ADR-003 in `docs/architecture/DECISIONS.md` for details.
 
@@ -95,12 +95,13 @@ Krutaka.Console       → All above projects
 These rules apply to ALL code changes. Violating them is a blocking issue.
 
 1. **API keys must NEVER appear in source code, config files, environment variables, or log output.**
-2. **All file paths must be validated through `SafeFileOperations.ValidatePath()` before access.**
-3. **All shell commands must be validated through `CommandPolicy.Validate()` before execution.**
-4. **Shell commands must use CliWrap with explicit argument arrays — never string interpolation.**
-5. **Child processes must have sensitive environment variables scrubbed before execution.**
-6. **Untrusted content (file contents, command output, web pages) sent to Claude must be wrapped in `<untrusted_content>` XML tags.**
-7. **Write and execute tools must require human approval (enforced by `ISecurityPolicy.IsApprovalRequired`).**
+2. **All directory access requests must be validated through `IAccessPolicyEngine.EvaluateAsync()` before any file operations.**
+3. **All file paths must be resolved through `PathResolver.ResolveToFinalTarget()` to detect and block symlink escapes, ADS attacks, and device names.**
+4. **All shell commands must be validated through `CommandPolicy.Validate()` before execution.**
+5. **Shell commands must use CliWrap with explicit argument arrays — never string interpolation.**
+6. **Child processes must have sensitive environment variables scrubbed before execution.**
+7. **Untrusted content (file contents, command output, web pages) sent to Claude must be wrapped in `<untrusted_content>` XML tags.**
+8. **Write, execute, and directory access operations must require human approval (enforced by `ISecurityPolicy.IsApprovalRequired` and `IAccessPolicyEngine`).**
 
 ## Key Files Reference
 
@@ -110,9 +111,10 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `Outline_gaps.md` | Gap analysis and risk assessment |
 | `docs/architecture/OVERVIEW.md` | Living architecture document — component structure |
 | `docs/architecture/SECURITY.md` | Security threat model and policy rules |
-| `docs/architecture/DECISIONS.md` | Architecture Decision Records |
+| `docs/architecture/DECISIONS.md` | Architecture Decision Records (ADR-001 through ADR-012) |
 | `docs/status/PROGRESS.md` | Issue/phase completion tracker |
 | `docs/status/DEPENDENCY-MAP.md` | NuGet package versions |
 | `docs/guides/LOCAL-SETUP.md` | Build and run instructions |
 | `docs/guides/TESTING.md` | Test strategy and procedures |
 | `docs/versions/v0.2.0.md` | v0.2.0 dynamic directory scoping architecture design |
+| `CHANGELOG.md` | Release notes following Keep a Changelog format |
