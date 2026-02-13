@@ -32,6 +32,7 @@ public sealed class AgentOrchestrator : IDisposable
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
     private string? _pendingToolName; // Tracks the tool name of the pending approval request
     private TaskCompletionSource<DirectoryAccessApprovalResult>? _pendingDirectoryApproval; // Blocks until directory access approval/denial
+    private TaskCompletionSource<bool>? _pendingCommandApproval; // Blocks until command approval/denial (v0.3.0)
     private bool _disposed;
 
     /// <summary>
@@ -319,6 +320,50 @@ public sealed class AgentOrchestrator : IDisposable
     }
 
     /// <summary>
+    /// Approves a pending command execution request. This should be called in response to CommandApprovalRequested events.
+    /// Unblocks the orchestrator to execute the command.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
+    /// </summary>
+    public void ApproveCommand()
+    {
+        // Lock to prevent race conditions with cancellation
+        lock (_approvalStateLock)
+        {
+            // Check if there's actually a pending command approval
+            if (_pendingCommandApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending command approval to proceed
+            _pendingCommandApproval.TrySetResult(true);
+        }
+    }
+
+    /// <summary>
+    /// Denies a pending command execution request. This should be called in response to CommandApprovalRequested events.
+    /// The tool will fail with a denial message.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
+    /// </summary>
+    public void DenyCommand()
+    {
+        // Lock to prevent race conditions with cancellation
+        lock (_approvalStateLock)
+        {
+            // Check if there's actually a pending command approval
+            if (_pendingCommandApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending command approval as denied
+            _pendingCommandApproval.TrySetResult(false);
+        }
+    }
+
+    /// <summary>
     /// Internal agentic loop that processes tool calls until a final response is received.
     /// </summary>
     private async IAsyncEnumerable<AgentEvent> RunAgenticLoopAsync(
@@ -475,9 +520,10 @@ public sealed class AgentOrchestrator : IDisposable
                     alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
                 }
 
-                // Execute the tool with timeout - may throw DirectoryAccessRequiredException
+                // Execute the tool with timeout - may throw DirectoryAccessRequiredException or CommandApprovalRequiredException
                 ToolResult toolResult;
                 DirectoryAccessRequiredException? dirAccessException = null;
+                CommandApprovalRequiredException? cmdApprovalException = null;
                 
                 try
                 {
@@ -486,6 +532,12 @@ public sealed class AgentOrchestrator : IDisposable
                 catch (DirectoryAccessRequiredException ex)
                 {
                     dirAccessException = ex;
+                    // Set a placeholder result - will be replaced after approval handling
+                    toolResult = new ToolResult(string.Empty, IsError: true);
+                }
+                catch (CommandApprovalRequiredException ex)
+                {
+                    cmdApprovalException = ex;
                     // Set a placeholder result - will be replaced after approval handling
                     toolResult = new ToolResult(string.Empty, IsError: true);
                 }
@@ -594,6 +646,79 @@ public sealed class AgentOrchestrator : IDisposable
                     {
                         // Failed to grant access or retry execution - set error result
                         toolResult = new ToolResult($"Failed to grant directory access: {grantEx.Message}", IsError: true);
+                    }
+                }
+
+                // Handle command approval if needed (v0.3.0)
+                if (cmdApprovalException != null)
+                {
+                    // Command execution requires approval - create a TaskCompletionSource to block
+                    TaskCompletionSource<bool> cmdApprovalTcs;
+                    lock (_approvalStateLock)
+                    {
+                        cmdApprovalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        _pendingCommandApproval = cmdApprovalTcs;
+                    }
+
+                    // Yield CommandApprovalRequested event
+                    yield return new CommandApprovalRequested(cmdApprovalException.Request, cmdApprovalException.Decision);
+
+                    // Block until ApproveCommand or DenyCommand is called
+                    bool commandApproved;
+                    try
+                    {
+                        // Apply approval timeout if configured
+                        if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                        {
+                            using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                            
+                            try
+                            {
+                                commandApproved = await cmdApprovalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                            {
+                                // Approval timeout occurred (not user cancellation)
+                                throw new TimeoutException($"Command approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for command '{cmdApprovalException.Request.Executable}'. " +
+                                    "The user did not respond to the approval request in time.");
+                            }
+                        }
+                        else
+                        {
+                            // No timeout - wait indefinitely (or until user cancels)
+                            commandApproved = await cmdApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    finally
+                    {
+                        // Lock to prevent race with concurrent approval/denial
+                        lock (_approvalStateLock)
+                        {
+                            _pendingCommandApproval = null;
+                        }
+                    }
+
+                    if (!commandApproved)
+                    {
+                        // Command execution was denied
+                        var denialMsg = $"Command execution '{cmdApprovalException.Request.Executable} {string.Join(" ", cmdApprovalException.Request.Arguments)}' was denied by the user.";
+                        yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMsg);
+                        toolResults.Add(CreateToolResult(toolCall.Id, denialMsg, true));
+                        continue;
+                    }
+
+                    // Command was approved - retry execution
+                    try
+                    {
+                        toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    }
+#pragma warning disable CA1031 // Catching Exception is appropriate here to handle any retry failure
+                    catch (Exception retryEx)
+#pragma warning restore CA1031
+                    {
+                        // Failed to retry execution - set error result
+                        toolResult = new ToolResult($"Failed to execute command after approval: {retryEx.Message}", IsError: true);
                     }
                 }
 
