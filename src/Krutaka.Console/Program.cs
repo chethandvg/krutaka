@@ -244,9 +244,10 @@ try
     // Derive MaxToolResultCharacters from MaxTokens if not explicitly set (0 = derive).
     // Heuristic: 1 token ≈ 4 characters, so MaxTokens × 4 gives a proportional limit.
     // Capped at a minimum of 100,000 to ensure usability even with small MaxTokens values.
+    var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
     var maxToolResultCharacters = configuredMaxToolResultChars > 0
         ? configuredMaxToolResultChars
-        : Math.Max(maxTokens * 4, 100_000);
+        : (int)derivedMaxToolResultChars;
 
     builder.Services.AddSingleton(sp =>
     {

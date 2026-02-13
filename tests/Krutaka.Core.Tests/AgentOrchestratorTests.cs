@@ -620,69 +620,115 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
-    public void Constructor_Should_UseDefaultMaxToolResultCharacters_WhenNotSpecified()
+    public async Task RunAsync_Should_UseDefaultLimit_WhenMaxToolResultCharactersNotSpecified()
     {
-        // Arrange
+        // Arrange - tool result just under the default limit should NOT be truncated
         var claudeClient = new MockClaudeClient();
         var toolRegistry = new MockToolRegistry();
-        var securityPolicy = new MockSecurityPolicy();
+        var resultUnderDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters - 1);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultUnderDefault);
 
-        // Act - no maxToolResultCharacters specified, should use default
-        var act = () => new AgentOrchestrator(claudeClient, toolRegistry, securityPolicy);
+        claudeClient.AddToolCallStarted("search", "tool_def", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
 
-        // Assert - should not throw
-        act.Should().NotThrow();
+        using var orchestrator = new AgentOrchestrator(claudeClient, toolRegistry, new MockSecurityPolicy());
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - result should pass through without truncation
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().NotContain("[Output truncated:");
     }
 
     [Fact]
-    public void Constructor_Should_UseDefaultMaxToolResultCharacters_WhenSetToZero()
+    public async Task RunAsync_Should_TruncateAtDefaultLimit_WhenMaxToolResultCharactersNotSpecified()
     {
-        // Arrange
+        // Arrange - tool result above the default limit should be truncated
         var claudeClient = new MockClaudeClient();
         var toolRegistry = new MockToolRegistry();
-        var securityPolicy = new MockSecurityPolicy();
+        var resultOverDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters + 100);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultOverDefault);
 
-        // Act - maxToolResultCharacters = 0 should fall back to default
-        var act = () => new AgentOrchestrator(
-            claudeClient, toolRegistry, securityPolicy,
+        claudeClient.AddToolCallStarted("search", "tool_def2", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(claudeClient, toolRegistry, new MockSecurityPolicy());
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - result should be truncated at the default limit
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().Contain("[Output truncated:");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_FallBackToDefault_WhenMaxToolResultCharactersIsZero()
+    {
+        // Arrange - zero should fall back to default; result over default should be truncated
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var resultOverDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters + 100);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultOverDefault);
+
+        claudeClient.AddToolCallStarted("search", "tool_zero", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, toolRegistry, new MockSecurityPolicy(),
             maxToolResultCharacters: 0);
 
-        // Assert - should not throw
-        act.Should().NotThrow();
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - should truncate at default limit (not at 0)
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().Contain("[Output truncated:");
     }
 
     [Fact]
-    public void Constructor_Should_UseDefaultMaxToolResultCharacters_WhenSetToNegative()
+    public async Task RunAsync_Should_FallBackToDefault_WhenMaxToolResultCharactersIsNegative()
     {
-        // Arrange
+        // Arrange - negative should fall back to default; result over default should be truncated
         var claudeClient = new MockClaudeClient();
         var toolRegistry = new MockToolRegistry();
-        var securityPolicy = new MockSecurityPolicy();
+        var resultOverDefault = new string('x', AgentOrchestrator.DefaultMaxToolResultCharacters + 100);
+        toolRegistry.AddTool("search", "{\"query\":\"test\"}", resultOverDefault);
 
-        // Act - negative value should fall back to default
-        var act = () => new AgentOrchestrator(
-            claudeClient, toolRegistry, securityPolicy,
+        claudeClient.AddToolCallStarted("search", "tool_neg", "{\"query\":\"test\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, toolRegistry, new MockSecurityPolicy(),
             maxToolResultCharacters: -100);
 
-        // Assert - should not throw
-        act.Should().NotThrow();
-    }
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Search", "System"))
+        {
+            events.Add(evt);
+        }
 
-    [Fact]
-    public void Constructor_Should_AcceptCustomMaxToolResultCharacters()
-    {
-        // Arrange
-        var claudeClient = new MockClaudeClient();
-        var toolRegistry = new MockToolRegistry();
-        var securityPolicy = new MockSecurityPolicy();
-
-        // Act - explicit positive value
-        var act = () => new AgentOrchestrator(
-            claudeClient, toolRegistry, securityPolicy,
-            maxToolResultCharacters: 100_000);
-
-        // Assert - should not throw
-        act.Should().NotThrow();
+        // Assert - should truncate at default limit (not negative)
+        var completed = events.OfType<ToolCallCompleted>().Single();
+        completed.Result.Should().Contain("[Output truncated:");
     }
 
     [Fact]

@@ -42,8 +42,8 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="securityPolicy">The security policy for approval checks.</param>
     /// <param name="toolTimeoutSeconds">Timeout for tool execution in seconds (default: 30).</param>
     /// <param name="approvalTimeoutSeconds">Timeout for human approval waits in seconds (default: 300 = 5 minutes, 0 = infinite).</param>
-    /// <param name="maxToolResultCharacters">Maximum characters allowed in a single tool result before truncation. 
-    /// Defaults to 200,000 (~50K tokens). Set to 0 to derive from maxTokens (maxTokens × 4).</param>
+    /// <param name="maxToolResultCharacters">Maximum characters allowed in a single tool result before truncation.
+    /// Defaults to 200,000 (~50K tokens). Values less than or equal to 0 use the default.</param>
     /// <param name="sessionAccessStore">Optional session access store for directory access grants (v0.2.0).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
