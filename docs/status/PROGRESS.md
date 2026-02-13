@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 default command risk rules — Issue v0.3.0-2 complete — 1,061 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 configurable command tier overrides — Issue v0.3.0-3 complete — 1,083 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -133,7 +133,7 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 
 ## v0.3.0 — Graduated Command Execution (In Progress)
 
-> **Status:** 🟡 **In Progress** (Issue v0.3.0-2 complete — 2026-02-13)  
+> **Status:** 🟡 **In Progress** (Issue v0.3.0-3 complete — 2026-02-13)  
 > **Reference:** See `docs/versions/v0.3.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
@@ -146,6 +146,58 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 |---|---|---|---|
 | v0.3.0-1 | Core abstractions — CommandRiskTier, ICommandRiskClassifier, ICommandPolicy, and model records | Architecture | 🟢 Complete | 2026-02-13 |
 | v0.3.0-2 | Default command risk rules and CommandRiskClassifier implementation | Implementation | 🟢 Complete | 2026-02-13 |
+| v0.3.0-3 | Configurable command tier overrides via appsettings.json | Configuration | 🟢 Complete | 2026-02-13 |
+
+**Issue v0.3.0-3 Details:**
+- **Created:** `CommandPolicyOptions` in `src/Krutaka.Tools/CommandPolicyOptions.cs`:
+  - `CommandRiskRule[] TierOverrides` property: User-defined tier override rules (default: empty array)
+  - `bool ModerateAutoApproveInTrustedDirs` property: Auto-approve Moderate commands in trusted directories (default: true)
+  - Documentation: Explains how overrides are merged with default rules, security invariants enforced by validator
+- **Created:** `CommandTierConfigValidator` in `src/Krutaka.Tools/CommandTierConfigValidator.cs`:
+  - Validates tier override rules at application startup (fail-fast pattern)
+  - Security invariants enforced:
+    1. Cannot promote blocklisted (Dangerous-tier) commands via config
+    2. Cannot set tier to Dangerous via config (users cannot add to blocklist)
+    3. Executable must be simple name (no path separators: `/`, `\`, or Windows drive letters)
+    4. Executable cannot contain shell metacharacters (prevents injection)
+    5. Argument patterns cannot contain shell metacharacters
+    6. Empty/null/whitespace executables rejected
+    7. Warns for null argument patterns (overly broad rules)
+  - Uses `SearchValues<char>` for performance-optimized character searching
+  - Returns `ValidationResult` with errors and warnings (same pattern as GlobPatternValidator)
+  - Partial class with `LoggerMessage` attribute for warning logging
+- **Modified:** `ToolOptions.cs`:
+  - Added `CommandPolicyOptions CommandPolicy { get; set; } = new();` property
+  - Wired into v0.3.0 graduated command execution feature
+- **Modified:** `ServiceExtensions.cs`:
+  - Added startup validation for `CommandPolicy.TierOverrides` (fail-fast)
+  - Follows exact pattern of GlobPatternValidator validation
+  - Invalid configs throw `InvalidOperationException` at startup with detailed error messages
+  - Warnings logged but don't block startup
+- **Modified:** `appsettings.json`:
+  - Added commented example of `CommandPolicy` configuration section
+  - Shows tier override syntax with cargo/make examples
+  - Documents `ModerateAutoApproveInTrustedDirs` setting
+- **Testing:** Created `CommandTierConfigValidatorTests.cs` with 22 tests:
+  - Valid configurations: 4 tests (specific patterns, multiple rules, custom executables, empty array)
+  - Blocklisted command promotion prevention: 3 tests (powershell, cmd, case-insensitive)
+  - Dangerous tier assignment prevention: 1 test
+  - Path separator validation: 3 tests (Windows paths, Unix paths, relative paths)
+  - Shell metacharacter validation: 3 tests (executable metacharacters, argument patterns, multiple patterns)
+  - Empty/null/whitespace validation: 4 tests (empty executable, whitespace executable, empty argument, whitespace argument)
+  - Null argument pattern warnings: 1 test
+  - Multiple errors handling: 1 test
+  - ArgumentNullException tests: 2 tests
+  - All 22 tests passing
+- **Build:** Zero warnings, zero errors
+- **Total tests:** 1,083 (was 1,061, +22 new tests)
+- **Security:**
+  - Blocklisted commands immutable via config (ADR-012 enforcement)
+  - Startup validation prevents tampered configurations from starting application
+  - Shell metacharacter detection prevents injection attacks
+  - Path separator detection prevents arbitrary binary execution
+  - Configuration is code-side, not AI-determined (threat T4 mitigated per v0.3.0 spec)
+  - Fail-fast design: invalid configs block startup immediately with descriptive errors
 
 **Issue v0.3.0-2 Details:**
 - **Created:** `CommandRiskClassifier` in `src/Krutaka.Tools/CommandRiskClassifier.cs`:
