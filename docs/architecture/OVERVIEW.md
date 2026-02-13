@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-13 (v0.3.0 CommandRiskClassifier added)
+> **Last updated:** 2026-02-13 (v0.3.0 GraduatedCommandPolicy added)
 
 ## System Architecture
 
@@ -246,13 +246,13 @@ Claude API integration layer with token counting and context management.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10), **Dynamic directory scoping integrated** (Issue v0.2.0-8 — 2026-02-12), **CommandRiskClassifier implemented** (Issue v0.3.0-2 — 2026-02-13)  
+**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10), **Dynamic directory scoping integrated** (Issue v0.2.0-8 — 2026-02-12), **CommandRiskClassifier implemented** (Issue v0.3.0-2 — 2026-02-13), **GraduatedCommandPolicy implemented** (Issue v0.3.0-4 — 2026-02-13)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
 > **v0.2.0 Update:** All 6 file and command tools now use `IAccessPolicyEngine` for dynamic directory access evaluation. Tools request directory access per-operation instead of being locked to a single static root at construction time. See `docs/versions/v0.2.0.md` for architecture details.
 
-> **v0.3.0 Update:** `CommandRiskClassifier` added (Issue v0.3.0-2) to implement risk-based command classification. Maps executable + arguments to one of four tiers (Safe, Moderate, Elevated, Dangerous) using hardcoded default rules. See `docs/versions/v0.3.0.md` for tier assignments and classification algorithm.
+> **v0.3.0 Update:** `CommandRiskClassifier` added (Issue v0.3.0-2) to implement risk-based command classification. Maps executable + arguments to one of four tiers (Safe, Moderate, Elevated, Dangerous) using hardcoded default rules. `GraduatedCommandPolicy` added (Issue v0.3.0-4) to implement tiered command evaluation with graduated approval requirements. See `docs/versions/v0.3.0.md` for tier assignments, classification algorithm, and evaluation logic.
 
 Tool implementations with security policy enforcement.
 
@@ -272,6 +272,7 @@ Tool implementations with security policy enforcement.
 | `LayeredAccessPolicyEngine` | — | **[v0.2.0]** Four-layer directory access policy (Hard Deny → Allow → Session → Heuristic) | ✅ Implemented |
 | `InMemorySessionAccessStore` | — | **[v0.2.0]** Session-scoped directory access grant storage with TTL enforcement | ✅ Implemented |
 | `CommandRiskClassifier` | — | **[v0.3.0]** Risk-based command classification (Safe/Moderate/Elevated/Dangerous tiers) | ✅ Implemented |
+| `GraduatedCommandPolicy` | — | **[v0.3.0]** Graduated command execution policy with tiered evaluation | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
 | `ToolRegistry` | — | Collection + dispatch | ✅ Implemented |
 | `ToolOptions` | — | Configuration for tool execution (v0.2.0: `DefaultWorkingDirectory`, ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
@@ -325,6 +326,56 @@ Tool implementations with security policy enforcement.
     - **Dangerous (always blocked)**: All 30 blocklisted executables (shared with CommandPolicy to prevent sync drift) + unknown executables + executables with path separators
   - **Performance optimizations**: Static readonly arrays for patterns (CA1861), proper return types (CA1859), executable-indexed lookup dictionary
   - **Test coverage**: 138 comprehensive tests covering all tier assignments, edge cases (case insensitivity, .exe stripping, path separators, empty args, unknown executables/args, dotnet two-argument matching), and GetRules() method
+
+- **GraduatedCommandPolicy** (v0.3.0-4): Implements `ICommandPolicy` for graduated command execution with tiered evaluation:
+  - **Three-stage evaluation**:
+    1. **Pre-check** (ISecurityPolicy.ValidateCommand): Shell metacharacter and blocklist validation — ALWAYS runs first (throws SecurityException on failure)
+    2. **Classification** (ICommandRiskClassifier.Classify): Determine command risk tier
+    3. **Tier-based decision**:
+       - **Safe**: Always auto-approved (no directory trust check)
+       - **Moderate**: Auto-approved in trusted directories (if config enabled), otherwise requires approval
+       - **Elevated**: ALWAYS requires approval (directory trust does NOT override)
+       - **Dangerous**: Throws SecurityException (defense-in-depth — should not reach here due to pre-check)
+  - **Moderate tier directory trust evaluation**:
+    - Checks working directory via `IAccessPolicyEngine.EvaluateAsync()`
+    - Requests `AccessLevel.Execute` permission
+    - Handles all three `AccessOutcome` values explicitly:
+      - `AccessOutcome.Granted` → Auto-approve (directory in trusted zone)
+      - `AccessOutcome.Denied` → Deny command (hard boundary that cannot be overridden)
+      - `AccessOutcome.RequiresApproval` → Require approval (not in auto-grant, no session grant)
+    - Falls back to require approval if:
+      - `ModerateAutoApproveInTrustedDirs` config is false
+      - `IAccessPolicyEngine` is null
+      - Working directory is null/empty/whitespace
+  - **Constructor dependencies**:
+    - `ICommandRiskClassifier` (required): For risk tier classification
+    - `ISecurityPolicy` (required): For pre-check validation (metacharacters, blocklist)
+    - `IAccessPolicyEngine?` (optional): For directory trust evaluation (null means Moderate always prompts)
+    - `CommandPolicyOptions` (required): For `ModerateAutoApproveInTrustedDirs` setting
+  - **Security guarantees**:
+    - Pre-check ALWAYS runs before classification (immutable security boundary)
+    - Elevated commands NEVER auto-approved regardless of directory trust
+    - Dangerous tier throws SecurityException as defense-in-depth
+    - **CRITICAL:** Hard denials (AccessOutcome.Denied) return CommandDecision.Deny, not RequireApproval
+      - Prevents security downgrade where non-overridable denials become approvable
+      - System directories, paths above ceiling are now properly enforced
+      - No user approval can override an explicit denial
+    - Null-safe: all dependencies validated in constructor
+    - Async-safe: CancellationToken propagated through all async calls
+    - ConfigureAwait(false) used consistently (CA2007 compliance)
+  - **Test coverage**: 32 comprehensive tests covering:
+    - Constructor validation (4 tests): Null checks, accepts null policy engine
+    - Pre-check security validation (3 tests): Metacharacter detection, blocklisted commands, call ordering
+    - Safe tier (3 tests): Auto-approval without directory trust checks
+    - Moderate tier in trusted directories (2 tests): Auto-approval, access request validation
+    - Moderate tier with denied access (2 tests): Denies when access explicitly denied (system dirs, above ceiling)
+    - Moderate tier with requires approval (1 test): Requires approval when access needs interactive prompt
+    - Moderate tier configuration (1 test): Respects ModerateAutoApproveInTrustedDirs setting
+    - Moderate tier edge cases (4 tests): Null policy engine, missing working directory
+    - Elevated tier (4 tests): Always requires approval regardless of directory trust
+    - Dangerous tier (2 tests): Throws SecurityException
+    - CancellationToken (2 tests): Propagation, cancellation handling
+    - Integration test (1 test): Correct evaluation sequence verification
 
 **Tool Registry & DI:**
 - **ToolRegistry**: Centralized collection of all tools with:

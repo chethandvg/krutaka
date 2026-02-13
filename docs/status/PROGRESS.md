@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 configurable command tier overrides — Issue v0.3.0-3 complete — 1,090 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 GraduatedCommandPolicy security fix — Issue v0.3.0-4 complete — 1,122 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -147,6 +147,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-1 | Core abstractions — CommandRiskTier, ICommandRiskClassifier, ICommandPolicy, and model records | Architecture | 🟢 Complete | 2026-02-13 |
 | v0.3.0-2 | Default command risk rules and CommandRiskClassifier implementation | Implementation | 🟢 Complete | 2026-02-13 |
 | v0.3.0-3 | Configurable command tier overrides via appsettings.json | Configuration | 🟢 Complete | 2026-02-13 |
+| v0.3.0-4 | GraduatedCommandPolicy implementation with tiered evaluation | Implementation | 🟢 Complete | 2026-02-13 |
 
 **Issue v0.3.0-3 Details:**
 - **Created:** `CommandPolicyOptions` in `src/Krutaka.Tools/CommandPolicyOptions.cs`:
@@ -197,6 +198,62 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - Blocklisted commands immutable via config (ADR-012 enforcement)
   - **CRITICAL FIX**: .exe suffix validation prevents blocklist bypass (e.g., powershell.exe bypassing powershell)
   - Startup validation prevents tampered configurations from starting application
+
+**Issue v0.3.0-4 Details:**
+- **Created:** `GraduatedCommandPolicy` in `src/Krutaka.Tools/GraduatedCommandPolicy.cs`:
+  - Implements `ICommandPolicy` interface for graduated command execution
+  - Three-stage evaluation process:
+    1. Security pre-check via `ISecurityPolicy.ValidateCommand()` (metacharacters, blocklist)
+    2. Risk classification via `ICommandRiskClassifier.Classify()` (determine tier)
+    3. Tier-based approval decision:
+       - **Safe tier**: Always auto-approved
+       - **Moderate tier**: Auto-approved in trusted directories (if enabled), otherwise requires approval
+       - **Elevated tier**: Always requires approval (directory trust does NOT override)
+       - **Dangerous tier**: Throws `SecurityException` as defense-in-depth
+  - Constructor dependencies:
+    - `ICommandRiskClassifier` (required)
+    - `ISecurityPolicy` (required — for pre-check validation)
+    - `IAccessPolicyEngine?` (optional — null means Moderate always prompts)
+    - `CommandPolicyOptions` (required — for `ModerateAutoApproveInTrustedDirs`)
+  - Moderate tier directory trust evaluation:
+    - Checks working directory via `IAccessPolicyEngine.EvaluateAsync()`
+    - Requests `AccessLevel.Execute` permission
+    - Handles all three `AccessOutcome` values explicitly:
+      - `AccessOutcome.Granted` → Auto-approve (trusted directory)
+      - `AccessOutcome.Denied` → Deny command (hard boundary - system dirs, paths above ceiling)
+      - `AccessOutcome.RequiresApproval` → Require approval (not in auto-grant, no session grant)
+    - Null-safe: handles missing policy engine, missing working directory
+  - ConfigureAwait(false) used for all async calls (CA2007 compliance)
+- **Created:** `GraduatedCommandPolicyTests` in `tests/Krutaka.Tools.Tests/GraduatedCommandPolicyTests.cs`:
+  - Comprehensive test coverage with 32 tests organized into 12 sections:
+    1. Constructor validation (4 tests): Null checks for dependencies, accepts null policy engine
+    2. Null request handling (1 test): ArgumentNullException for null request
+    3. Pre-check security validation (3 tests): Validates metacharacter detection, blocklisted commands, call ordering
+    4. Safe tier auto-approval (3 tests): Auto-approves Safe commands without directory trust checks
+    5. Moderate tier in trusted directories (2 tests): Auto-approves in trusted dirs, passes correct access request
+    6. Moderate tier with denied access (2 tests): Denies when access is explicitly denied (system dirs, above ceiling)
+    7. Moderate tier with requires approval (1 test): Requires approval when access needs interactive prompt
+    8. Moderate tier configuration (1 test): Respects ModerateAutoApproveInTrustedDirs setting
+    9. Moderate tier edge cases (4 tests): Null policy engine, missing working directory variations
+    10. Elevated tier (4 tests): Always requires approval regardless of directory trust
+    11. Dangerous tier (2 tests): Throws SecurityException as defense-in-depth
+    12. CancellationToken propagation (2 tests): Token passed to policy engine, respects cancellation
+    13. Integration test (1 test): Verifies correct evaluation sequence (pre-check → classify → tier evaluation)
+  - Uses NSubstitute for mocking (ICommandRiskClassifier, ISecurityPolicy, IAccessPolicyEngine)
+  - Tests cover all code paths and edge cases
+  - All 32 tests passing
+- **Build:** Zero warnings, zero errors
+- **Total tests:** 1,122 (was 1,090, +32 new tests)
+- **Security:**
+  - Pre-check ALWAYS runs before classification (immutable security boundary)
+  - Elevated commands NEVER auto-approved regardless of directory trust
+  - Dangerous tier throws SecurityException as defense-in-depth
+  - **CRITICAL FIX:** Hard denials (AccessOutcome.Denied) now return CommandDecision.Deny instead of RequireApproval
+    - Prevents security downgrade where non-overridable denials could become approvable
+    - System directories, paths above ceiling, and other hard boundaries are now properly enforced
+    - No user approval can override an explicit denial from the access policy engine
+  - Null policy engine handled safely (Moderate always requires approval)
+  - Async operations properly cancelled when CancellationToken is triggered
   - Shell metacharacter detection prevents injection attacks
   - Path separator detection prevents arbitrary binary execution
   - Configuration is code-side, not AI-determined (threat T4 mitigated per v0.3.0 spec)
