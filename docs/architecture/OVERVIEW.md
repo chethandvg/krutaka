@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-12 (Issue v0.2.0-4 complete — Core abstractions for access policy engine)
+> **Last updated:** 2026-02-13 (v0.2.0 release documentation complete — dynamic directory scoping fully implemented)
 
 ## System Architecture
 
