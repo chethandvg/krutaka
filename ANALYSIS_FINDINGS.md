@@ -47,7 +47,7 @@ The recursive call to `ResolvePathSegmentBySegment` has no maximum depth limit. 
 - Process crash
 - Denial of service
 
-**Mitigatio Required:**
+**Mitigation Required:**
 - Add maximum recursion depth counter (e.g., 32 levels)
 - Throw `IOException` when depth exceeded with clear message
 - Document the limit in XML comments

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -22,7 +23,8 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly TimeSpan _approvalTimeout;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
-    private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
+    private readonly object _conversationHistoryLock = new(); // Protects conversation history for thread-safe access
+    private readonly ConcurrentDictionary<string, bool> _approvalCache; // Tracks approved tools for session (thread-safe)
     private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
@@ -61,29 +63,30 @@ public sealed class AgentOrchestrator : IDisposable
         _correlationContext = correlationContext;
         _contextCompactor = contextCompactor;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
-        _approvalTimeout = approvalTimeoutSeconds > 0 ? TimeSpan.FromSeconds(approvalTimeoutSeconds) : Timeout.InfiniteTimeSpan;
+        if (approvalTimeoutSeconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(approvalTimeoutSeconds), "Approval timeout must be non-negative (0 = infinite).");
+        }
+
+        _approvalTimeout = approvalTimeoutSeconds == 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(approvalTimeoutSeconds);
         _turnLock = new SemaphoreSlim(1, 1);
         _conversationHistory = [];
-        _approvalCache = [];
+        _approvalCache = new ConcurrentDictionary<string, bool>();
     }
 
     /// <summary>
     /// Gets the current conversation history.
     /// Thread-safe: Returns a defensive copy of the conversation history.
+    /// Uses a dedicated lock to avoid deadlocks during event handling.
     /// </summary>
     public IReadOnlyList<object> ConversationHistory
     {
         get
         {
-            _turnLock.Wait();
-            try
+            lock (_conversationHistoryLock)
             {
                 // Return a defensive copy to prevent concurrent modification during enumeration
                 return _conversationHistory.ToList().AsReadOnly();
-            }
-            finally
-            {
-                _turnLock.Release();
             }
         }
     }
@@ -102,8 +105,11 @@ public sealed class AgentOrchestrator : IDisposable
         _turnLock.Wait();
         try
         {
-            _conversationHistory.Clear();
-            _conversationHistory.AddRange(messages);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+                _conversationHistory.AddRange(messages);
+            }
         }
         finally
         {
@@ -122,7 +128,11 @@ public sealed class AgentOrchestrator : IDisposable
         _turnLock.Wait();
         try
         {
-            _conversationHistory.Clear();
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+            }
+
             _approvalCache.Clear();
         }
         finally
@@ -163,7 +173,10 @@ public sealed class AgentOrchestrator : IDisposable
         {
             // Add user message to conversation history
             var userMessage = CreateUserMessage(userPrompt);
-            _conversationHistory.Add(userMessage);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Add(userMessage);
+            }
 
             // Run the agentic loop until we get a final response
             await foreach (var evt in RunAgenticLoopAsync(systemPrompt, cancellationToken).ConfigureAwait(false))
@@ -325,9 +338,16 @@ public sealed class AgentOrchestrator : IDisposable
             // Clear any stale request-id before starting a new Claude request
             _correlationContext?.ClearRequestId();
 
+            // Get a snapshot of conversation history for the Claude API call
+            List<object> conversationSnapshot;
+            lock (_conversationHistoryLock)
+            {
+                conversationSnapshot = _conversationHistory.ToList();
+            }
+
             // Stream the response from Claude
             await foreach (var evt in _claudeClient.SendMessageAsync(
-                _conversationHistory,
+                conversationSnapshot,
                 systemPrompt,
                 toolDefinitions,
                 cancellationToken).ConfigureAwait(false))
@@ -362,7 +382,10 @@ public sealed class AgentOrchestrator : IDisposable
             // Add assistant message to conversation history
             // Include the actual content and tool calls to preserve conversation context
             var assistantMessage = CreateAssistantMessage(finalResponseContent, toolCalls, finalStopReason ?? "end_turn");
-            _conversationHistory.Add(assistantMessage);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Add(assistantMessage);
+            }
 
             // Check if we're done (no tool use)
             if (finalStopReason != "tool_use" || toolCalls.Count == 0)
@@ -587,7 +610,10 @@ public sealed class AgentOrchestrator : IDisposable
             if (toolResults.Count > 0)
             {
                 var userMessageWithResults = CreateUserMessageWithToolResults(toolResults);
-                _conversationHistory.Add(userMessageWithResults);
+                lock (_conversationHistoryLock)
+                {
+                    _conversationHistory.Add(userMessageWithResults);
+                }
             }
         }
     }
@@ -679,23 +705,38 @@ public sealed class AgentOrchestrator : IDisposable
     /// </summary>
     private async Task CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
     {
-        if (_contextCompactor == null || _conversationHistory.Count == 0)
+        int historyCount;
+        lock (_conversationHistoryLock)
+        {
+            historyCount = _conversationHistory.Count;
+        }
+
+        if (_contextCompactor == null || historyCount == 0)
         {
             return;
         }
 
-        var tokenCount = await _claudeClient.CountTokensAsync(_conversationHistory, systemPrompt, cancellationToken).ConfigureAwait(false);
+        List<object> historySnapshot;
+        lock (_conversationHistoryLock)
+        {
+            historySnapshot = _conversationHistory.ToList();
+        }
+
+        var tokenCount = await _claudeClient.CountTokensAsync(historySnapshot, systemPrompt, cancellationToken).ConfigureAwait(false);
 
         if (_contextCompactor.ShouldCompact(tokenCount))
         {
             var result = await _contextCompactor.CompactAsync(
-                _conversationHistory,
+                historySnapshot,
                 systemPrompt,
                 tokenCount,
                 cancellationToken).ConfigureAwait(false);
 
-            _conversationHistory.Clear();
-            _conversationHistory.AddRange(result.CompactedMessages);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+                _conversationHistory.AddRange(result.CompactedMessages);
+            }
         }
     }
 
