@@ -143,9 +143,14 @@ internal sealed class ConsoleUI : IDisposable
                             break;
 
                         case HumanApprovalRequired approval:
+                            // Stop the status spinner to allow interactive prompt
+                            ctx.Status(string.Empty);
+                            ctx.Spinner(Spinner.Known.Default);
+                            
                             if (!firstToken)
                             {
                                 AnsiConsole.WriteLine();
+                                firstToken = false;
                             }
 
                             // Display approval request and get the user's decision
@@ -158,14 +163,20 @@ internal sealed class ConsoleUI : IDisposable
                                 approval.ToolUseId,
                                 decision.Approved,
                                 decision.AlwaysApprove);
-
-                            firstToken = false;
+                            
+                            // Resume spinner while waiting for orchestrator to continue
+                            ctx.Status("[dim]Processing...[/]");
                             break;
 
                         case DirectoryAccessRequested dirAccess:
+                            // Stop the status spinner to allow interactive prompt
+                            ctx.Status(string.Empty);
+                            ctx.Spinner(Spinner.Known.Default);
+                            
                             if (!firstToken)
                             {
                                 AnsiConsole.WriteLine();
+                                firstToken = false;
                             }
 
                             // Display directory access request and get the user's decision
@@ -185,8 +196,9 @@ internal sealed class ConsoleUI : IDisposable
                             {
                                 onDirectoryAccessDecision?.Invoke(null, false);
                             }
-
-                            firstToken = false;
+                            
+                            // Resume spinner while waiting for orchestrator to continue
+                            ctx.Status("[dim]Processing...[/]");
                             break;
 
                         case FinalResponse final:
