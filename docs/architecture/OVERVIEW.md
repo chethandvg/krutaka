@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-13 (v0.3.0 core abstractions added)
+> **Last updated:** 2026-02-13 (v0.3.0 CommandRiskClassifier added)
 
 ## System Architecture
 
@@ -246,11 +246,13 @@ Claude API integration layer with token counting and context management.
 **Note:** We use the official `Anthropic` package (v12.4.0), NOT the community `Anthropic.SDK` package.
 
 ### Krutaka.Tools (net10.0-windows)
-**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10), **Dynamic directory scoping integrated** (Issue v0.2.0-8 — 2026-02-12)  
+**Status:** ToolRegistry and DI registration complete (Issue #13 — 2026-02-10), run_command tool fully implemented (Issue #12 — 2026-02-10), Write tools implemented (Issue #11 — 2026-02-10), Read-only tools implemented (Issue #10 — 2026-02-10), CommandPolicy and SafeFileOperations complete (Issue #9 — 2026-02-10), **Dynamic directory scoping integrated** (Issue v0.2.0-8 — 2026-02-12), **CommandRiskClassifier implemented** (Issue v0.3.0-2 — 2026-02-13)  
 **Path:** `src/Krutaka.Tools/`  
 **Dependencies:** Krutaka.Core, CliWrap, Meziantou.Framework.Win32.Jobs
 
 > **v0.2.0 Update:** All 6 file and command tools now use `IAccessPolicyEngine` for dynamic directory access evaluation. Tools request directory access per-operation instead of being locked to a single static root at construction time. See `docs/versions/v0.2.0.md` for architecture details.
+
+> **v0.3.0 Update:** `CommandRiskClassifier` added (Issue v0.3.0-2) to implement risk-based command classification. Maps executable + arguments to one of four tiers (Safe, Moderate, Elevated, Dangerous) using hardcoded default rules. See `docs/versions/v0.3.0.md` for tier assignments and classification algorithm.
 
 Tool implementations with security policy enforcement.
 
@@ -269,6 +271,7 @@ Tool implementations with security policy enforcement.
 | `PathResolver` | — | **[v0.2.0]** Symlink/junction resolution, ADS/device name blocking | ✅ Implemented |
 | `LayeredAccessPolicyEngine` | — | **[v0.2.0]** Four-layer directory access policy (Hard Deny → Allow → Session → Heuristic) | ✅ Implemented |
 | `InMemorySessionAccessStore` | — | **[v0.2.0]** Session-scoped directory access grant storage with TTL enforcement | ✅ Implemented |
+| `CommandRiskClassifier` | — | **[v0.3.0]** Risk-based command classification (Safe/Moderate/Elevated/Dangerous tiers) | ✅ Implemented |
 | `EnvironmentScrubber` | — | Strips secrets from child process env | ✅ Implemented |
 | `ToolRegistry` | — | Collection + dispatch | ✅ Implemented |
 | `ToolOptions` | — | Configuration for tool execution (v0.2.0: `DefaultWorkingDirectory`, ceiling directory, auto-grant patterns, session grant TTL) | ✅ Implemented |
@@ -307,6 +310,21 @@ Tool implementations with security policy enforcement.
   - **Grant operations**: GrantAccessAsync, RevokeAccessAsync, IsGrantedAsync, GetActiveGrantsAsync, PruneExpiredAsync
   - **Lifecycle**: Registered as singleton (application-wide lifetime), implements IDisposable for SemaphoreSlim cleanup
   - **Test coverage**: 25 comprehensive tests covering grant/revoke, TTL expiry, max limits, thread-safety, and access level validation
+
+**Command Risk Classification (v0.3.0):**
+- **CommandRiskClassifier** (v0.3.0-2): Implements `ICommandRiskClassifier` to classify commands into risk tiers:
+  - **Classification algorithm**: BlockedExecutables check → executable lookup → argument pattern matching → default tier fallback → fail-closed (unknown → Dangerous)
+  - **Executable normalization**: Case-insensitive comparison, strips `.exe` suffix
+  - **Argument matching**: First argument matched against patterns (case-insensitive)
+  - **Default tier logic**: When no pattern matches, returns highest non-Safe tier for that executable
+  - **Fail-closed security**: Unknown executables return `CommandRiskTier.Dangerous`
+  - **Tier assignments**:
+    - **Safe (auto-approved)**: git read-only ops (status, log, diff, show, branch, tag, remote, rev-parse), dotnet info queries (--version, --info, --list-sdks/runtimes), node/npm/python/pip version checks, 14 read-only commands (cat, grep, find, dir, etc.)
+    - **Moderate (context-dependent)**: git local ops (add, commit, stash, checkout, switch, merge), dotnet build/test ops (build, test, run, restore, clean, format), npm/npx scripts (run, test, start, lint, build), python script execution, mkdir
+    - **Elevated (always prompted)**: git remote ops (push, pull, fetch, clone, rebase, reset, cherry-pick), dotnet package management (publish, pack, nuget, new, tool), npm/pip dependency management (install, uninstall, update, publish, link, download)
+    - **Dangerous (always blocked)**: All 30 blocklisted executables (powershell, cmd, reg, certutil, etc.) + unknown executables
+  - **Performance optimizations**: Static readonly arrays for patterns (CA1861), proper return types (CA1859), executable-indexed lookup dictionary
+  - **Test coverage**: 134 comprehensive tests covering all tier assignments, edge cases (case insensitivity, .exe stripping, empty args, unknown executables/args), and GetRules() method
 
 **Tool Registry & DI:**
 - **ToolRegistry**: Centralized collection of all tools with:
