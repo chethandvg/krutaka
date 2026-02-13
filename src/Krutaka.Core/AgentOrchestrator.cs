@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -19,9 +20,12 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly CorrelationContext? _correlationContext;
     private readonly ContextCompactor? _contextCompactor;
     private readonly TimeSpan _toolTimeout;
+    private readonly TimeSpan _approvalTimeout;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
-    private readonly Dictionary<string, bool> _approvalCache; // Tracks approved tools for session
+    private readonly object _conversationHistoryLock = new(); // Protects conversation history for thread-safe access
+    private readonly ConcurrentDictionary<string, bool> _approvalCache; // Tracks approved tools for session (thread-safe)
+    private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
     private string? _pendingToolName; // Tracks the tool name of the pending approval request
@@ -35,6 +39,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="toolRegistry">The tool registry for executing tools.</param>
     /// <param name="securityPolicy">The security policy for approval checks.</param>
     /// <param name="toolTimeoutSeconds">Timeout for tool execution in seconds (default: 30).</param>
+    /// <param name="approvalTimeoutSeconds">Timeout for human approval waits in seconds (default: 300 = 5 minutes, 0 = infinite).</param>
     /// <param name="sessionAccessStore">Optional session access store for directory access grants (v0.2.0).</param>
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
@@ -44,6 +49,7 @@ public sealed class AgentOrchestrator : IDisposable
         IToolRegistry toolRegistry,
         ISecurityPolicy securityPolicy,
         int toolTimeoutSeconds = 30,
+        int approvalTimeoutSeconds = 300,
         ISessionAccessStore? sessionAccessStore = null,
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null,
@@ -57,15 +63,33 @@ public sealed class AgentOrchestrator : IDisposable
         _correlationContext = correlationContext;
         _contextCompactor = contextCompactor;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
+        if (approvalTimeoutSeconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(approvalTimeoutSeconds), "Approval timeout must be non-negative (0 = infinite).");
+        }
+
+        _approvalTimeout = approvalTimeoutSeconds == 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(approvalTimeoutSeconds);
         _turnLock = new SemaphoreSlim(1, 1);
         _conversationHistory = [];
-        _approvalCache = [];
+        _approvalCache = new ConcurrentDictionary<string, bool>();
     }
 
     /// <summary>
     /// Gets the current conversation history.
+    /// Thread-safe: Returns a defensive copy of the conversation history.
+    /// Uses a dedicated lock to avoid deadlocks during event handling.
     /// </summary>
-    public IReadOnlyList<object> ConversationHistory => _conversationHistory.AsReadOnly();
+    public IReadOnlyList<object> ConversationHistory
+    {
+        get
+        {
+            lock (_conversationHistoryLock)
+            {
+                // Return a defensive copy to prevent concurrent modification during enumeration
+                return _conversationHistory.ToList().AsReadOnly();
+            }
+        }
+    }
 
     /// <summary>
     /// Restores conversation history from a previous session.
@@ -81,8 +105,11 @@ public sealed class AgentOrchestrator : IDisposable
         _turnLock.Wait();
         try
         {
-            _conversationHistory.Clear();
-            _conversationHistory.AddRange(messages);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+                _conversationHistory.AddRange(messages);
+            }
         }
         finally
         {
@@ -101,7 +128,11 @@ public sealed class AgentOrchestrator : IDisposable
         _turnLock.Wait();
         try
         {
-            _conversationHistory.Clear();
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+            }
+
             _approvalCache.Clear();
         }
         finally
@@ -142,7 +173,10 @@ public sealed class AgentOrchestrator : IDisposable
         {
             // Add user message to conversation history
             var userMessage = CreateUserMessage(userPrompt);
-            _conversationHistory.Add(userMessage);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Add(userMessage);
+            }
 
             // Run the agentic loop until we get a final response
             await foreach (var evt in RunAgenticLoopAsync(systemPrompt, cancellationToken).ConfigureAwait(false))
@@ -159,6 +193,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <summary>
     /// Approves a pending tool call. This should be called in response to HumanApprovalRequired events.
     /// Unblocks the orchestrator to proceed with tool execution.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     /// <param name="toolUseId">The tool use ID to approve (must match the pending request).</param>
     /// <param name="alwaysApprove">Whether to always approve this tool for the session.</param>
@@ -169,25 +204,37 @@ public sealed class AgentOrchestrator : IDisposable
             throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
         }
 
-        // Validate that the approval matches the currently pending tool request
-        if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+        // Lock to prevent race conditions between approval validation and TCS completion
+        lock (_approvalStateLock)
         {
-            throw new InvalidOperationException(
-                $"Approval for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
-        }
+            // Validate that the approval matches the currently pending tool request
+            if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+            {
+                throw new InvalidOperationException(
+                    $"Approval for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
+            }
 
-        if (alwaysApprove && _pendingToolName != null)
-        {
-            _approvalCache[_pendingToolName] = true;
-        }
+            // Check if there's actually a pending approval (could be cancelled or already handled)
+            if (_pendingApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
 
-        // Signal the pending approval to proceed
-        _pendingApproval?.TrySetResult(true);
+            if (alwaysApprove && _pendingToolName != null)
+            {
+                _approvalCache[_pendingToolName] = true;
+            }
+
+            // Signal the pending approval to proceed
+            _pendingApproval.TrySetResult(true);
+        }
     }
 
     /// <summary>
     /// Denies a pending tool call. This should be called in response to HumanApprovalRequired events.
     /// The tool will not be executed and a denial message is returned to Claude.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     /// <param name="toolUseId">The tool use ID to deny (must match the pending request).</param>
     public void DenyTool(string toolUseId)
@@ -197,37 +244,72 @@ public sealed class AgentOrchestrator : IDisposable
             throw new ArgumentException("Tool use ID cannot be null or whitespace.", nameof(toolUseId));
         }
 
-        // Validate that the denial matches the currently pending tool request
-        if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+        // Lock to prevent race conditions between denial validation and TCS completion
+        lock (_approvalStateLock)
         {
-            throw new InvalidOperationException(
-                $"Denial for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
-        }
+            // Validate that the denial matches the currently pending tool request
+            if (_pendingToolUseId != null && _pendingToolUseId != toolUseId)
+            {
+                throw new InvalidOperationException(
+                    $"Denial for tool use '{toolUseId}' does not match the pending request '{_pendingToolUseId}'.");
+            }
 
-        // Signal the pending approval as denied
-        _pendingApproval?.TrySetResult(false);
+            // Check if there's actually a pending approval (could be cancelled or already handled)
+            if (_pendingApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending approval as denied
+            _pendingApproval.TrySetResult(false);
+        }
     }
 
     /// <summary>
     /// Approves a pending directory access request. This should be called in response to DirectoryAccessRequested events.
     /// Unblocks the orchestrator to retry tool execution with the granted access.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     /// <param name="grantedLevel">The access level to grant (may be downgraded from requested).</param>
     /// <param name="createSessionGrant">Whether to create a session-wide grant for this path.</param>
     public void ApproveDirectoryAccess(AccessLevel grantedLevel, bool createSessionGrant = false)
     {
-        // Signal the pending directory approval to proceed
-        _pendingDirectoryApproval?.TrySetResult(new DirectoryAccessApprovalResult(true, grantedLevel, createSessionGrant));
+        // Lock to prevent race conditions with cancellation
+        lock (_approvalStateLock)
+        {
+            // Check if there's actually a pending directory approval
+            if (_pendingDirectoryApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending directory approval to proceed
+            _pendingDirectoryApproval.TrySetResult(new DirectoryAccessApprovalResult(true, grantedLevel, createSessionGrant));
+        }
     }
 
     /// <summary>
     /// Denies a pending directory access request. This should be called in response to DirectoryAccessRequested events.
     /// The tool will fail with a denial message.
+    /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
     public void DenyDirectoryAccess()
     {
-        // Signal the pending directory approval as denied
-        _pendingDirectoryApproval?.TrySetResult(new DirectoryAccessApprovalResult(false, null, false));
+        // Lock to prevent race conditions with cancellation
+        lock (_approvalStateLock)
+        {
+            // Check if there's actually a pending directory approval
+            if (_pendingDirectoryApproval == null)
+            {
+                // Silently ignore - approval may have been cancelled or already completed
+                return;
+            }
+
+            // Signal the pending directory approval as denied
+            _pendingDirectoryApproval.TrySetResult(new DirectoryAccessApprovalResult(false, null, false));
+        }
     }
 
     /// <summary>
@@ -256,9 +338,16 @@ public sealed class AgentOrchestrator : IDisposable
             // Clear any stale request-id before starting a new Claude request
             _correlationContext?.ClearRequestId();
 
+            // Get a snapshot of conversation history for the Claude API call
+            List<object> conversationSnapshot;
+            lock (_conversationHistoryLock)
+            {
+                conversationSnapshot = _conversationHistory.ToList();
+            }
+
             // Stream the response from Claude
             await foreach (var evt in _claudeClient.SendMessageAsync(
-                _conversationHistory,
+                conversationSnapshot,
                 systemPrompt,
                 toolDefinitions,
                 cancellationToken).ConfigureAwait(false))
@@ -293,7 +382,10 @@ public sealed class AgentOrchestrator : IDisposable
             // Add assistant message to conversation history
             // Include the actual content and tool calls to preserve conversation context
             var assistantMessage = CreateAssistantMessage(finalResponseContent, toolCalls, finalStopReason ?? "end_turn");
-            _conversationHistory.Add(assistantMessage);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Add(assistantMessage);
+            }
 
             // Check if we're done (no tool use)
             if (finalStopReason != "tool_use" || toolCalls.Count == 0)
@@ -313,9 +405,15 @@ public sealed class AgentOrchestrator : IDisposable
                 if (approvalRequired && !alwaysApprove)
                 {
                     // Create a TaskCompletionSource to block until the caller approves or denies
-                    _pendingApproval = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    _pendingToolUseId = toolCall.Id;
-                    _pendingToolName = toolCall.Name;
+                    // Lock to ensure atomic assignment of pending state
+                    TaskCompletionSource<bool> approvalTcs;
+                    lock (_approvalStateLock)
+                    {
+                        approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        _pendingApproval = approvalTcs;
+                        _pendingToolUseId = toolCall.Id;
+                        _pendingToolName = toolCall.Name;
+                    }
                     
                     yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
                     
@@ -324,13 +422,38 @@ public sealed class AgentOrchestrator : IDisposable
                     bool approved;
                     try
                     {
-                        approved = await _pendingApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        // Apply approval timeout if configured
+                        if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                        {
+                            using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                            
+                            try
+                            {
+                                approved = await approvalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                            {
+                                // Approval timeout occurred (not user cancellation)
+                                throw new TimeoutException($"Approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for tool '{toolCall.Name}'. " +
+                                    "The user did not respond to the approval request in time.");
+                            }
+                        }
+                        else
+                        {
+                            // No timeout - wait indefinitely (or until user cancels)
+                            approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        }
                     }
                     finally
                     {
-                        _pendingApproval = null;
-                        _pendingToolUseId = null;
-                        _pendingToolName = null;
+                        // Lock to prevent race with concurrent approval/denial
+                        lock (_approvalStateLock)
+                        {
+                            _pendingApproval = null;
+                            _pendingToolUseId = null;
+                            _pendingToolName = null;
+                        }
                     }
                     
                     if (!approved)
@@ -375,7 +498,13 @@ public sealed class AgentOrchestrator : IDisposable
                     }
 
                     // Create a TaskCompletionSource to block until the caller approves or denies
-                    _pendingDirectoryApproval = new TaskCompletionSource<DirectoryAccessApprovalResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    // Lock to ensure atomic assignment of pending state
+                    TaskCompletionSource<DirectoryAccessApprovalResult> dirApprovalTcs;
+                    lock (_approvalStateLock)
+                    {
+                        dirApprovalTcs = new TaskCompletionSource<DirectoryAccessApprovalResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        _pendingDirectoryApproval = dirApprovalTcs;
+                    }
 
                     // Yield DirectoryAccessRequested event
                     yield return new DirectoryAccessRequested(dirAccessException.Path, dirAccessException.RequestedLevel, dirAccessException.Justification);
@@ -384,11 +513,36 @@ public sealed class AgentOrchestrator : IDisposable
                     DirectoryAccessApprovalResult approvalResult;
                     try
                     {
-                        approvalResult = await _pendingDirectoryApproval.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        // Apply approval timeout if configured
+                        if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                        {
+                            using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                            
+                            try
+                            {
+                                approvalResult = await dirApprovalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                            {
+                                // Approval timeout occurred (not user cancellation)
+                                throw new TimeoutException($"Directory access approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for path '{dirAccessException.Path}'. " +
+                                    "The user did not respond to the approval request in time.");
+                            }
+                        }
+                        else
+                        {
+                            // No timeout - wait indefinitely (or until user cancels)
+                            approvalResult = await dirApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        }
                     }
                     finally
                     {
-                        _pendingDirectoryApproval = null;
+                        // Lock to prevent race with concurrent approval/denial
+                        lock (_approvalStateLock)
+                        {
+                            _pendingDirectoryApproval = null;
+                        }
                     }
 
                     if (!approvalResult.Approved || approvalResult.GrantedLevel == null)
@@ -456,7 +610,10 @@ public sealed class AgentOrchestrator : IDisposable
             if (toolResults.Count > 0)
             {
                 var userMessageWithResults = CreateUserMessageWithToolResults(toolResults);
-                _conversationHistory.Add(userMessageWithResults);
+                lock (_conversationHistoryLock)
+                {
+                    _conversationHistory.Add(userMessageWithResults);
+                }
             }
         }
     }
@@ -548,23 +705,38 @@ public sealed class AgentOrchestrator : IDisposable
     /// </summary>
     private async Task CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
     {
-        if (_contextCompactor == null || _conversationHistory.Count == 0)
+        int historyCount;
+        lock (_conversationHistoryLock)
+        {
+            historyCount = _conversationHistory.Count;
+        }
+
+        if (_contextCompactor == null || historyCount == 0)
         {
             return;
         }
 
-        var tokenCount = await _claudeClient.CountTokensAsync(_conversationHistory, systemPrompt, cancellationToken).ConfigureAwait(false);
+        List<object> historySnapshot;
+        lock (_conversationHistoryLock)
+        {
+            historySnapshot = _conversationHistory.ToList();
+        }
+
+        var tokenCount = await _claudeClient.CountTokensAsync(historySnapshot, systemPrompt, cancellationToken).ConfigureAwait(false);
 
         if (_contextCompactor.ShouldCompact(tokenCount))
         {
             var result = await _contextCompactor.CompactAsync(
-                _conversationHistory,
+                historySnapshot,
                 systemPrompt,
                 tokenCount,
                 cancellationToken).ConfigureAwait(false);
 
-            _conversationHistory.Clear();
-            _conversationHistory.AddRange(result.CompactedMessages);
+            lock (_conversationHistoryLock)
+            {
+                _conversationHistory.Clear();
+                _conversationHistory.AddRange(result.CompactedMessages);
+            }
         }
     }
 
