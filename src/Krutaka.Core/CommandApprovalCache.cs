@@ -9,18 +9,25 @@ namespace Krutaka.Core;
 public sealed class CommandApprovalCache : ICommandApprovalCache
 {
     private readonly ConcurrentDictionary<string, DateTimeOffset> _approvals = new();
+    private DateTimeOffset _lastCleanup = DateTimeOffset.UtcNow;
+    private readonly TimeSpan _cleanupInterval = TimeSpan.FromSeconds(10);
 
     /// <inheritdoc/>
     public bool IsApproved(string commandSignature)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(commandSignature);
         
-        // Clean up expired approvals first
-        CleanupExpiredApprovals();
+        // Periodic cleanup to reduce overhead (only cleanup every 10 seconds)
+        var now = DateTimeOffset.UtcNow;
+        if (now - _lastCleanup >= _cleanupInterval)
+        {
+            CleanupExpiredApprovals();
+            _lastCleanup = now;
+        }
         
         if (_approvals.TryGetValue(commandSignature, out var expiryTime))
         {
-            return DateTimeOffset.UtcNow < expiryTime;
+            return now < expiryTime;
         }
         
         return false;

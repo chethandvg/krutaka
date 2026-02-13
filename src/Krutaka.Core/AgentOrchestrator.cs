@@ -370,6 +370,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <summary>
     /// Builds a command signature for approval cache lookup.
     /// Format: "executable arg1 arg2 arg3..."
+    /// NOTE: This method is also present in RunCommandTool.cs and must stay in sync.
     /// </summary>
     private static string BuildCommandSignature(CommandExecutionRequest request)
     {

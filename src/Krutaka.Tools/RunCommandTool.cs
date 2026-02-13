@@ -159,15 +159,19 @@ public class RunCommandTool : ToolBase
             );
 
             // Check if this command was recently approved (retry after user approval)
-            var commandSignature = BuildCommandSignature(commandRequest);
-            var wasPreApproved = _approvalCache?.IsApproved(commandSignature) ?? false;
+            var wasPreApproved = false;
+            if (_approvalCache != null)
+            {
+                var commandSignature = BuildCommandSignature(commandRequest);
+                wasPreApproved = _approvalCache.IsApproved(commandSignature);
+            }
 
             // Evaluate command through graduated policy (unless pre-approved)
             // This internally calls ISecurityPolicy.ValidateCommand() for security pre-check,
             // then classifies the command risk tier and determines approval requirements
-            CommandDecision commandDecision;
             if (!wasPreApproved)
             {
+                CommandDecision commandDecision;
                 try
                 {
                     commandDecision = await _commandPolicy.EvaluateAsync(commandRequest, cancellationToken).ConfigureAwait(false);
@@ -316,6 +320,7 @@ public class RunCommandTool : ToolBase
     /// <summary>
     /// Builds a command signature for approval cache lookup.
     /// Format: "executable arg1 arg2 arg3..."
+    /// NOTE: This method is also present in AgentOrchestrator.cs and must stay in sync.
     /// </summary>
     private static string BuildCommandSignature(CommandExecutionRequest request)
     {
