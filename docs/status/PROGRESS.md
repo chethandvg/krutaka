@@ -66,9 +66,9 @@
 
 ---
 
-## v0.2.0 — Dynamic Directory Scoping
+## v0.2.0 — Dynamic Directory Scoping (Complete)
 
-> **Status:** 🟡 Planning  
+> **Status:** 🟢 **Complete** (All 11 issues complete — 2026-02-13)  
 > **Reference:** See `docs/versions/v0.2.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
