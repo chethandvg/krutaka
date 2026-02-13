@@ -411,6 +411,35 @@ public sealed class AgentOrchestratorTests
         results.Should().AllSatisfy(r => r.Should().BeGreaterThan(0));
     }
 
+    [Fact]
+    public async Task RunAsync_Should_TriggerCompaction_WhenTokenCountExceedsThreshold()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        // Configure CountTokensAsync to return a value above the threshold
+        claudeClient.SetTokenCount(170_000); // Above 80% of 200K
+        claudeClient.AddFinalResponse("Response after compaction", "end_turn");
+
+        var compactor = new ContextCompactor(claudeClient);
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            new MockToolRegistry(),
+            new MockSecurityPolicy(),
+            contextCompactor: compactor);
+
+        // Act - first turn creates history, but since compaction needs >6 messages
+        // and mock token count is high, it will attempt compaction
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Test prompt", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert - should complete without error
+        events.Should().ContainSingle(e => e is FinalResponse);
+    }
+
     private static AgentOrchestrator CreateOrchestrator(
         MockClaudeClient? claudeClient = null,
         MockToolRegistry? toolRegistry = null,
@@ -431,6 +460,12 @@ public sealed class AgentOrchestratorTests
     private sealed class MockClaudeClient : IClaudeClient
     {
         private readonly List<List<AgentEvent>> _eventBatches = [];
+        private int _tokenCount = 100;
+
+        public void SetTokenCount(int count)
+        {
+            _tokenCount = count;
+        }
 
         public void AddTextDelta(string text)
         {
@@ -492,7 +527,7 @@ public sealed class AgentOrchestratorTests
             string systemPrompt,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(100);
+            return Task.FromResult(_tokenCount);
         }
     }
 

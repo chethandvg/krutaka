@@ -543,4 +543,42 @@ public sealed class AccessPolicyEngineTests : IDisposable
     }
 
     #endregion
+
+    #region Audit Log Tamper-proofing Tests
+
+    [Fact]
+    public async Task Should_DenyAccess_WhenPathIsAuditLogDirectory()
+    {
+        // Arrange
+        var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], null);
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var auditLogDir = Path.Combine(userProfile, ".krutaka", "logs");
+        var request = new DirectoryAccessRequest(auditLogDir, AccessLevel.ReadWrite, "test");
+
+        // Act
+        var decision = await engine.EvaluateAsync(request, CancellationToken.None);
+
+        // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Denied);
+        decision.Granted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Should_DenyAccess_WhenPathIsUnderAuditLogDirectory()
+    {
+        // Arrange
+        var engine = new LayeredAccessPolicyEngine(_fileOperations, _ceilingDirectory, [], null);
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var auditLogFile = Path.Combine(userProfile, ".krutaka", "logs", "audit-2026-01-01.json");
+        var request = new DirectoryAccessRequest(auditLogFile, AccessLevel.ReadOnly, "test");
+
+        // Act
+        var decision = await engine.EvaluateAsync(request, CancellationToken.None);
+
+        // Assert
+        decision.Outcome.Should().Be(AccessOutcome.Denied);
+        decision.Granted.Should().BeFalse();
+    }
+
+    #endregion
 }
