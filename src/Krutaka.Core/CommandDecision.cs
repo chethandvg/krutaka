@@ -2,11 +2,10 @@ namespace Krutaka.Core;
 
 /// <summary>
 /// Represents the result of evaluating a command execution request through the command policy.
-/// Contains the approval decision, risk tier, and reasoning for the decision.
+/// Contains the decision outcome, risk tier, and reasoning for the decision.
 /// </summary>
-/// <param name="Approved">
-/// True if the command is approved for execution (either auto-approved or requires human approval).
-/// False if the command is denied/blocked.
+/// <param name="Outcome">
+/// The decision outcome: Approved, RequiresApproval, or Denied.
 /// </param>
 /// <param name="Tier">
 /// The classified risk tier for this command.
@@ -15,17 +14,27 @@ namespace Krutaka.Core;
 /// Human-readable explanation of the decision.
 /// Examples: "Auto-approved (Safe tier)", "Requires approval (Elevated tier)", "Blocked (Dangerous tier)".
 /// </param>
-/// <param name="RequiresApproval">
-/// True if human approval is required before execution.
-/// False if the command is auto-approved or denied (no approval prompt needed).
-/// </param>
 public sealed record CommandDecision(
-    bool Approved,
+    CommandOutcome Outcome,
     CommandRiskTier Tier,
-    string Reason,
-    bool RequiresApproval
+    string Reason
 )
 {
+    /// <summary>
+    /// Gets a value indicating whether the command is approved for immediate execution without human approval.
+    /// </summary>
+    public bool IsApproved => Outcome == CommandOutcome.Approved;
+
+    /// <summary>
+    /// Gets a value indicating whether human approval is required before execution.
+    /// </summary>
+    public bool RequiresApproval => Outcome == CommandOutcome.RequiresApproval;
+
+    /// <summary>
+    /// Gets a value indicating whether the command is denied and will not execute.
+    /// </summary>
+    public bool IsDenied => Outcome == CommandOutcome.Denied;
+
     /// <summary>
     /// Creates an approved decision for auto-approved commands (Safe or Moderate in trusted directories).
     /// </summary>
@@ -35,10 +44,9 @@ public sealed record CommandDecision(
     public static CommandDecision Approve(CommandRiskTier tier, string reason)
     {
         return new CommandDecision(
-            Approved: true,
+            Outcome: CommandOutcome.Approved,
             Tier: tier,
-            Reason: reason,
-            RequiresApproval: false
+            Reason: reason
         );
     }
 
@@ -51,10 +59,9 @@ public sealed record CommandDecision(
     public static CommandDecision RequireApproval(CommandRiskTier tier, string reason)
     {
         return new CommandDecision(
-            Approved: true,
+            Outcome: CommandOutcome.RequiresApproval,
             Tier: tier,
-            Reason: reason,
-            RequiresApproval: true
+            Reason: reason
         );
     }
 
@@ -67,10 +74,9 @@ public sealed record CommandDecision(
     public static CommandDecision Deny(CommandRiskTier tier, string reason)
     {
         return new CommandDecision(
-            Approved: false,
+            Outcome: CommandOutcome.Denied,
             Tier: tier,
-            Reason: reason,
-            RequiresApproval: false
+            Reason: reason
         );
     }
 }

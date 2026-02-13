@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 core abstractions — Issue v0.3.0-1 complete — 796 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 core abstractions — Issue v0.3.0-1 complete — 927 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -147,15 +147,19 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-1 | Core abstractions — CommandRiskTier, ICommandRiskClassifier, ICommandPolicy, and model records | Architecture | 🟢 Complete | 2026-02-13 |
 
 **Issue v0.3.0-1 Details:**
-- **Created:** 6 new types in `src/Krutaka.Core/`:
+- **Created:** 7 new types in `src/Krutaka.Core/`:
   - `CommandRiskTier` enum: Safe, Moderate, Elevated, Dangerous (4 values)
+  - `CommandOutcome` enum: Approved, RequiresApproval, Denied (3 values)
   - `CommandRiskRule` record: Maps executable + argument patterns to tier
-  - `CommandExecutionRequest` record: Input to policy evaluation
-  - `CommandDecision` record: Output from policy with factory methods (Approve, RequireApproval, Deny)
+  - `CommandExecutionRequest` record: Input to policy evaluation (with defensive copy of arguments to prevent post-classification mutation)
+  - `CommandDecision` record: Output from policy with single `Outcome` enum and convenience properties (IsApproved, RequiresApproval, IsDenied) + factory methods (Approve, RequireApproval, Deny)
   - `ICommandRiskClassifier` interface: Classify(request) → CommandRiskTier, GetRules() for system prompt
   - `ICommandPolicy` interface: EvaluateAsync(request, ct) → CommandDecision
-- **Testing:** Created `CommandRiskModelsTests.cs` with 20 tests, all passing
-- **Build:** Zero warnings, zero errors; all 796 tests passing (1 skipped)
+- **Testing:** Created `CommandRiskModelsTests.cs` with 24 tests, all passing
+- **Build:** Zero warnings, zero errors; all 927 tests passing (1 skipped)
+- **Security fixes:**
+  - Replaced contradictory `Approved` + `RequiresApproval` booleans with single `CommandOutcome` enum
+  - Added defensive copy in `CommandExecutionRequest` to prevent argument mutation after classification
 - **Constraint:** Zero dependencies (Krutaka.Core has no NuGet packages), XML docs on all public members
 - **No breaking changes:** ISecurityPolicy unchanged, new interfaces sit alongside existing code
 

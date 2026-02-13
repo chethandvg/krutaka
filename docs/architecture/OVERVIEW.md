@@ -76,9 +76,10 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `SessionAccessGrant` | Record | **[v0.2.0]** Session-scoped directory grant: Path, AccessLevel, GrantedAt, ExpiresAt, Justification, GrantedBy |
 | `GrantSource` | Enum | **[v0.2.0]** Source of directory grant: User, AutoGrant, Policy |
 | `CommandRiskTier` | Enum | **[v0.3.0]** Command risk tier: Safe, Moderate, Elevated, Dangerous |
+| `CommandOutcome` | Enum | **[v0.3.0]** Command decision outcome: Approved, RequiresApproval, Denied |
 | `CommandRiskRule` | Record | **[v0.3.0]** Risk rule: Executable, ArgumentPatterns, Tier, Description |
-| `CommandExecutionRequest` | Record | **[v0.3.0]** Command execution request: Executable, Arguments, WorkingDirectory, Justification |
-| `CommandDecision` | Record | **[v0.3.0]** Command decision: Approved, Tier, Reason, RequiresApproval; factory methods: Approve, RequireApproval, Deny |
+| `CommandExecutionRequest` | Record | **[v0.3.0]** Command execution request: Executable, Arguments (defensive copy), WorkingDirectory, Justification |
+| `CommandDecision` | Record | **[v0.3.0]** Command decision: Outcome, Tier, Reason; convenience properties: IsApproved, RequiresApproval, IsDenied; factory methods: Approve, RequireApproval, Deny |
 
 
 #### Core Classes

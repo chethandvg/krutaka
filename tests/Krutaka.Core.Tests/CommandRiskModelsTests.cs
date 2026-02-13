@@ -32,6 +32,32 @@ public class CommandRiskModelsTests
 
     #endregion
 
+    #region CommandOutcome Tests
+
+    [Fact]
+    public void CommandOutcome_Should_HaveExactlyThreeValues()
+    {
+        // Arrange & Act
+        var values = Enum.GetValues<CommandOutcome>();
+
+        // Assert
+        values.Should().HaveCount(3);
+        values.Should().Contain(CommandOutcome.Approved);
+        values.Should().Contain(CommandOutcome.RequiresApproval);
+        values.Should().Contain(CommandOutcome.Denied);
+    }
+
+    [Fact]
+    public void CommandOutcome_Should_HaveCorrectOrdinalValues()
+    {
+        // Assert
+        ((int)CommandOutcome.Approved).Should().Be(0);
+        ((int)CommandOutcome.RequiresApproval).Should().Be(1);
+        ((int)CommandOutcome.Denied).Should().Be(2);
+    }
+
+    #endregion
+
     #region CommandRiskRule Tests
 
     [Fact]
@@ -92,11 +118,16 @@ public class CommandRiskModelsTests
     public void CommandRiskRule_Should_SupportRecordEquality()
     {
         // Arrange
-        var rule1 = new CommandRiskRule("git", new[] { "status" }, CommandRiskTier.Safe, "Read-only");
-        var rule2 = new CommandRiskRule("git", new[] { "status" }, CommandRiskTier.Safe, "Read-only");
+        var sharedArray = new[] { "status" };
+        var rule1 = new CommandRiskRule("git", sharedArray, CommandRiskTier.Safe, "Read-only");
+        var rule2 = new CommandRiskRule("git", sharedArray, CommandRiskTier.Safe, "Read-only");
         var rule3 = new CommandRiskRule("git", new[] { "push" }, CommandRiskTier.Elevated, "Remote");
 
-        // Assert - Check properties individually since record equality doesn't deep-compare collections
+        // Assert - record equality compares all components, including ArgumentPatterns by reference
+        rule1.Should().Be(rule2); // same array instance => equal
+        rule1.Should().NotBe(rule3); // different tier/arguments => not equal
+
+        // Verify key properties for documentation
         rule1.Executable.Should().Be(rule2.Executable);
         rule1.Tier.Should().Be(rule2.Tier);
         rule1.Description.Should().Be(rule2.Description);
@@ -178,24 +209,34 @@ public class CommandRiskModelsTests
     }
 
     [Fact]
-    public void CommandExecutionRequest_Should_SupportRecordEquality()
+    public void CommandExecutionRequest_Should_CopyArgumentsToPreventMutation()
     {
         // Arrange
-        var request1 = new CommandExecutionRequest("git", new[] { "status" }, "/path", "Check status");
-        var request2 = new CommandExecutionRequest("git", new[] { "status" }, "/path", "Check status");
-        var request3 = new CommandExecutionRequest("git", new[] { "push" }, "/path", "Push changes");
+        var mutableArgs = new List<string> { "status" };
+        var request = new CommandExecutionRequest("git", mutableArgs, "/path", "Check");
 
-        // Assert - Check properties individually since record equality doesn't deep-compare collections
-        request1.Executable.Should().Be(request2.Executable);
-        request1.WorkingDirectory.Should().Be(request2.WorkingDirectory);
-        request1.Justification.Should().Be(request2.Justification);
-        
-        request1.Executable.Should().Be(request3.Executable);
-        request1.Justification.Should().NotBe(request3.Justification);
+        // Act - mutate the original list
+        mutableArgs.Add("--porcelain");
+
+        // Assert - request arguments should be unaffected
+        request.Arguments.Should().HaveCount(1);
+        request.Arguments.Should().Contain("status");
+        request.Arguments.Should().NotContain("--porcelain");
     }
 
     [Fact]
-    public void CommandExecutionRequest_Arguments_Should_BeImmutable()
+    public void CommandExecutionRequest_Should_HandleNullArgumentsByCreatingEmptyArray()
+    {
+        // Arrange & Act
+        var request = new CommandExecutionRequest("git", null!, "/path", "Test");
+
+        // Assert
+        request.Arguments.Should().NotBeNull();
+        request.Arguments.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CommandExecutionRequest_Arguments_Should_BeReadOnlyList()
     {
         // Arrange
         var request = new CommandExecutionRequest("git", new[] { "status" }, "/path", "Check");
@@ -216,10 +257,12 @@ public class CommandRiskModelsTests
         var decision = CommandDecision.Approve(CommandRiskTier.Safe, "Auto-approved (Safe tier)");
 
         // Assert
-        decision.Approved.Should().BeTrue();
+        decision.Outcome.Should().Be(CommandOutcome.Approved);
+        decision.IsApproved.Should().BeTrue();
+        decision.RequiresApproval.Should().BeFalse();
+        decision.IsDenied.Should().BeFalse();
         decision.Tier.Should().Be(CommandRiskTier.Safe);
         decision.Reason.Should().Be("Auto-approved (Safe tier)");
-        decision.RequiresApproval.Should().BeFalse();
     }
 
     [Fact]
@@ -229,10 +272,12 @@ public class CommandRiskModelsTests
         var decision = CommandDecision.RequireApproval(CommandRiskTier.Elevated, "Elevated tier requires approval");
 
         // Assert
-        decision.Approved.Should().BeTrue();
+        decision.Outcome.Should().Be(CommandOutcome.RequiresApproval);
+        decision.IsApproved.Should().BeFalse();
+        decision.RequiresApproval.Should().BeTrue();
+        decision.IsDenied.Should().BeFalse();
         decision.Tier.Should().Be(CommandRiskTier.Elevated);
         decision.Reason.Should().Be("Elevated tier requires approval");
-        decision.RequiresApproval.Should().BeTrue();
     }
 
     [Fact]
@@ -242,10 +287,12 @@ public class CommandRiskModelsTests
         var decision = CommandDecision.Deny(CommandRiskTier.Dangerous, "Blocked (Dangerous tier)");
 
         // Assert
-        decision.Approved.Should().BeFalse();
+        decision.Outcome.Should().Be(CommandOutcome.Denied);
+        decision.IsApproved.Should().BeFalse();
+        decision.RequiresApproval.Should().BeFalse();
+        decision.IsDenied.Should().BeTrue();
         decision.Tier.Should().Be(CommandRiskTier.Dangerous);
         decision.Reason.Should().Be("Blocked (Dangerous tier)");
-        decision.RequiresApproval.Should().BeFalse();
     }
 
     [Fact]
@@ -257,11 +304,11 @@ public class CommandRiskModelsTests
 
         // Assert
         safeTier.Tier.Should().Be(CommandRiskTier.Safe);
-        safeTier.Approved.Should().BeTrue();
+        safeTier.IsApproved.Should().BeTrue();
         safeTier.RequiresApproval.Should().BeFalse();
         
         moderateTier.Tier.Should().Be(CommandRiskTier.Moderate);
-        moderateTier.Approved.Should().BeTrue();
+        moderateTier.IsApproved.Should().BeTrue();
         moderateTier.RequiresApproval.Should().BeFalse();
     }
 
@@ -274,11 +321,11 @@ public class CommandRiskModelsTests
 
         // Assert
         moderateTier.Tier.Should().Be(CommandRiskTier.Moderate);
-        moderateTier.Approved.Should().BeTrue();
+        moderateTier.IsApproved.Should().BeFalse();
         moderateTier.RequiresApproval.Should().BeTrue();
         
         elevatedTier.Tier.Should().Be(CommandRiskTier.Elevated);
-        elevatedTier.Approved.Should().BeTrue();
+        elevatedTier.IsApproved.Should().BeFalse();
         elevatedTier.RequiresApproval.Should().BeTrue();
     }
 
@@ -290,8 +337,9 @@ public class CommandRiskModelsTests
 
         // Assert
         dangerous.Tier.Should().Be(CommandRiskTier.Dangerous);
-        dangerous.Approved.Should().BeFalse();
+        dangerous.IsApproved.Should().BeFalse();
         dangerous.RequiresApproval.Should().BeFalse();
+        dangerous.IsDenied.Should().BeTrue();
     }
 
     [Fact]
@@ -308,23 +356,52 @@ public class CommandRiskModelsTests
     }
 
     [Fact]
-    public void CommandDecision_FactoryMethods_Should_SetCorrectCombinations()
+    public void CommandDecision_FactoryMethods_Should_SetCorrectOutcomes()
     {
         // Arrange & Act
         var approved = CommandDecision.Approve(CommandRiskTier.Safe, "Safe");
         var requiresApproval = CommandDecision.RequireApproval(CommandRiskTier.Elevated, "Elevated");
         var denied = CommandDecision.Deny(CommandRiskTier.Dangerous, "Dangerous");
 
-        // Assert - Verify the boolean combinations are correct
-        approved.Approved.Should().BeTrue();
+        // Assert - verify the outcome combinations are correct and mutually exclusive
+        approved.Outcome.Should().Be(CommandOutcome.Approved);
+        approved.IsApproved.Should().BeTrue();
         approved.RequiresApproval.Should().BeFalse();
+        approved.IsDenied.Should().BeFalse();
         
-        requiresApproval.Approved.Should().BeTrue();
+        requiresApproval.Outcome.Should().Be(CommandOutcome.RequiresApproval);
+        requiresApproval.IsApproved.Should().BeFalse();
         requiresApproval.RequiresApproval.Should().BeTrue();
+        requiresApproval.IsDenied.Should().BeFalse();
         
-        denied.Approved.Should().BeFalse();
+        denied.Outcome.Should().Be(CommandOutcome.Denied);
+        denied.IsApproved.Should().BeFalse();
         denied.RequiresApproval.Should().BeFalse();
+        denied.IsDenied.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CommandDecision_ConvenienceProperties_Should_MatchOutcome()
+    {
+        // Arrange
+        var approved = new CommandDecision(CommandOutcome.Approved, CommandRiskTier.Safe, "Test");
+        var requiresApproval = new CommandDecision(CommandOutcome.RequiresApproval, CommandRiskTier.Elevated, "Test");
+        var denied = new CommandDecision(CommandOutcome.Denied, CommandRiskTier.Dangerous, "Test");
+
+        // Assert
+        approved.IsApproved.Should().BeTrue();
+        approved.RequiresApproval.Should().BeFalse();
+        approved.IsDenied.Should().BeFalse();
+
+        requiresApproval.IsApproved.Should().BeFalse();
+        requiresApproval.RequiresApproval.Should().BeTrue();
+        requiresApproval.IsDenied.Should().BeFalse();
+
+        denied.IsApproved.Should().BeFalse();
+        denied.RequiresApproval.Should().BeFalse();
+        denied.IsDenied.Should().BeTrue();
     }
 
     #endregion
 }
+

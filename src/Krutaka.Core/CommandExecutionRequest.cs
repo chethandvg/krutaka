@@ -11,6 +11,7 @@ namespace Krutaka.Core;
 /// <param name="Arguments">
 /// The command arguments. Used for pattern matching during risk classification.
 /// Should not contain shell metacharacters (validated separately by security policy).
+/// The list is copied to an immutable array at construction to prevent post-classification mutation.
 /// </param>
 /// <param name="WorkingDirectory">
 /// Optional working directory where the command will execute.
@@ -25,4 +26,11 @@ public sealed record CommandExecutionRequest(
     IReadOnlyList<string> Arguments,
     string? WorkingDirectory,
     string Justification
-);
+)
+{
+    /// <summary>
+    /// Gets the command arguments as an immutable list.
+    /// The arguments are copied at construction time to prevent post-classification mutation.
+    /// </summary>
+    public IReadOnlyList<string> Arguments { get; init; } = Arguments?.ToArray() ?? Array.Empty<string>();
+};
