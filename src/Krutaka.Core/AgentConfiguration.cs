@@ -19,7 +19,7 @@ namespace Krutaka.Core;
 [method: JsonConstructor]
 public sealed record AgentConfiguration(
     [property: JsonPropertyName("model_id")] string ModelId = "claude-4-sonnet-20250514",
-    [property: JsonPropertyName("max_tokens")] int MaxTokens = 8192,
+    [property: JsonPropertyName("max_tokens")] int MaxTokens = 10000,
     [property: JsonPropertyName("temperature")] double Temperature = 0.7,
     [property: JsonPropertyName("require_approval_for_write")] bool RequireApprovalForWrite = true,
     [property: JsonPropertyName("require_approval_for_execute")] bool RequireApprovalForExecute = true,
