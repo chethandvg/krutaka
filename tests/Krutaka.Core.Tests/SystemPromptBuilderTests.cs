@@ -381,8 +381,9 @@ public sealed class SystemPromptBuilderTests : IDisposable
         var result = await builder.BuildAsync();
 
         // Assert - Should still produce a valid prompt with security instructions
-        // and if the embedded resource exists, include core identity content
+        // and the embedded resource should provide the core identity content
         result.Should().Contain("# Security Instructions");
+        result.Should().Contain("Krutaka"); // Stable marker from embedded AGENTS.md core identity
         result.Should().NotBeNullOrWhiteSpace();
     }
 }

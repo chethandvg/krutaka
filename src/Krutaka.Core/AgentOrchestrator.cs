@@ -144,12 +144,6 @@ public sealed class AgentOrchestrator : IDisposable
             var userMessage = CreateUserMessage(userPrompt);
             _conversationHistory.Add(userMessage);
 
-            // Check if context compaction is needed before sending to Claude
-            if (_contextCompactor != null)
-            {
-                await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
-            }
-
             // Run the agentic loop until we get a final response
             await foreach (var evt in RunAgenticLoopAsync(systemPrompt, cancellationToken).ConfigureAwait(false))
             {
@@ -247,6 +241,13 @@ public sealed class AgentOrchestrator : IDisposable
 
         while (true)
         {
+            // Check if context compaction is needed before each Claude request
+            // This ensures compaction is evaluated even after tool-call rounds grow the history
+            if (_contextCompactor != null)
+            {
+                await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
+            }
+
             // Track tool calls from this response
             var toolCalls = new List<ToolCall>();
             string? finalResponseContent = null;

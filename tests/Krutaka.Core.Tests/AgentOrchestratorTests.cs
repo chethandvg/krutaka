@@ -436,8 +436,11 @@ public sealed class AgentOrchestratorTests
             events.Add(evt);
         }
 
-        // Assert - should complete without error
+        // Assert - should complete without error and CountTokensAsync should have been called
+        // (once for compaction check inside the agentic loop)
         events.Should().ContainSingle(e => e is FinalResponse);
+        claudeClient.CountTokensCallCount.Should().BeGreaterThanOrEqualTo(1,
+            "CountTokensAsync must be called to evaluate whether compaction is needed");
     }
 
     private static AgentOrchestrator CreateOrchestrator(
@@ -461,6 +464,9 @@ public sealed class AgentOrchestratorTests
     {
         private readonly List<List<AgentEvent>> _eventBatches = [];
         private int _tokenCount = 100;
+        private int _countTokensCallCount;
+
+        public int CountTokensCallCount => _countTokensCallCount;
 
         public void SetTokenCount(int count)
         {
@@ -527,6 +533,7 @@ public sealed class AgentOrchestratorTests
             string systemPrompt,
             CancellationToken cancellationToken = default)
         {
+            _countTokensCallCount++;
             return Task.FromResult(_tokenCount);
         }
     }

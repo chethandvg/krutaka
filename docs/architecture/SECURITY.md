@@ -9,10 +9,11 @@
 
 | Threat | OpenClaw CVE Parallel | Severity | Mitigation in Krutaka | Status |
 |---|---|---|---|---|
-| Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. | ⚠️ Partially Complete (Issue #7) |
+| Credential exfiltration | CVE-2026-25253 — API keys stored plaintext, exposed via unauthenticated endpoints | Critical | Windows Credential Manager (DPAPI). Never in files/env vars/logs. `ISecretsProvider` is the only API key source — no configuration/environment fallback. | ✅ Complete |
 | Remote Code Execution via tool abuse | CVE-2026-25253 — Arbitrary command execution through agent tools | Critical | Command allowlist in code. Human approval for all execute operations. Kill switch via CancellationToken. | ✅ Complete (Issue #9) |
 | Command injection | CVE-2026-25157 — SSH command injection | Critical | CliWrap with argument arrays (never string interpolation). Block shell metacharacters. | ✅ Complete (Issue #9) |
 | Path traversal / sandbox escape | CVE-2026-24763 — Docker sandbox escape via path manipulation | Critical | Path.GetFullPath() + StartsWith(projectRoot). Block system directories. Block sensitive files. | ✅ Complete (Issue #9) |
+| Audit log tampering | Agent tools modifying security audit trail | High | Audit log directory (`~/.krutaka/logs`) added to Layer 1 hard-deny list. Agent tools cannot read, write, or modify audit logs. | ✅ Complete |
 | Prompt injection via file contents | General agentic AI risk | High | Wrap untrusted content in `<untrusted_content>` XML tags. System prompt instructs model to treat tagged content as data only. | Not Started |
 | Supply chain (malicious skills) | OpenClaw ClawHub compromise | High | No remote skill marketplace. Local files only. | Not Started (by design) |
 | Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | Console app. No HTTP listener. No WebSocket. No network surface. Outbound HTTPS to api.anthropic.com only. | Mitigated (by design) |
@@ -22,13 +23,14 @@
 ## Secrets Management Rules
 
 ### Implementation Status
-⚠️ **Partially Complete** (Issue #7 — 2026-02-10)
+✅ **Complete**
 - ✅ `SecretsProvider` class implemented in `src/Krutaka.Console/SecretsProvider.cs`
 - ✅ `SetupWizard` class implemented in `src/Krutaka.Console/SetupWizard.cs`
 - ✅ `LogRedactionEnricher` implemented in `src/Krutaka.Console/Logging/LogRedactionEnricher.cs`
 - ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/LogRedactionEnricherTests.cs` (11 tests, all passing)
 - ✅ **Integrated**: Components wired into console application entry point (`Program.cs`)
 - ✅ **Message template redaction**: Adds `RedactedMessage` property when template text contains sensitive data
+- ✅ **No configuration fallback**: `ISecretsProvider` is the only API key source — fallback to `IConfiguration` or environment variables has been removed
 
 ### Storage
 - API keys are stored in **Windows Credential Manager** under `Krutaka_ApiKey` with `CredentialPersistence.LocalMachine`
@@ -424,9 +426,11 @@ Every directory access request is evaluated through four ordered layers. **A den
 **Purpose:** Block access to system directories, special paths, and invalid path patterns unconditionally.
 
 **Blocked items:**
-- `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`, `System32`, `SysWOW64`
+- System directories resolved via `Environment.GetFolderPath()`: Windows, Program Files, Program Files (x86)
+- Path components: `System32`, `SysWOW64`
 - `%APPDATA%`, `%LOCALAPPDATA%`
 - `%USERPROFILE%\.krutaka` (agent's own config)
+- `%USERPROFILE%\.krutaka\logs` (audit log directory — tamper-proofing)
 - UNC paths (`\\server\share\...`)
 - Paths above ceiling directory
 - Paths with ADS (`:` after drive letter)

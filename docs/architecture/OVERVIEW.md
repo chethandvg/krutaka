@@ -92,6 +92,7 @@ The `AgentOrchestrator` implements the core agentic loop with the following feat
 - **Pattern A implementation**: Manual loop with full control for transparency, audit logging, and human-in-the-loop approvals
 - **Streaming support**: Yields `IAsyncEnumerable<AgentEvent>` for real-time progress tracking
 - **Tool execution**: Processes tool calls from Claude, enforces security policies, and manages tool results
+- **Context compaction**: Invokes `ContextCompactor` before every Claude API call inside the agentic loop to prevent context window overflow during multi-step tool-call rounds
 - **Tool-result ordering invariants**: Ensures tool result blocks are correctly formatted and ordered per Claude API requirements:
   - Tool result blocks must come first in user messages
   - Every tool_result references a valid tool_use.Id
@@ -120,12 +121,15 @@ The `ContextCompactor` provides automatic context window management with the fol
   - Note: For production use, configure a cheaper model (e.g., Claude Haiku) via a dedicated `IClaudeClient` instance
 - **Message preservation**: Keeps last 6 messages (3 user/assistant pairs) + adds summary message
   - Conditionally adds assistant acknowledgment only when needed to maintain role alternation
-- **Content preservation**: Summary focuses on:
-  - File paths mentioned or modified
-  - Action items completed or pending
-  - Technical decisions made
-  - Error context and debugging insights
-  - Key outcomes from tool executions
+- **Content preservation**: Enhanced summary prompt focuses on maximum detail retention:
+  - Exact file paths (full absolute paths)
+  - Code snippets with function signatures, class names, variable names
+  - Technical decisions — both chosen AND rejected approaches (and why)
+  - Exact error messages, stack traces, and resolution steps
+  - Tool execution results with actual command output
+  - User corrections (rejected vs. accepted versions)
+  - Configuration values (ports, env vars, model names)
+  - Action items completed and pending
 - **Security**: Wraps untrusted conversation content in `<untrusted_content>` tags for prompt injection defense
 - **Short-circuit optimization**: When `messages.Count <= messagesToKeep`, returns original messages without summarization
 - **Token counting**: Counts tokens in compacted conversation and reports original vs. new token count
