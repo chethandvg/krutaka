@@ -193,6 +193,261 @@ public sealed class SessionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Should_GroupAssistantTextAndToolUseInSingleMessage()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        // User asks to read a file
+        await store.AppendAsync(new SessionEvent(
+            Type: "user",
+            Role: "user",
+            Content: "Read test.txt",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        // Assistant responds with text AND tool use in the same turn
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "I'll read that file for you.",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1)));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: """{"path": "test.txt"}""",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(2),
+            ToolName: "read_file",
+            ToolUseId: "toolu_123"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert
+        messages.Should().HaveCount(2);
+
+        // First message: user
+        var userMsg = JsonSerializer.Serialize(messages[0]);
+        userMsg.Should().Contain("\"role\":\"user\"");
+        userMsg.Should().Contain("Read test.txt");
+
+        // Second message: assistant with text + tool_use
+        var assistantMsg = JsonSerializer.Serialize(messages[1]);
+        assistantMsg.Should().Contain("\"role\":\"assistant\"");
+        assistantMsg.Should().Contain("\"type\":\"text\"");
+        assistantMsg.Should().Contain("read that file for you");
+        assistantMsg.Should().Contain("\"type\":\"tool_use\"");
+        assistantMsg.Should().Contain("\"id\":\"toolu_123\"");
+        assistantMsg.Should().Contain("\"name\":\"read_file\"");
+        assistantMsg.Should().Contain("\"path\":\"test.txt\"");
+    }
+
+    [Fact]
+    public async Task Should_GroupMultipleToolResultsInSingleUserMessage()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        // User message
+        await store.AppendAsync(new SessionEvent(
+            Type: "user",
+            Role: "user",
+            Content: "Read these files",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        // Assistant calls multiple tools
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: """{"path": "file1.txt"}""",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1),
+            ToolName: "read_file",
+            ToolUseId: "toolu_001"));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: """{"path": "file2.txt"}""",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(2),
+            ToolName: "read_file",
+            ToolUseId: "toolu_002"));
+
+        // Tool results come back
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_result",
+            Role: "user",
+            Content: "Content of file1",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(3),
+            ToolUseId: "toolu_001"));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_result",
+            Role: "user",
+            Content: "Content of file2",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(4),
+            ToolUseId: "toolu_002"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert - should be 3 messages: user, assistant with 2 tool_use blocks, user with 2 tool_result blocks
+        messages.Should().HaveCount(3);
+
+        // First: user message
+        var userMsg = JsonSerializer.Serialize(messages[0]);
+        userMsg.Should().Contain("\"role\":\"user\"");
+
+        // Second: assistant with 2 tool_use blocks
+        var assistantMsg = JsonSerializer.Serialize(messages[1]);
+        assistantMsg.Should().Contain("\"role\":\"assistant\"");
+        assistantMsg.Should().Contain("\"type\":\"tool_use\"");
+        assistantMsg.Should().Contain("toolu_001");
+        assistantMsg.Should().Contain("toolu_002");
+
+        // Third: user with 2 tool_result blocks
+        var resultsMsg = JsonSerializer.Serialize(messages[2]);
+        resultsMsg.Should().Contain("\"role\":\"user\"");
+        resultsMsg.Should().Contain("\"type\":\"tool_result\"");
+        resultsMsg.Should().Contain("Content of file1");
+        resultsMsg.Should().Contain("Content of file2");
+    }
+
+    [Fact]
+    public async Task Should_ParseToolInputAsJsonElement()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: """{"path": "/tmp/test.txt", "encoding": "utf-8"}""",
+            Timestamp: DateTimeOffset.UtcNow,
+            ToolName: "read_file",
+            ToolUseId: "toolu_456"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert
+        messages.Should().HaveCount(1);
+        var msg = JsonSerializer.Serialize(messages[0]);
+        
+        // Verify the input is properly structured as a JSON object, not a string
+        msg.Should().Contain("\"input\":{");
+        msg.Should().Contain("\"path\":\"/tmp/test.txt\"");
+        msg.Should().Contain("\"encoding\":\"utf-8\"");
+    }
+
+    [Fact]
+    public async Task Should_HandleToolErrorWithIsErrorFlag()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: """{"path": "nonexistent.txt"}""",
+            Timestamp: DateTimeOffset.UtcNow,
+            ToolName: "read_file",
+            ToolUseId: "toolu_789"));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_error",
+            Role: "user",
+            Content: "File not found",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1),
+            ToolUseId: "toolu_789"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert
+        messages.Should().HaveCount(2);
+        
+        var errorMsg = JsonSerializer.Serialize(messages[1]);
+        errorMsg.Should().Contain("\"is_error\":true");
+        errorMsg.Should().Contain("File not found");
+    }
+
+    [Fact]
+    public async Task Should_HandleEmptyToolInput()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: null,
+            Timestamp: DateTimeOffset.UtcNow,
+            ToolName: "list_files",
+            ToolUseId: "toolu_empty"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert - should handle null/empty input gracefully
+        messages.Should().HaveCount(1);
+        var msg = JsonSerializer.Serialize(messages[0]);
+        msg.Should().Contain("\"input\":{}");
+    }
+
+    [Fact]
+    public async Task Should_HandleInvalidToolInputJson()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: "invalid json {{{",
+            Timestamp: DateTimeOffset.UtcNow,
+            ToolName: "some_tool",
+            ToolUseId: "toolu_invalid"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert - should handle invalid JSON gracefully with empty object
+        messages.Should().HaveCount(1);
+        var msg = JsonSerializer.Serialize(messages[0]);
+        msg.Should().Contain("\"input\":{}");
+    }
+
+    [Fact]
+    public async Task Should_PreserveContentBlockStructure()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "Here's what I'll do:",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert - simple text should have type field
+        messages.Should().HaveCount(1);
+        var msg = JsonSerializer.Serialize(messages[0]);
+        msg.Should().Contain("\"type\":\"text\"");
+        msg.Should().Contain("what I");
+        msg.Should().Contain("ll do");
+    }
+
+    [Fact]
     public async Task Should_SaveAndVerifyMetadata()
     {
         // Arrange

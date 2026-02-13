@@ -121,11 +121,46 @@ public sealed class SessionStore : ISessionStore, IDisposable
     /// <summary>
     /// Reconstructs the message list from session events.
     /// Converts SessionEvent records back into Claude API message format.
+    /// Groups content blocks by role to match Claude's API requirements:
+    /// - Assistant messages may contain text + tool_use blocks in a single message
+    /// - User messages may contain tool_result blocks in a single message
     /// </summary>
     public async Task<IReadOnlyList<object>> ReconstructMessagesAsync(
         CancellationToken cancellationToken = default)
     {
         var messages = new List<object>();
+        string? currentRole = null;
+        var contentBlocks = new List<object>();
+
+        void FlushMessage()
+        {
+            if (currentRole == null || contentBlocks.Count == 0)
+            {
+                return;
+            }
+
+            // Create message with accumulated content blocks
+            if (contentBlocks.Count == 1 && contentBlocks[0] is string textContent)
+            {
+                // Simple text message (backward compatibility)
+                messages.Add(new
+                {
+                    role = currentRole,
+                    content = textContent
+                });
+            }
+            else
+            {
+                // Complex message with content blocks array
+                messages.Add(new
+                {
+                    role = currentRole,
+                    content = contentBlocks.ToArray()
+                });
+            }
+
+            contentBlocks.Clear();
+        }
 
         await foreach (var evt in LoadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -135,57 +170,72 @@ public sealed class SessionStore : ISessionStore, IDisposable
                 continue;
             }
 
-            // Reconstruct message objects based on event type
-            // For now, we create simple message objects
-            // The actual format depends on the Claude API client implementation
+            // Handle role changes - flush accumulated blocks
+            if (evt.Role != null && evt.Role != currentRole)
+            {
+                FlushMessage();
+                currentRole = evt.Role;
+            }
+
+            // Accumulate content blocks by event type
             if (evt.Type == "user" || evt.Type == "assistant")
             {
-                messages.Add(new
+                // Simple text content
+                if (!string.IsNullOrEmpty(evt.Content))
                 {
-                    role = evt.Role,
-                    content = evt.Content
-                });
+                    contentBlocks.Add(new
+                    {
+                        type = "text",
+                        text = evt.Content
+                    });
+                }
             }
             else if (evt.Type == "tool_use")
             {
-                // Tool use events are part of assistant messages
-                // This is a simplified reconstruction - actual implementation
-                // may need more sophisticated handling based on Claude API format
-                messages.Add(new
+                // Parse tool input JSON to JsonElement for proper structure
+                JsonElement inputElement;
+                try
                 {
-                    role = "assistant",
-                    content = new[]
-                    {
-                        new
-                        {
-                            type = "tool_use",
-                            id = evt.ToolUseId,
-                            name = evt.ToolName,
-                            input = evt.Content
-                        }
-                    }
+                    inputElement = string.IsNullOrEmpty(evt.Content)
+                        ? JsonSerializer.Deserialize<JsonElement>("{}")
+                        : JsonSerializer.Deserialize<JsonElement>(evt.Content);
+                }
+                catch (JsonException)
+                {
+                    // If parsing fails, use empty object
+                    inputElement = JsonSerializer.Deserialize<JsonElement>("{}");
+                }
+
+                contentBlocks.Add(new
+                {
+                    type = "tool_use",
+                    id = evt.ToolUseId,
+                    name = evt.ToolName,
+                    input = inputElement
                 });
             }
             else if (evt.Type == "tool_result" || evt.Type == "tool_error")
             {
                 // Tool results are sent as user messages
-                // "tool_error" events carry is_error=true so Claude knows the tool failed
-                messages.Add(new
+                // Ensure we're in a user message context
+                if (currentRole != "user")
                 {
-                    role = "user",
-                    content = new[]
-                    {
-                        new
-                        {
-                            type = "tool_result",
-                            tool_use_id = evt.ToolUseId,
-                            content = evt.Content,
-                            is_error = evt.Type == "tool_error"
-                        }
-                    }
+                    FlushMessage();
+                    currentRole = "user";
+                }
+
+                contentBlocks.Add(new
+                {
+                    type = "tool_result",
+                    tool_use_id = evt.ToolUseId,
+                    content = evt.Content ?? string.Empty,
+                    is_error = evt.Type == "tool_error"
                 });
             }
         }
+
+        // Flush any remaining content blocks
+        FlushMessage();
 
         return messages.AsReadOnly();
     }
