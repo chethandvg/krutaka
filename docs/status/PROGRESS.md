@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (Bug fixes: ConsoleUI crash, ApprovalHandler markup crash, configurable settings — 903 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 core abstractions — Issue v0.3.0-1 complete — 796 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -128,6 +128,36 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 - **Configurable MaxToolResultCharacters:** Previously hardcoded at 200,000 characters. Now configurable via `Agent:MaxToolResultCharacters` in `appsettings.json`. When set to 0 (default), derived dynamically from `Claude:MaxTokens × 4`, capped at minimum 100,000.
 - **ApprovalTimeoutSeconds:** Previously hardcoded to 300 seconds. Now read from `Agent:ApprovalTimeoutSeconds` in `appsettings.json`.
 - **Testing:** Added 6 tests for MaxToolResultCharacters configuration, 12 tests for markup validation; all 903 tests passing.
+
+---
+
+## v0.3.0 — Graduated Command Execution (In Progress)
+
+> **Status:** 🟡 **In Progress** (Issue v0.3.0-1 complete — 2026-02-13)  
+> **Reference:** See `docs/versions/v0.3.0.md` for complete architecture design, threat model, and implementation roadmap.
+
+### Overview
+
+v0.3.0 evolves command execution from a static binary allowlist/blocklist into a tiered risk classification model. Commands are classified as Safe (auto-approved), Moderate (context-dependent), Elevated (always prompted), or Dangerous (always blocked). This dramatically reduces approval fatigue for safe commands like `git status` while maintaining strict controls for operations like `git push` or `npm install`.
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|
+| v0.3.0-1 | Core abstractions — CommandRiskTier, ICommandRiskClassifier, ICommandPolicy, and model records | Architecture | 🟢 Complete | 2026-02-13 |
+
+**Issue v0.3.0-1 Details:**
+- **Created:** 6 new types in `src/Krutaka.Core/`:
+  - `CommandRiskTier` enum: Safe, Moderate, Elevated, Dangerous (4 values)
+  - `CommandRiskRule` record: Maps executable + argument patterns to tier
+  - `CommandExecutionRequest` record: Input to policy evaluation
+  - `CommandDecision` record: Output from policy with factory methods (Approve, RequireApproval, Deny)
+  - `ICommandRiskClassifier` interface: Classify(request) → CommandRiskTier, GetRules() for system prompt
+  - `ICommandPolicy` interface: EvaluateAsync(request, ct) → CommandDecision
+- **Testing:** Created `CommandRiskModelsTests.cs` with 20 tests, all passing
+- **Build:** Zero warnings, zero errors; all 796 tests passing (1 skipped)
+- **Constraint:** Zero dependencies (Krutaka.Core has no NuGet packages), XML docs on all public members
+- **No breaking changes:** ISecurityPolicy unchanged, new interfaces sit alongside existing code
 
 ---
 
