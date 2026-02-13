@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 RunCommandTool integration — Issue v0.3.0-5 complete — 1,138 tests passing)
+> **Last updated:** 2026-02-13 (v0.3.0 Approval UI for tiered commands — Issue v0.3.0-6 complete — 1,153 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -149,6 +149,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-3 | Configurable command tier overrides via appsettings.json | Configuration | 🟢 Complete | 2026-02-13 |
 | v0.3.0-4 | GraduatedCommandPolicy implementation with tiered evaluation | Implementation | 🟢 Complete | 2026-02-13 |
 | v0.3.0-5 | Refactor RunCommandTool and DI registration to use ICommandPolicy | Integration | 🟢 Complete | 2026-02-13 |
+| v0.3.0-6 | Update ApprovalHandler for tiered command display | UI | 🟢 Complete | 2026-02-13 |
 
 **Issue v0.3.0-5 Details:**
 - **Created:** `CommandApprovalRequiredException` in `src/Krutaka.Core/CommandApprovalRequiredException.cs`:
@@ -200,6 +201,42 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - AI.Tests: 10 passed
 - **Build Status:** Zero warnings, zero errors
 - **Security Analysis:** CodeQL found zero alerts
+
+**Issue v0.3.0-6 Details:**
+- **Modified:** `ApprovalHandler` in `src/Krutaka.Console/ApprovalHandler.cs`:
+  - Added `HandleCommandApproval()` method for tier-aware command approval requests
+  - Added `DisplayCommandApprovalPrompt()` to show tier-specific approval UI with emoji labels, working directory, and justification
+  - Added `DisplayAutoApprovalMessage()` static method for Safe and Moderate (trusted dir) tier auto-approval messages
+  - Added `GetCommandUserDecision()` to conditionally show "Always" option (Moderate only, not Elevated)
+  - Added `BuildCommandString()`, `GetTierLabel()`, `GetTierEmoji()`, `GetTierBorderColor()` helper methods
+  - Tier-specific formatting: 🟢 SAFE/MODERATE (green/yellow border), 🟡 ELEVATED (red border)
+- **Modified:** `ConsoleUI` in `src/Krutaka.Console/ConsoleUI.cs`:
+  - Added `onCommandApprovalDecision` callback parameter to `DisplayStreamingResponseAsync()`
+  - Added CommandApprovalRequested event handling in interactive event processing
+  - Integrated with approval flow consistent with DirectoryAccessRequested pattern
+- **Modified:** `Program.cs` in `src/Krutaka.Console/Program.cs`:
+  - Added command approval callback to call `orchestrator.ApproveCommand()` or `DenyCommand()`
+  - Wired into existing approval decision handling pattern
+- **Modified:** `ApprovalHandlerTests.cs` in `tests/Krutaka.Console.Tests/ApprovalHandlerTests.cs`:
+  - Added 15 new tests for tier-aware approval functionality:
+    - Null validation tests for HandleCommandApproval() and DisplayAutoApprovalMessage()
+    - Auto-approval message formatting tests for Safe and Moderate tiers
+    - Command string formatting tests with no arguments
+    - Tier label markup validation tests
+    - Updated approval prompt markup validation to include new "Always" option for commands
+- **Updated:** `docs/guides/APPROVAL-HANDLER.md`:
+  - Documented v0.3.0 tiered command execution behavior
+  - Added tier-specific behavior table showing UI behavior by tier and directory trust
+  - Updated user choices section to document Elevated vs Moderate tier approval options
+  - Added command examples by tier (Safe/Moderate/Elevated/Dangerous)
+- **Test Results:** 1,153 tests passing (1 skipped, 0 failures)
+  - Memory.Tests: 127 passed
+  - Core.Tests: 166 passed
+  - Skills.Tests: 17 passed
+  - Console.Tests: 99 passed (15 new tier-aware approval tests)
+  - Tools.Tests: 734 passed
+  - AI.Tests: 10 passed
+- **Build Status:** Zero warnings, zero errors
 
 **Issue v0.3.0-3 Details:**
 - **Created:** `CommandPolicyOptions` in `src/Krutaka.Tools/CommandPolicyOptions.cs`:

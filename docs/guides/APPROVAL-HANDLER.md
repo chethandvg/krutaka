@@ -4,14 +4,16 @@
 
 The `ApprovalHandler` class provides a Spectre.Console-based UI for human-in-the-loop approval of destructive tool operations. It displays tool information in formatted panels with color-coded risk levels and captures user decisions.
 
+**v0.3.0 Update**: The approval handler now supports tiered command execution for `run_command` tool, displaying risk tier information (Safe/Moderate/Elevated) and context-dependent approval options.
+
 ## Features
 
 ### Risk-Based Approval Prompts
 
 Each tool is displayed with:
-- **Tool name** and **risk level** (Critical/High/Medium)
-- **Color-coded border**: Red for Critical (`run_command`), Yellow for High (`write_file`, `edit_file`), Cyan for others
-- **Risk icon**: 🔴 for Critical, ⚠️ for High, ⚙️ for others
+- **Tool name** and **risk level** (Critical/High/Medium for non-command tools; Safe/Moderate/Elevated for commands)
+- **Color-coded border**: Red for Critical/Elevated, Yellow for High/Moderate, Green for Safe, Cyan for others
+- **Risk icon**: 🔴 for Critical/Elevated, ⚠️ for High, 🟢 for Safe/Moderate, ⚙️ for others
 - **Formatted parameters** showing the tool's input
 
 ### Tool-Specific Previews
@@ -31,18 +33,46 @@ Each tool is displayed with:
   - New content shown in **green** with `+` prefix
   - If file doesn't exist or path is invalid, shows appropriate warning
 
-#### `run_command`
-- Shows the executable name
-- Shows command arguments (if provided)
-- Shows working directory
-- ⚠️ Warning: "This will execute a shell command on your system."
-- **Security restriction**: Only [Y]es and [N]o options (no "Always")
+#### `run_command` (v0.3.0 Tiered Execution)
+
+The `run_command` tool now uses graduated risk tiers:
+
+| Tier | In Trusted Dir | UI Behavior |
+|------|----------------|-------------|
+| **Safe** | N/A | Auto-approved, shows dim message: `[dim]⚙ Auto-approved (Safe): git status[/]` |
+| **Moderate** | Yes | Auto-approved, shows dim message: `[dim]⚙ Auto-approved (Moderate — trusted dir): dotnet build[/]` |
+| **Moderate** | No | Approval prompt with [Y]es/[N]o/[A]lways options |
+| **Elevated** | N/A | Approval prompt with [Y]es/[N]o only (no "Always") |
+| **Dangerous** | N/A | Blocked before reaching UI |
+
+**Elevated tier approval prompt shows:**
+- 🟡 **ELEVATED** risk tier label
+- Working directory
+- Agent's justification for the command
+- [Y]es and [N]o options only (no "Always" for security)
+
+**Moderate tier approval prompt (untrusted directory) shows:**
+- 🟢 **MODERATE (not in trusted directory)** risk tier label
+- Working directory
+- Agent's justification for the command
+- [Y]es, [N]o, and [A]lways options
+
+Examples of commands by tier:
+- **Safe**: `git status`, `git log`, `dotnet --version`, `npm --version`, `echo`, `cat`, `dir`
+- **Moderate**: `git commit`, `git add`, `dotnet build`, `dotnet test`, `npm run`, `npm test`, `python script.py`
+- **Elevated**: `git push`, `git pull`, `dotnet publish`, `npm install`, `pip install`
+- **Dangerous**: `powershell`, `cmd`, `curl`, `wget`, `format`, `diskpart` (always blocked)
 
 ### User Choices
 
-**For `run_command` (Critical risk):**
+**For `run_command` with Elevated tier:**
 - `[Y]es - Execute this command`
 - `[N]o - Deny this command`
+
+**For `run_command` with Moderate tier (untrusted directory):**
+- `[Y]es - Execute this command`
+- `[N]o - Deny this command`
+- `[A]lways - Approve this command for this session`
 
 **For other tools (`write_file`, `edit_file`):**
 - `[Y]es - Approve this operation`
@@ -57,7 +87,8 @@ Each tool is displayed with:
   ```
   ⚙ Auto-approving write_file (user selected 'Always' for this session)
   ```
-- **Exception**: `run_command` NEVER supports "Always" per security policy (requires explicit approval every time)
+- **v0.3.0**: Moderate tier commands can be approved with "Always" (specific command signature cached)
+- **Exception**: Elevated tier `run_command` NEVER supports "Always" per security policy (requires explicit approval every time)
 
 ### Denial Handling
 
@@ -76,7 +107,7 @@ using Krutaka.Console;
 
 // Create the handler (maintains session state)
 // projectRoot is the allowed root directory for file access
-var handler = new ApprovalHandler(projectRoot: "/path/to/project");
+var handler = new ApprovalHandler(projectRoot: "/path/to/project", fileOps: new SafeFileOperations(null));
 
 // Request approval for a tool invocation
 var toolInput = @"{
