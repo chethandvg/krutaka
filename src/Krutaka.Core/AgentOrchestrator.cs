@@ -822,6 +822,11 @@ public sealed class AgentOrchestrator : IDisposable
 
             var result = await _toolRegistry.ExecuteAsync(toolCall.Name, inputElement, timeoutCts.Token).ConfigureAwait(false);
             stopwatch.Stop();
+
+            // Truncate oversized tool results to prevent them from exceeding the context window.
+            // A single tool result (e.g., search_files matching thousands of lines) can produce
+            // millions of characters (~1M+ tokens) that would immediately blow the API limit.
+            result = TruncateToolResult(result, toolCall.Name);
             
             // Log successful tool execution (only if audit logger and correlation context are provided)
             if (_auditLogger != null && _correlationContext != null)
@@ -896,6 +901,39 @@ public sealed class AgentOrchestrator : IDisposable
     /// Represents the result of a tool execution.
     /// </summary>
     private sealed record ToolResult(string Content, bool IsError);
+
+    /// <summary>
+    /// Maximum number of characters allowed in a single tool result before truncation.
+    /// Approximately 200K characters ≈ 50K tokens, leaving ample room for the rest of the
+    /// conversation, system prompt, and tool definitions within the 200K token API limit.
+    /// </summary>
+    private const int MaxToolResultCharacters = 200_000;
+
+    /// <summary>
+    /// Truncates a tool result that exceeds <see cref="MaxToolResultCharacters"/>.
+    /// Returns the original result if it fits within the limit.
+    /// When truncated, includes a clear message indicating truncation with the original size.
+    /// </summary>
+    private static string TruncateToolResult(string result, string toolName)
+    {
+        if (result.Length <= MaxToolResultCharacters)
+        {
+            return result;
+        }
+
+        var truncatedContent = result[..MaxToolResultCharacters];
+
+        // Try to cut at the last newline to avoid breaking a line mid-way
+        var lastNewline = truncatedContent.LastIndexOf('\n');
+        if (lastNewline > MaxToolResultCharacters / 2)
+        {
+            truncatedContent = truncatedContent[..lastNewline];
+        }
+
+        return $"{truncatedContent}\n\n[Output truncated: tool '{toolName}' returned {result.Length:N0} characters, " +
+               $"which exceeds the {MaxToolResultCharacters:N0} character limit. " +
+               "Results have been truncated. Consider using more specific search criteria or narrowing the scope.]";
+    }
 
     /// <summary>
     /// Represents the result of a directory access approval request.
