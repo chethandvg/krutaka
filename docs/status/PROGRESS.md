@@ -117,12 +117,14 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 |---|---|---|---|---|
 | — | ConsoleUI crash on empty status string | Bug Fix | 🟢 Complete | 2026-02-13 |
 | — | ApprovalHandler crash on unescaped markup brackets | Bug Fix | 🟢 Complete | 2026-02-13 |
+| — | Interactive prompts blocked inside Status context | Bug Fix | 🟢 Complete | 2026-02-13 |
 | — | Configurable MaxToolResultCharacters | Enhancement | 🟢 Complete | 2026-02-13 |
 | — | ApprovalTimeoutSeconds configurable via appsettings | Enhancement | 🟢 Complete | 2026-02-13 |
 
 **Bug Fix Details:**
 - **ConsoleUI crash:** `ctx.Status(string.Empty)` threw `InvalidOperationException` ("Task name cannot be empty") from Spectre.Console when streaming text deltas. Spectre.Console's `ProgressTask` validates with `string.IsNullOrWhiteSpace()`, so neither empty strings nor whitespace-only strings are accepted. Fixed by using a zero-width space (`\u200B`) which is not whitespace per .NET's `char.IsWhiteSpace` but is invisible in terminal output.
 - **ApprovalHandler crash:** `SelectionPrompt` converter strings like `[green][Y]es...` caused `InvalidOperationException` ("Could not find color or style 'R'") because Spectre.Console parsed `[Y]`, `[R]`, `[N]`, `[S]` as markup style tags. Fixed by escaping brackets: `[Y]` → `[[Y]]` which renders as literal `[Y]` in terminal. Same latent bug existed in all approval prompt converters (`GetUserDecision` and `GetDirectoryAccessDecision`).
+- **Interactive prompts blocked:** `SelectionPrompt` (used for tool approval and directory access prompts) was called inside `AnsiConsole.Status().StartAsync()` live rendering context. Spectre.Console's exclusivity mode prevented the `SelectionPrompt` from capturing keyboard input — the prompt rendered but the user couldn't interact. Fixed by restructuring `DisplayStreamingResponseAsync` to exit the Status context before showing interactive prompts, then re-enter afterward using a manual `IAsyncEnumerator`.
 - **Configurable MaxToolResultCharacters:** Previously hardcoded at 200,000 characters. Now configurable via `Agent:MaxToolResultCharacters` in `appsettings.json`. When set to 0 (default), derived dynamically from `Claude:MaxTokens × 4`, capped at minimum 100,000.
 - **ApprovalTimeoutSeconds:** Previously hardcoded to 300 seconds. Now read from `Agent:ApprovalTimeoutSeconds` in `appsettings.json`.
 - **Testing:** Added 6 tests for MaxToolResultCharacters configuration, 12 tests for markup validation; all 903 tests passing.
