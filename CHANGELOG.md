@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **4 new tests** for previously deferred test coverage from PR #94:
+  - `RunAsync_Should_ThrowTimeoutException_WhenApprovalTimeoutExceeded` - Validates approval timeout mechanism
+  - `Constructor_Should_ThrowArgumentOutOfRangeException_WhenApprovalTimeoutNegative` - Validates parameter validation
+  - `RunAsync_Should_AllowInfiniteApprovalTimeout_WhenSetToZero` - Confirms zero timeout = infinite wait
+  - `Should_ThrowIOException_WhenSymlinkDepthExceedsMaximum` - Tests 32-level symlink depth limit with graceful permission skip
+
 ## [0.2.0] - 2026-02-13
 
 ### Added
