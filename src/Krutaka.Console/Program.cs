@@ -504,7 +504,7 @@ try
                 {
                     if (approved)
                     {
-                        orchestrator.ApproveCommand();
+                        orchestrator.ApproveCommand(alwaysApprove);
                     }
                     else
                     {

@@ -28,12 +28,14 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly object _conversationHistoryLock = new(); // Protects conversation history for thread-safe access
     private readonly ConcurrentDictionary<string, bool> _approvalCache; // Tracks approved tools for session (thread-safe)
     private readonly ICommandApprovalCache? _commandApprovalCache; // Tracks approved command signatures (v0.3.0, injected from DI)
+    private readonly ConcurrentDictionary<string, bool> _sessionCommandApprovals = new(); // Tracks session-level "Always" command approvals (v0.3.0)
     private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
     private string? _pendingToolUseId; // Tracks the tool_use_id of the pending approval request
     private string? _pendingToolName; // Tracks the tool name of the pending approval request
     private TaskCompletionSource<DirectoryAccessApprovalResult>? _pendingDirectoryApproval; // Blocks until directory access approval/denial
     private TaskCompletionSource<bool>? _pendingCommandApproval; // Blocks until command approval/denial (v0.3.0)
+    private bool _pendingCommandAlwaysApprove; // Tracks if "Always" was selected for pending command approval
     private bool _disposed;
 
     /// <summary>
@@ -328,7 +330,8 @@ public sealed class AgentOrchestrator : IDisposable
     /// Unblocks the orchestrator to execute the command.
     /// Thread-safe: Can be called from any thread (typically UI thread).
     /// </summary>
-    public void ApproveCommand()
+    /// <param name="alwaysApprove">If true, caches this command signature for session-level auto-approval (Moderate tier only).</param>
+    public void ApproveCommand(bool alwaysApprove = false)
     {
         // Lock to prevent race conditions with cancellation
         lock (_approvalStateLock)
@@ -339,6 +342,9 @@ public sealed class AgentOrchestrator : IDisposable
                 // Silently ignore - approval may have been cancelled or already completed
                 return;
             }
+
+            // Store the alwaysApprove flag for the orchestrator to use when adding to cache
+            _pendingCommandAlwaysApprove = alwaysApprove;
 
             // Signal the pending command approval to proceed
             _pendingCommandApproval.TrySetResult(true);
@@ -667,83 +673,120 @@ public sealed class AgentOrchestrator : IDisposable
                 // Handle command approval if needed (v0.3.0)
                 if (cmdApprovalException != null)
                 {
-                    // Command execution requires approval - create a TaskCompletionSource to block
-                    TaskCompletionSource<bool> cmdApprovalTcs;
-                    lock (_approvalStateLock)
+                    // Check if this command was previously approved with "Always" (session-level)
+                    var commandSignature = BuildCommandSignature(cmdApprovalException.Request);
+                    if (_sessionCommandApprovals.ContainsKey(commandSignature))
                     {
-                        cmdApprovalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                        _pendingCommandApproval = cmdApprovalTcs;
-                    }
-
-                    // Yield CommandApprovalRequested event
-                    yield return new CommandApprovalRequested(cmdApprovalException.Request, cmdApprovalException.Decision);
-
-                    // Block until ApproveCommand or DenyCommand is called
-                    bool commandApproved;
-                    try
-                    {
-                        // Apply approval timeout if configured
-                        if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                        // Command was approved with "Always" - auto-approve and retry execution without prompting
+                        _commandApprovalCache?.AddApproval(commandSignature, TimeSpan.FromSeconds(30)); // Short TTL for single execution
+                        
+                        try
                         {
-                            using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
-                            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-                            
-                            try
-                            {
-                                commandApproved = await cmdApprovalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
-                            }
-                            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                            {
-                                // Approval timeout occurred (not user cancellation)
-                                throw new TimeoutException($"Command approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for command '{cmdApprovalException.Request.Executable}'. " +
-                                    "The user did not respond to the approval request in time.");
-                            }
+                            toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                            _commandApprovalCache?.RemoveApproval(commandSignature);
                         }
-                        else
+#pragma warning disable CA1031 // Catching Exception is appropriate here to handle any retry failure
+                        catch (Exception retryEx)
+#pragma warning restore CA1031
                         {
-                            // No timeout - wait indefinitely (or until user cancels)
-                            commandApproved = await cmdApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                            _commandApprovalCache?.RemoveApproval(commandSignature);
+                            toolResult = new ToolResult($"Failed to execute command after auto-approval: {retryEx.Message}", IsError: true);
                         }
                     }
-                    finally
+                    else
                     {
-                        // Lock to prevent race with concurrent approval/denial
+                        // Command execution requires approval - create a TaskCompletionSource to block
+                        TaskCompletionSource<bool> cmdApprovalTcs;
                         lock (_approvalStateLock)
                         {
-                            _pendingCommandApproval = null;
+                            cmdApprovalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            _pendingCommandApproval = cmdApprovalTcs;
+                            _pendingCommandAlwaysApprove = false; // Reset flag
                         }
-                    }
 
-                    if (!commandApproved)
-                    {
-                        // Command execution was denied
-                        var denialMsg = $"Command execution '{cmdApprovalException.Request.Executable} {string.Join(" ", cmdApprovalException.Request.Arguments)}' was denied by the user.";
-                        yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMsg);
-                        toolResults.Add(CreateToolResult(toolCall.Id, denialMsg, true));
-                        continue;
-                    }
+                        // Yield CommandApprovalRequested event
+                        yield return new CommandApprovalRequested(cmdApprovalException.Request, cmdApprovalException.Decision);
 
-                    // Command was approved - add to approval cache before retry (if cache is available)
-                    var commandSignature = BuildCommandSignature(cmdApprovalException.Request);
-                    _commandApprovalCache?.AddApproval(commandSignature, TimeSpan.FromSeconds(30)); // Short TTL for single execution
+                        // Block until ApproveCommand or DenyCommand is called
+                        bool commandApproved;
+                        bool alwaysApproveCommand;
+                        try
+                        {
+                            // Apply approval timeout if configured
+                            if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                            {
+                                using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                                
+                                try
+                                {
+                                    commandApproved = await cmdApprovalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                                }
+                                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                                {
+                                    // Approval timeout occurred (not user cancellation)
+                                    throw new TimeoutException($"Command approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for command '{cmdApprovalException.Request.Executable}'. " +
+                                        "The user did not respond to the approval request in time.");
+                                }
+                            }
+                            else
+                            {
+                                // No timeout - wait indefinitely (or until user cancels)
+                                commandApproved = await cmdApprovalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                            }
+                            
+                            // Capture alwaysApprove flag before clearing pending state
+                            lock (_approvalStateLock)
+                            {
+                                alwaysApproveCommand = _pendingCommandAlwaysApprove;
+                            }
+                        }
+                        finally
+                        {
+                            // Lock to prevent race with concurrent approval/denial
+                            lock (_approvalStateLock)
+                            {
+                                _pendingCommandApproval = null;
+                                _pendingCommandAlwaysApprove = false;
+                            }
+                        }
 
-                    // Retry execution
-                    try
-                    {
-                        toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
-                        
-                        // Remove approval from cache after successful execution
-                        _commandApprovalCache?.RemoveApproval(commandSignature);
-                    }
+                        if (!commandApproved)
+                        {
+                            // Command execution was denied
+                            var denialMsg = $"Command execution '{cmdApprovalException.Request.Executable} {string.Join(" ", cmdApprovalException.Request.Arguments)}' was denied by the user.";
+                            yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMsg);
+                            toolResults.Add(CreateToolResult(toolCall.Id, denialMsg, true));
+                            continue;
+                        }
+
+                        // Command was approved - add to session cache if "Always" was selected
+                        if (alwaysApproveCommand)
+                        {
+                            _sessionCommandApprovals.TryAdd(commandSignature, true);
+                        }
+
+                        // Add to approval cache before retry (short TTL for single execution)
+                        _commandApprovalCache?.AddApproval(commandSignature, TimeSpan.FromSeconds(30));
+
+                        // Retry execution
+                        try
+                        {
+                            toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                            
+                            // Remove approval from cache after successful execution
+                            _commandApprovalCache?.RemoveApproval(commandSignature);
+                        }
 #pragma warning disable CA1031 // Catching Exception is appropriate here to handle any retry failure
-                    catch (Exception retryEx)
+                        catch (Exception retryEx)
 #pragma warning restore CA1031
-                    {
-                        // Remove approval from cache even on failure
-                        _commandApprovalCache?.RemoveApproval(commandSignature);
-                        
-                        // Failed to retry execution - set error result
-                        toolResult = new ToolResult($"Failed to execute command after approval: {retryEx.Message}", IsError: true);
+                        {
+                            // Remove approval from cache even on failure
+                            _commandApprovalCache?.RemoveApproval(commandSignature);
+                            
+                            // Failed to retry execution - set error result
+                            toolResult = new ToolResult($"Failed to execute command after approval: {retryEx.Message}", IsError: true);
+                        }
                     }
                 }
 

@@ -585,7 +585,7 @@ internal sealed class ApprovalHandler
         var content = new System.Text.StringBuilder();
 
         // Add tier with emoji and label
-        var tierLabel = GetTierLabel(decision.Tier);
+        var tierLabel = GetTierLabel(decision.Tier, decision.Reason);
         var tierEmoji = GetTierEmoji(decision.Tier);
         content.AppendLine(CultureInfo.InvariantCulture, $"[bold]Risk Tier:[/] {tierEmoji} {tierLabel}");
         content.AppendLine();
@@ -671,14 +671,43 @@ internal sealed class ApprovalHandler
     /// <summary>
     /// Gets the tier label for display.
     /// </summary>
-    private static string GetTierLabel(CommandRiskTier tier) => tier switch
+    private static string GetTierLabel(CommandRiskTier tier, string reason) => tier switch
     {
         CommandRiskTier.Safe => "[green]SAFE[/]",
-        CommandRiskTier.Moderate => "[yellow]MODERATE (not in trusted directory)[/]",
+        CommandRiskTier.Moderate => GetModerateTierLabel(reason),
         CommandRiskTier.Elevated => "[red]ELEVATED[/]",
         CommandRiskTier.Dangerous => "[red]DANGEROUS[/]",
         _ => "[grey]UNKNOWN[/]"
     };
+
+    /// <summary>
+    /// Gets the Moderate tier label with context from the decision reason.
+    /// </summary>
+    private static string GetModerateTierLabel(string reason)
+    {
+        // Extract context from reason to provide more accurate label
+        if (reason.Contains("untrusted directory", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[yellow]MODERATE (not in trusted directory)[/]";
+        }
+        else if (reason.Contains("no working directory", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[yellow]MODERATE (no working directory specified)[/]";
+        }
+        else if (reason.Contains("auto-approval disabled", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[yellow]MODERATE (auto-approval disabled)[/]";
+        }
+        else if (reason.Contains("no access policy engine", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[yellow]MODERATE (directory trust not configured)[/]";
+        }
+        else
+        {
+            // Fallback to generic MODERATE label
+            return "[yellow]MODERATE[/]";
+        }
+    }
 
     /// <summary>
     /// Gets the tier emoji for display.
