@@ -725,57 +725,44 @@ public sealed class AgentOrchestrator : IDisposable
 
         var tokenCount = await _claudeClient.CountTokensAsync(historySnapshot, systemPrompt, cancellationToken).ConfigureAwait(false);
 
-        if (_contextCompactor.ShouldCompact(tokenCount))
+        if (_contextCompactor.ShouldCompact(tokenCount) || _contextCompactor.ExceedsHardLimit(tokenCount))
         {
-            var result = await _contextCompactor.CompactAsync(
-                historySnapshot,
-                systemPrompt,
-                tokenCount,
-                cancellationToken).ConfigureAwait(false);
-
-            var compactedMessages = result.CompactedMessages;
-
-            // Safety net: if compaction didn't bring tokens under the hard limit,
-            // perform emergency truncation to prevent API errors
-            if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
-            {
-                compactedMessages = await _contextCompactor.TruncateToFitAsync(
-                    compactedMessages.ToList(),
-                    systemPrompt,
-                    cancellationToken).ConfigureAwait(false);
-            }
-
-            lock (_conversationHistoryLock)
-            {
-                _conversationHistory.Clear();
-                _conversationHistory.AddRange(compactedMessages);
-            }
+            await CompactAndEnforceHardLimitAsync(historySnapshot, systemPrompt, tokenCount, cancellationToken).ConfigureAwait(false);
         }
-        else if (_contextCompactor.ExceedsHardLimit(tokenCount))
+    }
+
+    /// <summary>
+    /// Performs context compaction and enforces the hard token limit as a safety net.
+    /// If compaction alone doesn't bring tokens under the max, performs emergency truncation.
+    /// </summary>
+    private async Task CompactAndEnforceHardLimitAsync(
+        List<object> historySnapshot,
+        string systemPrompt,
+        int tokenCount,
+        CancellationToken cancellationToken)
+    {
+        var result = await _contextCompactor!.CompactAsync(
+            historySnapshot,
+            systemPrompt,
+            tokenCount,
+            cancellationToken).ConfigureAwait(false);
+
+        var compactedMessages = result.CompactedMessages;
+
+        // Safety net: if compaction didn't bring tokens under the hard limit,
+        // perform emergency truncation to prevent API errors
+        if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
         {
-            // Tokens are above absolute max but below compaction threshold shouldn't happen
-            // in normal operation, but handle it as a safety net
-            var result = await _contextCompactor.CompactAsync(
-                historySnapshot,
+            compactedMessages = await _contextCompactor.TruncateToFitAsync(
+                compactedMessages,
                 systemPrompt,
-                tokenCount,
                 cancellationToken).ConfigureAwait(false);
+        }
 
-            var compactedMessages = result.CompactedMessages;
-
-            if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
-            {
-                compactedMessages = await _contextCompactor.TruncateToFitAsync(
-                    compactedMessages.ToList(),
-                    systemPrompt,
-                    cancellationToken).ConfigureAwait(false);
-            }
-
-            lock (_conversationHistoryLock)
-            {
-                _conversationHistory.Clear();
-                _conversationHistory.AddRange(compactedMessages);
-            }
+        lock (_conversationHistoryLock)
+        {
+            _conversationHistory.Clear();
+            _conversationHistory.AddRange(compactedMessages);
         }
     }
 
