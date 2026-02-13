@@ -275,6 +275,9 @@ public sealed class ContextCompactor
     /// Drops messages from the front of the list until the first message is not an orphaned
     /// tool_result. An orphaned tool_result is a user message with tool_result blocks that
     /// has no preceding assistant message with the corresponding tool_use blocks.
+    /// Note: The subsequent assistant message is also dropped because in Claude's protocol,
+    /// the assistant always responds immediately after receiving tool results, so the assistant
+    /// message following a tool_result is always its direct response.
     /// </summary>
     private static void DropOrphanedToolResultPrefix(List<object> messages)
     {
