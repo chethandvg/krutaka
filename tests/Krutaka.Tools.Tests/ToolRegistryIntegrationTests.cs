@@ -45,12 +45,23 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     {
         // Arrange - Register all 6 tools
         var fileOps = new SafeFileOperations(null);
+        var securityPolicy = new CommandPolicy(fileOps);
+        
+        // v0.3.0: Create command policy for RunCommandTool
+        var classifier = new CommandRiskClassifier();
+        var commandPolicyOptions = new CommandPolicyOptions
+        {
+            ModerateAutoApproveInTrustedDirs = true,
+            TierOverrides = Array.Empty<CommandRiskRule>()
+        };
+        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, commandPolicyOptions);
+        
         _registry.Register(new ReadFileTool(_testRoot, fileOps));
         _registry.Register(new WriteFileTool(_testRoot, fileOps));
         _registry.Register(new EditFileTool(_testRoot, fileOps));
         _registry.Register(new ListFilesTool(_testRoot, fileOps));
         _registry.Register(new SearchFilesTool(_testRoot, fileOps));
-        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy(fileOps)));
+        _registry.Register(new RunCommandTool(_testRoot, securityPolicy, commandPolicy: commandPolicy));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -90,12 +101,23 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     {
         // Arrange - Register all tools
         var fileOps = new SafeFileOperations(null);
+        var securityPolicy = new CommandPolicy(fileOps);
+        
+        // v0.3.0: Create command policy for RunCommandTool
+        var classifier = new CommandRiskClassifier();
+        var commandPolicyOptions = new CommandPolicyOptions
+        {
+            ModerateAutoApproveInTrustedDirs = true,
+            TierOverrides = Array.Empty<CommandRiskRule>()
+        };
+        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, commandPolicyOptions);
+        
         _registry.Register(new ReadFileTool(_testRoot, fileOps));
         _registry.Register(new WriteFileTool(_testRoot, fileOps));
         _registry.Register(new EditFileTool(_testRoot, fileOps));
         _registry.Register(new ListFilesTool(_testRoot, fileOps));
         _registry.Register(new SearchFilesTool(_testRoot, fileOps));
-        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy(fileOps)));
+        _registry.Register(new RunCommandTool(_testRoot, securityPolicy, commandPolicy: commandPolicy));
 
         // Act
         var definitions = _registry.GetToolDefinitions();
@@ -121,12 +143,23 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
     {
         // Arrange
         var fileOps = new SafeFileOperations(null);
+        var securityPolicy = new CommandPolicy(fileOps);
+        
+        // v0.3.0: Create command policy for RunCommandTool
+        var classifier = new CommandRiskClassifier();
+        var commandPolicyOptions = new CommandPolicyOptions
+        {
+            ModerateAutoApproveInTrustedDirs = true,
+            TierOverrides = Array.Empty<CommandRiskRule>()
+        };
+        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, commandPolicyOptions);
+        
         _registry.Register(new ReadFileTool(_testRoot, fileOps));
         _registry.Register(new WriteFileTool(_testRoot, fileOps));
         _registry.Register(new EditFileTool(_testRoot, fileOps));
         _registry.Register(new ListFilesTool(_testRoot, fileOps));
         _registry.Register(new SearchFilesTool(_testRoot, fileOps));
-        _registry.Register(new RunCommandTool(_testRoot, new CommandPolicy(fileOps)));
+        _registry.Register(new RunCommandTool(_testRoot, securityPolicy, commandPolicy: commandPolicy));
 
         // Act
         var definitions = _registry.GetToolDefinitions();

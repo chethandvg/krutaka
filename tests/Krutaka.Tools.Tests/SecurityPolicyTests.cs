@@ -655,7 +655,7 @@ public sealed class SecurityPolicyTests : IDisposable
     [Theory]
     [InlineData("write_file")]
     [InlineData("edit_file")]
-    [InlineData("run_command")]
+    // Note: run_command removed in v0.3.0 - approval is now determined dynamically by ICommandPolicy
     public void Should_RequireApprovalForHighRiskTools(string toolName)
     {
         // Act
@@ -668,7 +668,7 @@ public sealed class SecurityPolicyTests : IDisposable
     [Theory]
     [InlineData("WRITE_FILE")]
     [InlineData("Edit_File")]
-    [InlineData("RUN_COMMAND")]
+    // Note: RUN_COMMAND removed in v0.3.0 - approval is now determined dynamically by ICommandPolicy
     public void Should_RequireApprovalForHighRiskTools_CaseInsensitive(string toolName)
     {
         // Act
@@ -676,6 +676,15 @@ public sealed class SecurityPolicyTests : IDisposable
 
         // Assert
         result.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Should_NotRequireApprovalForRunCommand_InV030()
+    {
+        // v0.3.0: run_command approval is now determined dynamically by ICommandPolicy
+        // This test verifies that IsApprovalRequired returns false for run_command
+        var result = _policy.IsApprovalRequired("run_command");
+        result.Should().BeFalse();
     }
 
     [Theory]

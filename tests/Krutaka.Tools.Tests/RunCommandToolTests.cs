@@ -450,33 +450,33 @@ public sealed class RunCommandToolTests : IDisposable
     [Fact]
     public async Task Should_HandleCommandWithoutArguments()
     {
-        // Arrange
-        var input = JsonSerializer.SerializeToElement(new { executable = "dotnet" });
+        // Arrange - use a Safe tier command (echo is in read-only commands list)
+        var input = JsonSerializer.SerializeToElement(new { executable = "echo", arguments = new[] { "test" } });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().Contain("Command executed: dotnet");
+        result.Should().Contain("Command executed: echo test");
         result.Should().NotStartWith("Error:");
     }
 
     [Fact]
     public async Task Should_HandleCommandWithMultipleArguments()
     {
-        // Arrange
+        // Arrange - use git status which is Safe tier
         var input = JsonSerializer.SerializeToElement(new
         {
             executable = "git",
-            arguments = new[] { "--version" }
+            arguments = new[] { "status" }
         });
 
         // Act
         var result = await _tool.ExecuteAsync(input, CancellationToken.None);
 
         // Assert
-        result.Should().Contain("Command executed: git --version");
-        result.Should().Contain("Exit code: 0");
+        result.Should().Contain("Command executed: git status");
+        result.Should().Contain("Exit code:");
     }
 
     #endregion

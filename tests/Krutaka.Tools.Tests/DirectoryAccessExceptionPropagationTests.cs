@@ -104,7 +104,13 @@ public sealed class DirectoryAccessExceptionPropagationTests : IDisposable
     {
         // Arrange
         var mockSecurityPolicy = Substitute.For<ISecurityPolicy>();
-        var tool = new RunCommandTool(_testRoot, mockSecurityPolicy, policyEngine: _mockPolicyEngine);
+        var mockCommandPolicy = Substitute.For<ICommandPolicy>();
+        
+        // Mock command policy to return approved decision (so we reach directory access check)
+        mockCommandPolicy.EvaluateAsync(Arg.Any<CommandExecutionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(CommandDecision.Approve(CommandRiskTier.Safe, "Test approval"));
+        
+        var tool = new RunCommandTool(_testRoot, mockSecurityPolicy, policyEngine: _mockPolicyEngine, commandPolicy: mockCommandPolicy);
         // Provide a working_directory to trigger the policy engine evaluation
         var input = JsonSerializer.SerializeToElement(new { executable = "git", arguments = new[] { "status" }, working_directory = _testRoot });
 
