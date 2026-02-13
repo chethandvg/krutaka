@@ -339,8 +339,10 @@ Tool implementations with security policy enforcement.
   - **Moderate tier directory trust evaluation**:
     - Checks working directory via `IAccessPolicyEngine.EvaluateAsync()`
     - Requests `AccessLevel.Execute` permission
-    - Auto-approves if directory access is granted (outcome == Granted)
-    - Requires approval if access denied or requires approval
+    - Handles all three `AccessOutcome` values explicitly:
+      - `AccessOutcome.Granted` → Auto-approve (directory in trusted zone)
+      - `AccessOutcome.Denied` → Deny command (hard boundary that cannot be overridden)
+      - `AccessOutcome.RequiresApproval` → Require approval (not in auto-grant, no session grant)
     - Falls back to require approval if:
       - `ModerateAutoApproveInTrustedDirs` config is false
       - `IAccessPolicyEngine` is null
@@ -354,15 +356,20 @@ Tool implementations with security policy enforcement.
     - Pre-check ALWAYS runs before classification (immutable security boundary)
     - Elevated commands NEVER auto-approved regardless of directory trust
     - Dangerous tier throws SecurityException as defense-in-depth
+    - **CRITICAL:** Hard denials (AccessOutcome.Denied) return CommandDecision.Deny, not RequireApproval
+      - Prevents security downgrade where non-overridable denials become approvable
+      - System directories, paths above ceiling are now properly enforced
+      - No user approval can override an explicit denial
     - Null-safe: all dependencies validated in constructor
     - Async-safe: CancellationToken propagated through all async calls
     - ConfigureAwait(false) used consistently (CA2007 compliance)
-  - **Test coverage**: 31 comprehensive tests covering:
+  - **Test coverage**: 32 comprehensive tests covering:
     - Constructor validation (4 tests): Null checks, accepts null policy engine
     - Pre-check security validation (3 tests): Metacharacter detection, blocklisted commands, call ordering
     - Safe tier (3 tests): Auto-approval without directory trust checks
     - Moderate tier in trusted directories (2 tests): Auto-approval, access request validation
-    - Moderate tier in untrusted directories (2 tests): Requires approval for denied/pending access
+    - Moderate tier with denied access (2 tests): Denies when access explicitly denied (system dirs, above ceiling)
+    - Moderate tier with requires approval (1 test): Requires approval when access needs interactive prompt
     - Moderate tier configuration (1 test): Respects ModerateAutoApproveInTrustedDirs setting
     - Moderate tier edge cases (4 tests): Null policy engine, missing working directory
     - Elevated tier (4 tests): Always requires approval regardless of directory trust
