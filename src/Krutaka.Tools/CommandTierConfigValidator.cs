@@ -13,8 +13,9 @@ public sealed partial class CommandTierConfigValidator
     private readonly ILogger<CommandTierConfigValidator>? _logger;
 
     // Shell metacharacters that could be used for injection attacks
+    // Note: Backslash is intentionally excluded here as it's checked separately as a path separator
     private static readonly SearchValues<char> ShellMetacharacters =
-        SearchValues.Create(['|', '>', '<', '&', ';', '`', '$', '%', '^', '!', '(', ')', '{', '}', '[', ']', '\'', '"', '\\', '\n', '\r']);
+        SearchValues.Create(['|', '>', '<', '&', ';', '`', '$', '%', '^', '!', '(', ')', '{', '}', '[', ']', '\'', '"', '\n', '\r', ':', '*', '?']);
 
     // Path separators that indicate executable is not a simple name
     private static readonly SearchValues<char> PathSeparators =
