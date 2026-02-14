@@ -84,7 +84,14 @@ public static class ServiceExtensions
         {
             var auditLogger = sp.GetService<IAuditLogger>();
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            return new CommandPolicy(fileOperations, auditLogger);
+            
+            // Extract additional allowed executables from TierOverrides
+            var additionalExecutables = options.CommandPolicy.TierOverrides
+                .Select(rule => rule.Executable)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            
+            return new CommandPolicy(fileOperations, auditLogger, additionalExecutables);
         });
 
         // Register session access store (singleton - application-wide lifetime)
@@ -110,7 +117,7 @@ public static class ServiceExtensions
         // Register command risk classifier (singleton - v0.3.0 graduated command execution)
         services.AddSingleton<ICommandRiskClassifier>(sp =>
         {
-            return new CommandRiskClassifier();
+            return new CommandRiskClassifier(options.CommandPolicy.TierOverrides);
         });
 
         // Register graduated command policy (singleton - v0.3.0 graduated command execution)

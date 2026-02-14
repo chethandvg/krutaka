@@ -12,6 +12,7 @@ public class CommandPolicy : ISecurityPolicy
 {
     private readonly IAuditLogger? _auditLogger;
     private readonly IFileOperations _fileOperations;
+    private readonly HashSet<string> _effectiveAllowedExecutables;
 
     private static readonly HashSet<string> AllowedExecutables = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -48,10 +49,37 @@ public class CommandPolicy : ISecurityPolicy
     /// </summary>
     /// <param name="fileOperations">The file operations service for path validation.</param>
     /// <param name="auditLogger">Optional audit logger for security violation logging.</param>
-    public CommandPolicy(IFileOperations fileOperations, IAuditLogger? auditLogger = null)
+    /// <param name="additionalAllowedExecutables">Optional additional executables to allow (e.g., from TierOverrides). These are merged with the default allowlist.</param>
+    public CommandPolicy(
+        IFileOperations fileOperations, 
+        IAuditLogger? auditLogger = null,
+        IEnumerable<string>? additionalAllowedExecutables = null)
     {
         _fileOperations = fileOperations ?? throw new ArgumentNullException(nameof(fileOperations));
         _auditLogger = auditLogger;
+
+        // Merge default allowlist with additional executables
+        _effectiveAllowedExecutables = new HashSet<string>(AllowedExecutables, StringComparer.OrdinalIgnoreCase);
+        
+        if (additionalAllowedExecutables != null)
+        {
+            foreach (var executable in additionalAllowedExecutables)
+            {
+                if (!string.IsNullOrWhiteSpace(executable))
+                {
+                    // Normalize: strip .exe suffix if present
+                    var normalized = executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                        ? executable[..^4]
+                        : executable;
+                    
+                    // Don't add if it's in the blocklist (security invariant)
+                    if (!BlockedExecutables.Contains(normalized))
+                    {
+                        _effectiveAllowedExecutables.Add(normalized);
+                    }
+                }
+            }
+        }
     }
 
     public string ValidatePath(string path, string allowedRoot, CorrelationContext? correlationContext = null)
@@ -117,12 +145,12 @@ public class CommandPolicy : ISecurityPolicy
         }
 
         // Check allowlist (case-insensitive via HashSet comparer)
-        if (!AllowedExecutables.Contains(executableNameForComparison))
+        if (!_effectiveAllowedExecutables.Contains(executableNameForComparison))
         {
             LogAndThrowSecurityViolation(
                 "blocked_command",
                 executableName,
-                $"Executable '{executableName}' is not in the allowlist. Only the following commands are permitted: {string.Join(", ", AllowedExecutables)}",
+                $"Executable '{executableName}' is not in the allowlist. Only the following commands are permitted: {string.Join(", ", _effectiveAllowedExecutables)}",
                 correlationContext);
         }
 
