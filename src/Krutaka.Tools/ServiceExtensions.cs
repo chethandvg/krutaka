@@ -119,7 +119,8 @@ public static class ServiceExtensions
             var classifier = sp.GetRequiredService<ICommandRiskClassifier>();
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
             var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, options.CommandPolicy);
+            var auditLogger = sp.GetService<IAuditLogger>();
+            return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, auditLogger, options.CommandPolicy);
         });
 
         // Register tool registry (singleton - holds registered tools)
@@ -174,7 +175,8 @@ public static class ServiceExtensions
             var policyEngine = sp.GetService<IAccessPolicyEngine>();
             var commandPolicy = sp.GetRequiredService<ICommandPolicy>();
             var approvalCache = sp.GetRequiredService<ICommandApprovalCache>();
-            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy, approvalCache);
+            var correlationContextAccessor = sp.GetService<ICorrelationContextAccessor>();
+            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy, approvalCache, correlationContextAccessor);
         });
 
         // Register the tool registry with a factory that resolves and registers all tools

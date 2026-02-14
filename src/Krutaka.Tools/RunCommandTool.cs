@@ -26,6 +26,7 @@ public class RunCommandTool : ToolBase
     private readonly IAccessPolicyEngine? _policyEngine;
     private readonly ICommandPolicy _commandPolicy;
     private readonly ICommandApprovalCache? _approvalCache;
+    private readonly ICorrelationContextAccessor? _correlationContextAccessor;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="RunCommandTool"/> class.
@@ -36,7 +37,15 @@ public class RunCommandTool : ToolBase
     /// <param name="policyEngine">The access policy engine for dynamic directory scoping (v0.2.0). If null, falls back to static root.</param>
     /// <param name="commandPolicy">The command policy for graduated approval decisions (v0.3.0).</param>
     /// <param name="approvalCache">The command approval cache for checking pre-approved commands (v0.3.0). If null, all commands requiring approval will throw exception.</param>
-    public RunCommandTool(string defaultRoot, ISecurityPolicy securityPolicy, int commandTimeoutSeconds = 30, IAccessPolicyEngine? policyEngine = null, ICommandPolicy commandPolicy = null!, ICommandApprovalCache? approvalCache = null)
+    /// <param name="correlationContextAccessor">The correlation context accessor for audit logging (v0.3.0-8). If null, correlation context won't be passed to audit logs.</param>
+    public RunCommandTool(
+        string defaultRoot,
+        ISecurityPolicy securityPolicy,
+        int commandTimeoutSeconds = 30,
+        IAccessPolicyEngine? policyEngine = null,
+        ICommandPolicy commandPolicy = null!,
+        ICommandApprovalCache? approvalCache = null,
+        ICorrelationContextAccessor? correlationContextAccessor = null)
     {
         ArgumentNullException.ThrowIfNull(defaultRoot);
         ArgumentNullException.ThrowIfNull(securityPolicy);
@@ -47,6 +56,7 @@ public class RunCommandTool : ToolBase
         _policyEngine = policyEngine;
         _commandPolicy = commandPolicy;
         _approvalCache = approvalCache;
+        _correlationContextAccessor = correlationContextAccessor;
     }
 
     /// <inheritdoc/>
@@ -174,7 +184,9 @@ public class RunCommandTool : ToolBase
                 CommandDecision commandDecision;
                 try
                 {
-                    commandDecision = await _commandPolicy.EvaluateAsync(commandRequest, cancellationToken).ConfigureAwait(false);
+                    // Get correlation context for audit logging
+                    var correlationContext = _correlationContextAccessor?.Current;
+                    commandDecision = await _commandPolicy.EvaluateAsync(commandRequest, cancellationToken, correlationContext).ConfigureAwait(false);
                 }
                 catch (SecurityException ex)
                 {

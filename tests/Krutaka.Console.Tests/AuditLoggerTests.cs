@@ -268,6 +268,221 @@ public class AuditLoggerTests
         act.Should().Throw<ArgumentException>();
     }
 
+    [Fact]
+    public void Should_LogCommandClassification_WithSafeTier()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "git",
+            "status",
+            CommandRiskTier.Safe,
+            autoApproved: true,
+            trustedDirectory: null,
+            "Auto-approved (Safe tier - read-only operation)");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Information); // Changed from Debug to Information for production visibility
+        logEvent.Properties["EventType"].ToString().Should().Contain("CommandClassificationEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("git");
+        eventData.Should().Contain("status");
+        eventData.Should().Contain("Safe");
+        eventData.Should().Contain("autoApproved");
+        eventData.Should().Contain("true");
+    }
+
+    [Fact]
+    public void Should_LogCommandClassification_WithModerateTier_AutoApproved()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "dotnet",
+            "build",
+            CommandRiskTier.Moderate,
+            autoApproved: true,
+            trustedDirectory: "C:\\Projects\\MyApp",
+            "Auto-approved (Moderate tier in trusted directory)");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Information);
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("dotnet");
+        eventData.Should().Contain("build");
+        eventData.Should().Contain("Moderate");
+        eventData.Should().Contain("autoApproved");
+        eventData.Should().Contain("true");
+        eventData.Should().Contain("C:\\\\Projects\\\\MyApp");
+    }
+
+    [Fact]
+    public void Should_LogCommandClassification_WithModerateTier_RequiresApproval()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "dotnet",
+            "build",
+            CommandRiskTier.Moderate,
+            autoApproved: false,
+            trustedDirectory: null,
+            "Requires approval (Moderate tier in untrusted directory)");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Information);
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("dotnet");
+        eventData.Should().Contain("build");
+        eventData.Should().Contain("Moderate");
+        eventData.Should().Contain("autoApproved");
+        eventData.Should().Contain("false");
+    }
+
+    [Fact]
+    public void Should_LogCommandClassification_WithElevatedTier()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "git",
+            "push origin main",
+            CommandRiskTier.Elevated,
+            autoApproved: false,
+            trustedDirectory: null,
+            "Requires approval (Elevated tier - potentially destructive operation)");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Warning);
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("git");
+        eventData.Should().Contain("push origin main");
+        eventData.Should().Contain("Elevated");
+        eventData.Should().Contain("autoApproved");
+        eventData.Should().Contain("false");
+    }
+
+    [Fact]
+    public void Should_LogCommandClassification_WithDangerousTier()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "powershell",
+            "-Command Get-Process",
+            CommandRiskTier.Dangerous,
+            autoApproved: false,
+            trustedDirectory: null,
+            "Denied (Dangerous tier - blocked executable)");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Error);
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("powershell");
+        eventData.Should().Contain("Dangerous");
+    }
+
+    [Fact]
+    public void Should_TruncateLongArguments_InCommandClassification()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var longArguments = new string('a', 600);
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "git",
+            longArguments,
+            CommandRiskTier.Safe,
+            autoApproved: true,
+            trustedDirectory: null,
+            "Auto-approved");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("truncated");
+    }
+
+    [Fact]
+    public void Should_ThrowArgumentException_WhenExecutableIsNullOrWhitespace_InCommandClassification()
+    {
+        // Arrange
+        var (logger, _) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+
+        // Act & Assert
+        var act = () => auditLogger.LogCommandClassification(
+            correlationContext,
+            "",
+            "status",
+            CommandRiskTier.Safe,
+            autoApproved: true,
+            trustedDirectory: null,
+            "Auto-approved");
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Should_ThrowArgumentException_WhenReasonIsNullOrWhitespace_InCommandClassification()
+    {
+        // Arrange
+        var (logger, _) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+
+        // Act & Assert
+        var act = () => auditLogger.LogCommandClassification(
+            correlationContext,
+            "git",
+            "status",
+            CommandRiskTier.Safe,
+            autoApproved: true,
+            trustedDirectory: null,
+            "");
+        act.Should().Throw<ArgumentException>();
+    }
+
     private static (ILogger Logger, TestSink Sink) CreateLoggerWithSink()
     {
         var sink = new TestSink();

@@ -38,6 +38,7 @@ public sealed class GraduatedCommandPolicyTests
             null!,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Assert
@@ -53,6 +54,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             null!,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Assert
@@ -68,6 +70,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             null!);
 
         // Assert
@@ -82,6 +85,22 @@ public sealed class GraduatedCommandPolicyTests
         var act = () => new GraduatedCommandPolicy(
             _mockClassifier,
             _mockSecurityPolicy,
+            null,
+            null,
+            _defaultOptions);
+
+        // Assert
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Constructor_Should_AcceptNullAuditLogger()
+    {
+        // Act
+        var act = () => new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
             null,
             _defaultOptions);
 
@@ -101,6 +120,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -108,6 +128,69 @@ public sealed class GraduatedCommandPolicyTests
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_Should_NotThrow_WhenAuditLoggerIsNull()
+    {
+        // Arrange
+        var request = new CommandExecutionRequest(
+            Executable: "git",
+            Arguments: new[] { "status" },
+            WorkingDirectory: "C:\\Projects",
+            Justification: "Check repository status");
+
+        _mockClassifier.Classify(Arg.Any<CommandExecutionRequest>()).Returns(CommandRiskTier.Safe);
+
+        var policy = new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
+            null, // Null audit logger
+            _defaultOptions);
+
+        // Act
+        var act = async () => await policy.EvaluateAsync(request, CancellationToken.None);
+
+        // Assert
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_Should_LogClassificationDecision_WhenAuditLoggerAndCorrelationContextProvided()
+    {
+        // Arrange
+        var request = new CommandExecutionRequest(
+            Executable: "git",
+            Arguments: new[] { "status" },
+            WorkingDirectory: "C:\\Projects",
+            Justification: "Check repository status");
+
+        _mockClassifier.Classify(Arg.Any<CommandExecutionRequest>()).Returns(CommandRiskTier.Safe);
+
+        var mockAuditLogger = Substitute.For<IAuditLogger>();
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var policy = new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
+            mockAuditLogger,
+            _defaultOptions);
+
+        // Act
+        await policy.EvaluateAsync(request, CancellationToken.None, correlationContext);
+
+        // Assert - verify that LogCommandClassification was called with correct parameters
+        mockAuditLogger.Received(1).LogCommandClassification(
+            Arg.Is(correlationContext),
+            Arg.Is("git"),
+            Arg.Is("status"),
+            Arg.Is(CommandRiskTier.Safe),
+            Arg.Is(true),  // autoApproved
+            Arg.Is<string?>(dir => dir == null),  // trustedDirectory should be null for Safe tier
+            Arg.Is<string>(r => r.Contains("Safe")));  // reason should mention Safe tier
     }
 
     #endregion
@@ -130,6 +213,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -165,6 +249,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -200,6 +285,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -233,6 +319,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -269,6 +356,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -311,6 +399,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -346,6 +435,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -387,6 +477,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -426,6 +517,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -464,6 +556,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -512,6 +605,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             options);
 
         // Act
@@ -549,6 +643,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             null, // No policy engine
+            null,
             _defaultOptions);
 
         // Act
@@ -584,6 +679,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -620,6 +716,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -656,6 +753,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -693,6 +791,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -723,6 +822,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -752,6 +852,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -791,6 +892,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -832,6 +934,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -886,6 +989,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act

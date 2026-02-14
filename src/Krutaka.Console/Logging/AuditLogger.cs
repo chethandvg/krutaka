@@ -180,4 +180,78 @@ internal sealed class AuditLogger : IAuditLogger
 
         Log(@event);
     }
+
+    /// <inheritdoc />
+    public void LogCommandClassification(
+        CorrelationContext correlationContext,
+        string executable,
+        string arguments,
+        CommandRiskTier tier,
+        bool autoApproved,
+        string? trustedDirectory,
+        string reason)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        // Sanitize arguments by truncating if too long
+        var sanitizedArguments = arguments.Length > 500
+            ? arguments[..500] + "... (truncated)"
+            : arguments;
+
+        var @event = new CommandClassificationEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            Executable = executable,
+            Arguments = sanitizedArguments,
+            Tier = tier,
+            AutoApproved = autoApproved,
+            TrustedDirectory = trustedDirectory,
+            Reason = reason
+        };
+
+        // Log at different levels based on tier
+        // Safe: Information (needs to be visible in production logs)
+        // Moderate: Information (noteworthy but routine)
+        // Elevated: Warning (always notable, requires human approval)
+        // Dangerous: Error (security event - command blocked)
+        var logLevel = tier switch
+        {
+            CommandRiskTier.Safe => LogEventLevel.Information,
+            CommandRiskTier.Moderate => LogEventLevel.Information,
+            CommandRiskTier.Elevated => LogEventLevel.Warning,
+            CommandRiskTier.Dangerous => LogEventLevel.Error,
+            _ => LogEventLevel.Information
+        };
+
+        // Build EventData dictionary from event-specific properties with string enum serialization
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        _logger.Write(
+            logLevel,
+            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
+            eventType.Name,
+            @event.SessionId,
+            @event.TurnId,
+            @event.RequestId ?? "N/A",
+            eventDataJson);
+    }
 }

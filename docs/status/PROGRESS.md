@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-14 (v0.3.0 SystemPromptBuilder tier information with Dangerous tier fix — Issue v0.3.0-7 complete — 1,160 tests passing)
+> **Last updated:** 2026-02-14 (v0.3.0 Enhanced audit logging for command tiers — Issue v0.3.0-8 complete — 1,170 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -151,6 +151,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-5 | Refactor RunCommandTool and DI registration to use ICommandPolicy | Integration | 🟢 Complete | 2026-02-13 |
 | v0.3.0-6 | Update ApprovalHandler for tiered command display | UI | 🟢 Complete | 2026-02-13 |
 | v0.3.0-7 | Update SystemPromptBuilder with command tier information | Enhancement | 🟢 Complete | 2026-02-13 |
+| v0.3.0-8 | Enhanced audit logging for command tiers | Observability | 🟢 Complete | 2026-02-14 |
 
 **Issue v0.3.0-5 Details:**
 - **Created:** `CommandApprovalRequiredException` in `src/Krutaka.Core/CommandApprovalRequiredException.cs`:
@@ -252,6 +253,65 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - ✅ alwaysApprove flag properly passed through callback chain
   - ✅ Moderate tier label now dynamic based on decision reason
   - ⚠️ DisplayAutoApprovalMessage exists but not yet wired to execution flow (documented limitation)
+
+**Issue v0.3.0-8 Details:**
+- **Modified:** `AuditEvent.cs` in `src/Krutaka.Core/AuditEvent.cs`:
+  - Added `CommandClassificationEvent` record type
+  - Properties: `Executable`, `Arguments`, `Tier`, `AutoApproved`, `TrustedDirectory`, `Reason`
+  - Arguments are sanitized (truncated if > 500 chars) for logging
+- **Modified:** `IAuditLogger.cs` in `src/Krutaka.Core/IAuditLogger.cs`:
+  - Added `LogCommandClassification()` method
+  - Parameters: `correlationContext`, `executable`, `arguments`, `tier`, `autoApproved`, `trustedDirectory`, `reason`
+  - Documents tier-dependent log levels (Safe→Debug, Moderate→Information, Elevated→Warning)
+- **Modified:** `AuditLogger.cs` in `src/Krutaka.Console/Logging/AuditLogger.cs`:
+  - Implemented `LogCommandClassification()` with tier-based log levels
+  - Safe tier: `LogEventLevel.Debug` (high volume, noise reduction)
+  - Moderate tier: `LogEventLevel.Information` (noteworthy but routine)
+  - Elevated tier: `LogEventLevel.Warning` (always notable, requires human approval)
+  - Dangerous tier: `LogEventLevel.Error` (security event — already covered by existing violation logging)
+  - Sanitizes arguments (truncates if > 500 chars) before logging
+- **Modified:** `ICommandPolicy.cs` in `src/Krutaka.Core/ICommandPolicy.cs`:
+  - Added optional `CorrelationContext?` parameter to `EvaluateAsync()` method
+  - Maintains consistency with `ISecurityPolicy.ValidateCommand()` pattern
+- **Modified:** `GraduatedCommandPolicy.cs` in `src/Krutaka.Tools/GraduatedCommandPolicy.cs`:
+  - Added `IAuditLogger?` field (optional dependency, null-safe pattern)
+  - Updated constructor to accept `IAuditLogger?` parameter
+  - Updated `EvaluateAsync()` to accept `CorrelationContext?` parameter
+  - Added `LogCommandClassification()` private method
+  - Logs every command classification after tier evaluation decision
+  - Gracefully handles null audit logger and null correlation context
+- **Modified:** `ServiceExtensions.cs` in `src/Krutaka.Tools/ServiceExtensions.cs`:
+  - Updated `GraduatedCommandPolicy` registration to inject `IAuditLogger` from DI
+- **Modified:** All test files in `tests/Krutaka.Tools.Tests/`:
+  - Updated all `GraduatedCommandPolicy` constructor calls to include `null` audit logger parameter
+  - Files updated: `GraduatedCommandPolicyTests.cs`, `GraduatedCommandExecutionTests.cs`, `RunCommandToolTests.cs`, `ToolRegistryIntegrationTests.cs`
+- **Modified:** `AuditLoggerTests.cs` in `tests/Krutaka.Console.Tests/AuditLoggerTests.cs`:
+  - Added 8 new tests for `LogCommandClassification()`:
+    1. `Should_LogCommandClassification_WithSafeTier` — Verifies Debug log level
+    2. `Should_LogCommandClassification_WithModerateTier_AutoApproved` — Verifies Information level, trusted directory
+    3. `Should_LogCommandClassification_WithModerateTier_RequiresApproval` — Verifies Information level, no trusted dir
+    4. `Should_LogCommandClassification_WithElevatedTier` — Verifies Warning log level
+    5. `Should_LogCommandClassification_WithDangerousTier` — Verifies Error log level
+    6. `Should_TruncateLongArguments_InCommandClassification` — Verifies argument sanitization
+    7. `Should_ThrowArgumentNullException_WhenExecutableIsNullOrWhitespace_InCommandClassification` — Validates inputs
+    8. `Should_ThrowArgumentNullException_WhenReasonIsNullOrWhitespace_InCommandClassification` — Validates inputs
+- **Modified:** `GraduatedCommandPolicyTests.cs` in `tests/Krutaka.Tools.Tests/GraduatedCommandPolicyTests.cs`:
+  - Added 2 new tests:
+    1. `Constructor_Should_AcceptNullAuditLogger` — Verifies null audit logger accepted
+    2. `EvaluateAsync_Should_NotThrow_WhenAuditLoggerIsNull` — Verifies graceful null handling
+- **Test Results:** 1,170 tests passing (1 skipped, 0 failures) — +10 tests from v0.3.0-7 baseline
+  - Memory.Tests: 127 passed
+  - Core.Tests: 173 passed
+  - Skills.Tests: 17 passed
+  - Console.Tests: 107 passed (+8 new audit logging tests)
+  - Tools.Tests: 736 passed (+2 new null audit logger tests)
+  - AI.Tests: 10 passed
+- **Build Status:** Zero warnings, zero errors
+- **Implementation Notes:**
+  - Follows same optional dependency pattern as `IAccessPolicyEngine?` in `GraduatedCommandPolicy`
+  - Every command execution now auditable with tier, approval status, and directory context
+  - Log levels match tier severity for effective filtering and monitoring
+  - Null-safe: No crashes if audit logger or correlation context not available
 
 **Issue v0.3.0-7 Details:**
 - **Modified:** `SystemPromptBuilder` in `src/Krutaka.Core/SystemPromptBuilder.cs`:

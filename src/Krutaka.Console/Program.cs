@@ -104,6 +104,9 @@ try
         return new CorrelationContext(sessionId);
     });
 
+    // Register ICorrelationContextAccessor for making correlation context available to tools
+    builder.Services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
+
     // Register IAuditLogger
     builder.Services.AddSingleton<IAuditLogger>(sp =>
     {
@@ -301,6 +304,7 @@ try
     var sessionStore = host.Services.GetRequiredService<SessionStore>();
     var correlationContext = host.Services.GetRequiredService<CorrelationContext>();
     var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
+    var correlationContextAccessor = host.Services.GetService<ICorrelationContextAccessor>();
 
     // Auto-load previous session messages if resuming
     if (isResumingSession)
@@ -463,6 +467,12 @@ try
         {
             // Increment turn ID for new user input
             correlationContext.IncrementTurn();
+
+            // Set correlation context in accessor for tools to access
+            if (correlationContextAccessor != null)
+            {
+                correlationContextAccessor.Current = correlationContext;
+            }
 
             // Log user input
             auditLogger.LogUserInput(correlationContext, input);

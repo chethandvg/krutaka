@@ -162,3 +162,41 @@ public sealed record SecurityViolationEvent : AuditEvent
     /// </summary>
     public required string Context { get; init; }
 }
+
+/// <summary>
+/// Logged when a command is classified and evaluated for execution.
+/// Captures the risk tier, approval decision, and directory context.
+/// </summary>
+public sealed record CommandClassificationEvent : AuditEvent
+{
+    /// <summary>
+    /// The command executable name.
+    /// </summary>
+    public required string Executable { get; init; }
+
+    /// <summary>
+    /// The command arguments (sanitized for logging - truncated if too long).
+    /// </summary>
+    public required string Arguments { get; init; }
+
+    /// <summary>
+    /// The risk tier assigned to the command.
+    /// </summary>
+    public required CommandRiskTier Tier { get; init; }
+
+    /// <summary>
+    /// Whether the command was auto-approved (true) or required manual approval (false).
+    /// </summary>
+    public required bool AutoApproved { get; init; }
+
+    /// <summary>
+    /// The trusted directory path if auto-approval was granted based on directory trust.
+    /// Null if auto-approval was not based on directory trust (e.g., Safe tier).
+    /// </summary>
+    public string? TrustedDirectory { get; init; }
+
+    /// <summary>
+    /// The reason/justification for the approval decision.
+    /// </summary>
+    public required string Reason { get; init; }
+}
