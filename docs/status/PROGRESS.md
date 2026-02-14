@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-13 (v0.3.0 SystemPromptBuilder tier information — Issue v0.3.0-7 complete — 1,159 tests passing)
+> **Last updated:** 2026-02-14 (v0.3.0 SystemPromptBuilder tier information with Dangerous tier fix — Issue v0.3.0-7 complete — 1,160 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -263,23 +263,32 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
     - Groups rules by tier (Safe, Moderate, Elevated, Dangerous)
     - Within each tier, groups commands by executable (alphabetically)
     - Sorts argument patterns alphabetically for consistency
-    - Wildcard rules (null ArgumentPatterns) grouped as "Always safe: cat, echo, type..."
+    - Safe tier wildcards: "Always safe: cat, echo, type..."
+    - Dangerous tier wildcards: "Always blocked: powershell, cmd, wget..."
     - Footer note: "Unknown commands are blocked. If you need a specific tool, ask the user."
 - **Modified:** `Program.cs` in `src/Krutaka.Console/Program.cs`:
   - Updated SystemPromptBuilder registration to inject `ICommandRiskClassifier` via `sp.GetService<ICommandRiskClassifier>()`
   - Passes classifier to SystemPromptBuilder constructor
+- **Modified:** `CommandRiskClassifier` in `src/Krutaka.Tools/CommandRiskClassifier.cs`:
+  - Updated `BuildDefaultRules()` to include all `CommandPolicy.BlockedExecutables` as Dangerous tier rules
+  - Ensures Dangerous tier appears in production system prompts with example blocked executables
 - **Modified:** `SystemPromptBuilderTests.cs` in `tests/Krutaka.Core.Tests/SystemPromptBuilderTests.cs`:
-  - Added 6 new tests for tier information functionality:
+  - Added 7 new tests for tier information functionality:
     1. `BuildAsync_Should_IncludeCommandTierInformation_WhenClassifierProvided`
     2. `BuildAsync_Should_NotIncludeCommandTierInformation_WhenClassifierIsNull`
     3. `BuildAsync_Should_IncludeAllFourTierLabels_WhenClassifierProvided`
     4. `BuildAsync_Should_GroupCommandsByExecutable_InTierSection`
     5. `BuildAsync_Should_IncludeWildcardCommands_InTierSection`
     6. `BuildAsync_Should_IncludeUnknownCommandsNote_InTierSection`
+    7. `BuildAsync_Should_ListDangerousExecutables_InTierSection`
   - Added `MockCommandRiskClassifier` file-scoped class for testing
-- **Test Results:** 1,159 tests passing (1 skipped, 0 failures)
+- **Review Feedback Addressed:**
+  - ✅ Dangerous tier now appears in production prompts (was omitted before fix)
+  - ✅ BlockedExecutables (powershell, cmd, curl, wget, etc.) now visible to Claude
+  - ✅ All four tiers consistently rendered in system prompt
+- **Test Results:** 1,160 tests passing (1 skipped, 0 failures)
   - Memory.Tests: 127 passed
-  - Core.Tests: 172 passed (6 new tier information tests)
+  - Core.Tests: 173 passed (7 new tier information tests)
   - Skills.Tests: 17 passed
   - Console.Tests: 99 passed
   - Tools.Tests: 734 passed
