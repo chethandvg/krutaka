@@ -119,6 +119,12 @@ public class CorrelationContextAccessorTests
     [Fact]
     public void Should_AllowMultipleInstancesWithIndependentStorage()
     {
+        // NOTE: In production, CorrelationContextAccessor is registered as a singleton in DI,
+        // so there will only be one instance. However, this test validates that the fix
+        // (removing 'static' from _current field) ensures each instance has independent storage.
+        // This proves the instance-scoped AsyncLocal pattern works correctly, and is useful
+        // for unit testing scenarios where multiple instances might be created.
+        
         // Arrange
         var accessor1 = new CorrelationContextAccessor();
         var accessor2 = new CorrelationContextAccessor();
