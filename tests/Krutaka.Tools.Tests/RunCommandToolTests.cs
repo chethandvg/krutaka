@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Krutaka.Core;
 using Krutaka.Tools;
+using NSubstitute;
 
 namespace Krutaka.Tools.Tests;
 
@@ -10,6 +11,7 @@ public sealed class RunCommandToolTests : IDisposable
     private readonly string _testRoot;
     private readonly ISecurityPolicy _securityPolicy;
     private readonly ICommandPolicy _commandPolicy;
+    private readonly IAccessPolicyEngine _mockPolicyEngine;
     private readonly RunCommandTool _tool;
 
     public RunCommandToolTests()
@@ -20,6 +22,16 @@ public sealed class RunCommandToolTests : IDisposable
         var fileOps = new SafeFileOperations(null);
         _securityPolicy = new CommandPolicy(fileOps);
         
+        // Create a mock policy engine that auto-grants Execute access for testing
+        // This allows Moderate tier commands to run without requiring approval in tests
+        _mockPolicyEngine = Substitute.For<IAccessPolicyEngine>();
+        _mockPolicyEngine.EvaluateAsync(Arg.Any<DirectoryAccessRequest>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var request = callInfo.Arg<DirectoryAccessRequest>();
+                return Task.FromResult(AccessDecision.Grant(request.Path, request.Level));
+            });
+        
         // v0.3.0: Create command policy with classifier for graduated approval
         var classifier = new CommandRiskClassifier();
         var commandPolicyOptions = new CommandPolicyOptions
@@ -27,9 +39,9 @@ public sealed class RunCommandToolTests : IDisposable
             ModerateAutoApproveInTrustedDirs = true,
             TierOverrides = Array.Empty<CommandRiskRule>()
         };
-        _commandPolicy = new GraduatedCommandPolicy(classifier, _securityPolicy, null, null, commandPolicyOptions);
+        _commandPolicy = new GraduatedCommandPolicy(classifier, _securityPolicy, _mockPolicyEngine, null, commandPolicyOptions);
         
-        _tool = new RunCommandTool(_testRoot, _securityPolicy, commandTimeoutSeconds: 30, policyEngine: null, commandPolicy: _commandPolicy);
+        _tool = new RunCommandTool(_testRoot, _securityPolicy, commandTimeoutSeconds: 30, policyEngine: _mockPolicyEngine, commandPolicy: _commandPolicy);
     }
 
     public void Dispose()
