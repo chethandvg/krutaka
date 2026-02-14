@@ -14,6 +14,7 @@ public interface ICommandPolicy
     /// </summary>
     /// <param name="request">The command execution request to evaluate.</param>
     /// <param name="cancellationToken">Cancellation token for async operations.</param>
+    /// <param name="correlationContext">Optional correlation context for audit logging.</param>
     /// <returns>
     /// A <see cref="CommandDecision"/> indicating:
     /// - Whether the command is approved or denied
@@ -31,5 +32,8 @@ public interface ICommandPolicy
     ///    - Elevated: Always require approval
     ///    - Dangerous: Always deny
     /// </remarks>
-    Task<CommandDecision> EvaluateAsync(CommandExecutionRequest request, CancellationToken cancellationToken);
+    Task<CommandDecision> EvaluateAsync(
+        CommandExecutionRequest request,
+        CancellationToken cancellationToken,
+        CorrelationContext? correlationContext = null);
 }

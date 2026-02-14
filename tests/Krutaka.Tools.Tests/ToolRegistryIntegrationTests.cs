@@ -54,7 +54,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
             ModerateAutoApproveInTrustedDirs = true,
             TierOverrides = Array.Empty<CommandRiskRule>()
         };
-        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, commandPolicyOptions);
+        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, null, commandPolicyOptions);
         
         _registry.Register(new ReadFileTool(_testRoot, fileOps));
         _registry.Register(new WriteFileTool(_testRoot, fileOps));
@@ -110,7 +110,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
             ModerateAutoApproveInTrustedDirs = true,
             TierOverrides = Array.Empty<CommandRiskRule>()
         };
-        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, commandPolicyOptions);
+        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, null, commandPolicyOptions);
         
         _registry.Register(new ReadFileTool(_testRoot, fileOps));
         _registry.Register(new WriteFileTool(_testRoot, fileOps));
@@ -152,7 +152,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
             ModerateAutoApproveInTrustedDirs = true,
             TierOverrides = Array.Empty<CommandRiskRule>()
         };
-        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, commandPolicyOptions);
+        var commandPolicy = new GraduatedCommandPolicy(classifier, securityPolicy, null, null, commandPolicyOptions);
         
         _registry.Register(new ReadFileTool(_testRoot, fileOps));
         _registry.Register(new WriteFileTool(_testRoot, fileOps));

@@ -19,6 +19,7 @@ public sealed class GraduatedCommandPolicy : ICommandPolicy
     private readonly ICommandRiskClassifier _classifier;
     private readonly ISecurityPolicy _securityPolicy;
     private readonly IAccessPolicyEngine? _policyEngine;
+    private readonly IAuditLogger? _auditLogger;
     private readonly CommandPolicyOptions _options;
 
     /// <summary>
@@ -27,37 +28,41 @@ public sealed class GraduatedCommandPolicy : ICommandPolicy
     /// <param name="classifier">The risk classifier for determining command tiers.</param>
     /// <param name="securityPolicy">The security policy for pre-check validation.</param>
     /// <param name="policyEngine">Optional access policy engine for directory trust evaluation. If null, Moderate tier always requires approval.</param>
+    /// <param name="auditLogger">Optional audit logger for logging command classification decisions. If null, no audit logging is performed.</param>
     /// <param name="options">Configuration options for tier behavior.</param>
     /// <exception cref="ArgumentNullException">Thrown if classifier, securityPolicy, or options is null.</exception>
     public GraduatedCommandPolicy(
         ICommandRiskClassifier classifier,
         ISecurityPolicy securityPolicy,
         IAccessPolicyEngine? policyEngine,
+        IAuditLogger? auditLogger,
         CommandPolicyOptions options)
     {
         _classifier = classifier ?? throw new ArgumentNullException(nameof(classifier));
         _securityPolicy = securityPolicy ?? throw new ArgumentNullException(nameof(securityPolicy));
         _policyEngine = policyEngine;
+        _auditLogger = auditLogger;
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
     /// <inheritdoc/>
     public async Task<CommandDecision> EvaluateAsync(
         CommandExecutionRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CorrelationContext? correlationContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         // Step 1: Security pre-check (ALWAYS runs first - immutable security boundary)
         // This validates shell metacharacters and blocklist enforcement
         // Throws SecurityException if validation fails
-        _securityPolicy.ValidateCommand(request.Executable, request.Arguments);
+        _securityPolicy.ValidateCommand(request.Executable, request.Arguments, correlationContext);
 
         // Step 2: Classify command risk tier
         var tier = _classifier.Classify(request);
 
         // Step 3: Tier-based evaluation
-        return tier switch
+        CommandDecision decision = tier switch
         {
             CommandRiskTier.Safe => EvaluateSafeTier(),
             CommandRiskTier.Moderate => await EvaluateModerateTierAsync(request, cancellationToken).ConfigureAwait(false),
@@ -65,6 +70,48 @@ public sealed class GraduatedCommandPolicy : ICommandPolicy
             CommandRiskTier.Dangerous => EvaluateDangerousTier(),
             _ => throw new InvalidOperationException($"Unknown command risk tier: {tier}")
         };
+
+        // Step 4: Audit log the classification decision
+        LogCommandClassification(correlationContext, request, decision);
+
+        return decision;
+    }
+
+    /// <summary>
+    /// Logs the command classification decision to the audit trail.
+    /// </summary>
+    private void LogCommandClassification(
+        CorrelationContext? correlationContext,
+        CommandExecutionRequest request,
+        CommandDecision decision)
+    {
+        // Only log if audit logger is configured and correlation context is available
+        if (_auditLogger == null || correlationContext == null)
+        {
+            return;
+        }
+
+        // Determine if command was auto-approved based on decision outcome
+        var autoApproved = decision.IsApproved && !decision.RequiresApproval;
+
+        // Extract trusted directory if applicable (Moderate tier in trusted directory)
+        string? trustedDirectory = null;
+        if (decision.Tier == CommandRiskTier.Moderate && autoApproved && !string.IsNullOrWhiteSpace(request.WorkingDirectory))
+        {
+            trustedDirectory = request.WorkingDirectory;
+        }
+
+        // Format arguments as a single string for logging
+        var arguments = string.Join(" ", request.Arguments);
+
+        _auditLogger.LogCommandClassification(
+            correlationContext,
+            request.Executable,
+            arguments,
+            decision.Tier,
+            autoApproved,
+            trustedDirectory,
+            decision.Reason);
     }
 
     /// <summary>

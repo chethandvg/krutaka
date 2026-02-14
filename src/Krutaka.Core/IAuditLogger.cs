@@ -73,4 +73,25 @@ public interface IAuditLogger
     /// <param name="blockedValue">The blocked path, command, or tool name.</param>
     /// <param name="context">Full context of the violation.</param>
     void LogSecurityViolation(CorrelationContext correlationContext, string violationType, string blockedValue, string context);
+
+    /// <summary>
+    /// Logs a command classification and evaluation decision.
+    /// This method logs the risk tier assigned to a command and whether it was auto-approved.
+    /// Log levels are tier-dependent: Safe→Debug, Moderate→Information, Elevated→Warning.
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="executable">The command executable name.</param>
+    /// <param name="arguments">The command arguments (will be sanitized for logging).</param>
+    /// <param name="tier">The risk tier assigned to the command.</param>
+    /// <param name="autoApproved">Whether the command was auto-approved.</param>
+    /// <param name="trustedDirectory">The trusted directory path if auto-approval was based on directory trust (null otherwise).</param>
+    /// <param name="reason">The reason/justification for the approval decision.</param>
+    void LogCommandClassification(
+        CorrelationContext correlationContext,
+        string executable,
+        string arguments,
+        CommandRiskTier tier,
+        bool autoApproved,
+        string? trustedDirectory,
+        string reason);
 }

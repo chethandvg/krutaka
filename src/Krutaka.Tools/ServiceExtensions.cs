@@ -119,7 +119,8 @@ public static class ServiceExtensions
             var classifier = sp.GetRequiredService<ICommandRiskClassifier>();
             var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
             var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, options.CommandPolicy);
+            var auditLogger = sp.GetService<IAuditLogger>();
+            return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, auditLogger, options.CommandPolicy);
         });
 
         // Register tool registry (singleton - holds registered tools)

@@ -38,6 +38,7 @@ public sealed class GraduatedCommandPolicyTests
             null!,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Assert
@@ -53,6 +54,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             null!,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Assert
@@ -68,6 +70,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             null!);
 
         // Assert
@@ -82,6 +85,7 @@ public sealed class GraduatedCommandPolicyTests
         var act = () => new GraduatedCommandPolicy(
             _mockClassifier,
             _mockSecurityPolicy,
+            null,
             null,
             _defaultOptions);
 
@@ -101,6 +105,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -130,6 +135,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -165,6 +171,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -200,6 +207,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -233,6 +241,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -269,6 +278,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -311,6 +321,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -346,6 +357,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -387,6 +399,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -426,6 +439,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -464,6 +478,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -512,6 +527,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             options);
 
         // Act
@@ -549,6 +565,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             null, // No policy engine
+            null,
             _defaultOptions);
 
         // Act
@@ -584,6 +601,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -620,6 +638,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -656,6 +675,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -693,6 +713,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -723,6 +744,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -752,6 +774,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -791,6 +814,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -832,6 +856,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act
@@ -886,6 +911,7 @@ public sealed class GraduatedCommandPolicyTests
             _mockClassifier,
             _mockSecurityPolicy,
             _mockPolicyEngine,
+            null,
             _defaultOptions);
 
         // Act

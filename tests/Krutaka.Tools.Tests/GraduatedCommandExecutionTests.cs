@@ -31,7 +31,7 @@ public sealed class GraduatedCommandExecutionTests : IDisposable
             ModerateAutoApproveInTrustedDirs = true,
             TierOverrides = Array.Empty<CommandRiskRule>()
         };
-        _commandPolicy = new GraduatedCommandPolicy(classifier, _securityPolicy, null, commandPolicyOptions);
+        _commandPolicy = new GraduatedCommandPolicy(classifier, _securityPolicy, null, null, commandPolicyOptions);
         
         _tool = new RunCommandTool(_testRoot, _securityPolicy, commandTimeoutSeconds: 30, policyEngine: null, commandPolicy: _commandPolicy);
     }

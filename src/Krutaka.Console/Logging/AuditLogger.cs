@@ -180,4 +180,73 @@ internal sealed class AuditLogger : IAuditLogger
 
         Log(@event);
     }
+
+    /// <inheritdoc />
+    public void LogCommandClassification(
+        CorrelationContext correlationContext,
+        string executable,
+        string arguments,
+        CommandRiskTier tier,
+        bool autoApproved,
+        string? trustedDirectory,
+        string reason)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        // Sanitize arguments by truncating if too long
+        var sanitizedArguments = arguments.Length > 500
+            ? arguments[..500] + "... (truncated)"
+            : arguments;
+
+        var @event = new CommandClassificationEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            Executable = executable,
+            Arguments = sanitizedArguments,
+            Tier = tier,
+            AutoApproved = autoApproved,
+            TrustedDirectory = trustedDirectory,
+            Reason = reason
+        };
+
+        // Log at different levels based on tier
+        // Safe: Debug (high volume, noise reduction)
+        // Moderate: Information (noteworthy but routine)
+        // Elevated: Warning (always notable, requires human approval)
+        // Dangerous: Not logged here - security violations are logged via LogSecurityViolation
+        var logLevel = tier switch
+        {
+            CommandRiskTier.Safe => LogEventLevel.Debug,
+            CommandRiskTier.Moderate => LogEventLevel.Information,
+            CommandRiskTier.Elevated => LogEventLevel.Warning,
+            CommandRiskTier.Dangerous => LogEventLevel.Error,
+            _ => LogEventLevel.Information
+        };
+
+        // Build EventData dictionary from event-specific properties
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p => p.GetValue(@event));
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        _logger.Write(
+            logLevel,
+            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
+            eventType.Name,
+            @event.SessionId,
+            @event.TurnId,
+            @event.RequestId ?? "N/A",
+            eventDataJson);
+    }
 }
