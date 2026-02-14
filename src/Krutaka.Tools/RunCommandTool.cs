@@ -29,6 +29,16 @@ public class RunCommandTool : ToolBase
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
 
     /// <summary>
+    /// Windows shell built-ins that require cmd.exe to execute.
+    /// These commands are not standalone executables but are implemented as part of cmd.exe.
+    /// </summary>
+    private static readonly HashSet<string> WindowsShellBuiltins = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "mkdir", "md", "rmdir", "rd", "dir", "type", "echo", "sort",
+        "find", "findstr", "where", "tree", "copy", "move", "del"
+    };
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="RunCommandTool"/> class.
     /// </summary>
     /// <param name="defaultRoot">The default root directory (fallback when policy engine is null).</param>
@@ -229,14 +239,31 @@ public class RunCommandTool : ToolBase
 
             try
             {
+                // Windows shell built-ins need to be wrapped in cmd /c
+                // These commands don't exist as standalone executables and require cmd.exe to execute
+                var effectiveExecutable = executable;
+                var effectiveArguments = new List<string>(arguments);
+
+                if (OperatingSystem.IsWindows() && IsWindowsShellBuiltin(executable))
+                {
+                    // Shell built-ins can't be executed directly via CreateProcess.
+                    // Wrap in cmd /c internally — this is safe because:
+                    // 1. The executable was already validated against the allowlist
+                    // 2. Arguments were already checked for shell metacharacters  
+                    // 3. This is an internal implementation detail, not user-facing
+                    effectiveArguments.Insert(0, executable);
+                    effectiveArguments.Insert(0, "/c");
+                    effectiveExecutable = "cmd.exe";
+                }
+
                 // Use StringBuilder to capture stdout/stderr
                 var stdOutBuffer = new StringBuilder();
                 var stdErrBuffer = new StringBuilder();
 
                 // Configure command with CliWrap using streaming API (ExecuteAsync)
                 // This gives us access to ProcessId for Job Object assignment
-                var command = Cli.Wrap(executable)
-                    .WithArguments(arguments)
+                var command = Cli.Wrap(effectiveExecutable)
+                    .WithArguments(effectiveArguments)
                     .WithWorkingDirectory(workingDirectory)
                     .WithEnvironmentVariables(scrubbedEnvironment.ToDictionary(kvp => kvp.Key, kvp => kvp.Value))
                     .WithValidation(CommandResultValidation.None) // We'll handle exit codes ourselves
@@ -327,6 +354,21 @@ public class RunCommandTool : ToolBase
             return $"Error: Unexpected error executing command - {ex.Message}";
         }
 #pragma warning restore CA1031
+    }
+
+    /// <summary>
+    /// Checks if the given executable is a Windows shell built-in.
+    /// </summary>
+    /// <param name="executable">The executable name to check.</param>
+    /// <returns>True if the executable is a Windows shell built-in, false otherwise.</returns>
+    private static bool IsWindowsShellBuiltin(string executable)
+    {
+        // Normalize executable name (strip .exe suffix if present)
+        var executableName = executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? executable[..^4]
+            : executable;
+        
+        return WindowsShellBuiltins.Contains(executableName);
     }
 
     /// <summary>

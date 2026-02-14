@@ -480,4 +480,115 @@ public sealed class RunCommandToolTests : IDisposable
     }
 
     #endregion
+
+    #region Windows Shell Built-ins Tests
+
+    [Fact]
+    public async Task Should_ExecuteWindowsShellBuiltin_Mkdir()
+    {
+        // This test only runs on Windows
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows
+        }
+
+        // Arrange - mkdir is a shell built-in on Windows
+        var testDir = Path.Combine(_testRoot, "test-builtin-dir");
+        var input = JsonSerializer.SerializeToElement(new
+        {
+            executable = "mkdir",
+            arguments = new[] { testDir },
+            working_directory = _testRoot
+        });
+
+        // Act
+        var result = await _tool.ExecuteAsync(input, CancellationToken.None);
+
+        // Assert
+        result.Should().Contain("Command executed:");
+        result.Should().NotContain("is not recognized");
+        
+        // Verify the directory was created
+        Directory.Exists(testDir).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Should_ExecuteWindowsShellBuiltin_Echo()
+    {
+        // This test only runs on Windows
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows
+        }
+
+        // Arrange - echo is a shell built-in on Windows
+        var input = JsonSerializer.SerializeToElement(new
+        {
+            executable = "echo",
+            arguments = new[] { "Hello from built-in" }
+        });
+
+        // Act
+        var result = await _tool.ExecuteAsync(input, CancellationToken.None);
+
+        // Assert
+        result.Should().Contain("Command executed: echo");
+        result.Should().Contain("Hello from built-in");
+        result.Should().Contain("Exit code: 0");
+    }
+
+    [Fact]
+    public async Task Should_ExecuteWindowsShellBuiltin_Dir()
+    {
+        // This test only runs on Windows
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows
+        }
+
+        // Arrange - dir is a shell built-in on Windows
+        var input = JsonSerializer.SerializeToElement(new
+        {
+            executable = "dir",
+            arguments = new[] { _testRoot }
+        });
+
+        // Act
+        var result = await _tool.ExecuteAsync(input, CancellationToken.None);
+
+        // Assert
+        result.Should().Contain("Command executed: dir");
+        result.Should().Contain("Exit code:");
+        result.Should().NotContain("is not recognized");
+    }
+
+    [Fact]
+    public async Task Should_ExecuteWindowsShellBuiltin_Type()
+    {
+        // This test only runs on Windows
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // Skip on non-Windows
+        }
+
+        // Arrange - create a test file and use type (cat equivalent on Windows)
+        var testFile = Path.Combine(_testRoot, "test-builtin.txt");
+        await File.WriteAllTextAsync(testFile, "Test content for type command");
+        
+        var input = JsonSerializer.SerializeToElement(new
+        {
+            executable = "type",
+            arguments = new[] { testFile }
+        });
+
+        // Act
+        var result = await _tool.ExecuteAsync(input, CancellationToken.None);
+
+        // Assert
+        result.Should().Contain("Command executed: type");
+        result.Should().Contain("Test content for type command");
+        result.Should().Contain("Exit code: 0");
+    }
+
+    #endregion
 }
