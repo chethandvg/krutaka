@@ -389,6 +389,19 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
             CommandRiskTier.Elevated,
             "Pip dependency management"));
 
+        // ===== DANGEROUS TIER =====
+
+        // Add all blocked executables as Dangerous tier rules for system prompt visibility
+        // These are always blocked and cannot be executed regardless of arguments
+        foreach (var blockedExecutable in CommandPolicy.BlockedExecutables)
+        {
+            rules.Add(new CommandRiskRule(
+                blockedExecutable,
+                null, // Any arguments
+                CommandRiskTier.Dangerous,
+                "Blocked executable - always denied"));
+        }
+
         return rules.AsReadOnly();
     }
 }

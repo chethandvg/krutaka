@@ -208,6 +208,7 @@ try
         var skillRegistry = sp.GetService<ISkillRegistry>();
         var memoryService = sp.GetService<IMemoryService>();
         var memoryFileService = sp.GetService<MemoryFileService>();
+        var commandRiskClassifier = sp.GetService<ICommandRiskClassifier>();
 
         Func<CancellationToken, Task<string>>? memoryFileReader = null;
         if (memoryFileService != null)
@@ -220,7 +221,8 @@ try
             agentsPromptPath,
             skillRegistry,
             memoryService,
-            memoryFileReader);
+            memoryFileReader,
+            commandRiskClassifier);
     });
 
     // Register ContextCompactor

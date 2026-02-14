@@ -386,6 +386,165 @@ public sealed class SystemPromptBuilderTests : IDisposable
         result.Should().Contain("Krutaka"); // Stable marker from embedded AGENTS.md core identity
         result.Should().NotBeNullOrWhiteSpace();
     }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeCommandTierInformation_WhenClassifierProvided()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("git", ["status", "log"], CommandRiskTier.Safe, "Read-only git operations");
+        classifier.AddRule("dotnet", ["build", "test"], CommandRiskTier.Moderate, "Build and test operations");
+        classifier.AddRule("git", ["push", "pull"], CommandRiskTier.Elevated, "Remote git operations");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("## Command Execution Risk Tiers");
+        result.Should().Contain("Commands are classified by risk");
+        // Arguments are sorted alphabetically
+        result.Should().Contain("git: log, status");
+        result.Should().Contain("dotnet: build, test");
+        result.Should().Contain("git: pull, push");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NotIncludeCommandTierInformation_WhenClassifierIsNull()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: null);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().NotContain("## Command Execution Risk Tiers");
+        result.Should().NotContain("Commands are classified by risk");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeAllFourTierLabels_WhenClassifierProvided()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("git", ["status"], CommandRiskTier.Safe, "Safe operation");
+        classifier.AddRule("dotnet", ["build"], CommandRiskTier.Moderate, "Moderate operation");
+        classifier.AddRule("git", ["push"], CommandRiskTier.Elevated, "Elevated operation");
+        classifier.AddRule("powershell", null, CommandRiskTier.Dangerous, "Dangerous operation");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("**Safe (auto-approved, no user prompt):**");
+        result.Should().Contain("**Moderate (auto-approved in trusted directories, prompted elsewhere):**");
+        result.Should().Contain("**Elevated (always requires user approval):**");
+        result.Should().Contain("**Dangerous (always blocked):**");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_GroupCommandsByExecutable_InTierSection()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("git", ["status", "log", "diff"], CommandRiskTier.Safe, "Read-only git");
+        classifier.AddRule("dotnet", ["--version", "--info"], CommandRiskTier.Safe, "Dotnet info");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - arguments are sorted alphabetically
+        result.Should().Contain("git: diff, log, status");
+        result.Should().Contain("dotnet: --info, --version");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeWildcardCommands_InTierSection()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("cat", null, CommandRiskTier.Safe, "Read-only command");
+        classifier.AddRule("echo", null, CommandRiskTier.Safe, "Read-only command");
+        classifier.AddRule("type", null, CommandRiskTier.Safe, "Read-only command");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("Always safe: cat, echo, type");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeUnknownCommandsNote_InTierSection()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("git", ["status"], CommandRiskTier.Safe, "Safe operation");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("Unknown commands are blocked");
+        result.Should().Contain("If you need a specific tool, ask the user");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_ListDangerousExecutables_InTierSection()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("powershell", null, CommandRiskTier.Dangerous, "Blocked executable");
+        classifier.AddRule("cmd", null, CommandRiskTier.Dangerous, "Blocked executable");
+        classifier.AddRule("wget", null, CommandRiskTier.Dangerous, "Blocked executable");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - Dangerous tier should be present with executables listed
+        result.Should().Contain("**Dangerous (always blocked):**");
+        result.Should().Contain("Always blocked: cmd, powershell, wget");
+    }
 }
 
 // Mock implementations for testing
@@ -491,4 +650,25 @@ file sealed class MockMemoryService : IMemoryService
 
     public Task<int> ChunkAndIndexAsync(string content, string source, CancellationToken cancellationToken = default)
         => Task.FromResult(1);
+}
+
+file sealed class MockCommandRiskClassifier : ICommandRiskClassifier
+{
+    private readonly List<CommandRiskRule> _rules = [];
+
+    public void AddRule(string executable, IReadOnlyList<string>? argumentPatterns, CommandRiskTier tier, string? description)
+    {
+        _rules.Add(new CommandRiskRule(executable, argumentPatterns, tier, description));
+    }
+
+    public CommandRiskTier Classify(CommandExecutionRequest request)
+    {
+        // Simple mock implementation
+        return CommandRiskTier.Safe;
+    }
+
+    public IReadOnlyList<CommandRiskRule> GetRules()
+    {
+        return _rules.AsReadOnly();
+    }
 }

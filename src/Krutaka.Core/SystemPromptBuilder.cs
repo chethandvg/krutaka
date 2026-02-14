@@ -11,6 +11,7 @@ public sealed class SystemPromptBuilder
     private readonly IToolRegistry _toolRegistry;
     private readonly ISkillRegistry? _skillRegistry;
     private readonly IMemoryService? _memoryService;
+    private readonly ICommandRiskClassifier? _commandRiskClassifier;
     private readonly string _agentsPromptPath;
     private readonly Func<CancellationToken, Task<string>>? _memoryFileReader;
 
@@ -22,12 +23,14 @@ public sealed class SystemPromptBuilder
     /// <param name="skillRegistry">Optional skill registry for Layer 4 (skill metadata).</param>
     /// <param name="memoryService">Optional memory service for Layer 6 (past memories via hybrid search).</param>
     /// <param name="memoryFileReader">Optional delegate to read MEMORY.md for Layer 5.</param>
+    /// <param name="commandRiskClassifier">Optional command risk classifier for Layer 3 (tier information in tool context).</param>
     public SystemPromptBuilder(
         IToolRegistry toolRegistry,
         string agentsPromptPath,
         ISkillRegistry? skillRegistry = null,
         IMemoryService? memoryService = null,
-        Func<CancellationToken, Task<string>>? memoryFileReader = null)
+        Func<CancellationToken, Task<string>>? memoryFileReader = null,
+        ICommandRiskClassifier? commandRiskClassifier = null)
     {
         ArgumentNullException.ThrowIfNull(toolRegistry);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentsPromptPath, nameof(agentsPromptPath));
@@ -37,6 +40,7 @@ public sealed class SystemPromptBuilder
         _skillRegistry = skillRegistry;
         _memoryService = memoryService;
         _memoryFileReader = memoryFileReader;
+        _commandRiskClassifier = commandRiskClassifier;
     }
 
     /// <summary>
@@ -66,6 +70,13 @@ public sealed class SystemPromptBuilder
         if (!string.IsNullOrWhiteSpace(toolDescriptions))
         {
             sections.Add(toolDescriptions);
+        }
+
+        // Layer 3b: Command tier information (if classifier available)
+        var commandTierInfo = GetCommandTierInformation();
+        if (!string.IsNullOrWhiteSpace(commandTierInfo))
+        {
+            sections.Add(commandTierInfo);
         }
 
         // Layer 4: Skill metadata (names + descriptions only, progressive disclosure)
@@ -285,6 +296,104 @@ public sealed class SystemPromptBuilder
         }
 
         sb.AppendLine("</untrusted_content>");
+
+        return sb.ToString().Trim();
+    }
+
+    private string GetCommandTierInformation()
+    {
+        if (_commandRiskClassifier == null)
+        {
+            return string.Empty;
+        }
+
+        var rules = _commandRiskClassifier.GetRules();
+        if (rules == null || rules.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Command Execution Risk Tiers");
+        sb.AppendLine();
+        sb.AppendLine("Commands are classified by risk. Your experience will be smoother if you prefer lower-risk commands:");
+        sb.AppendLine();
+
+        // Group rules by tier
+        var rulesByTier = rules.GroupBy(r => r.Tier).OrderBy(g => g.Key);
+
+        foreach (var tierGroup in rulesByTier)
+        {
+            var tier = tierGroup.Key;
+            var tierRules = tierGroup.ToList();
+
+            // Format tier header
+            var tierHeader = tier switch
+            {
+                CommandRiskTier.Safe => "**Safe (auto-approved, no user prompt):**",
+                CommandRiskTier.Moderate => "**Moderate (auto-approved in trusted directories, prompted elsewhere):**",
+                CommandRiskTier.Elevated => "**Elevated (always requires user approval):**",
+                CommandRiskTier.Dangerous => "**Dangerous (always blocked):**",
+                _ => $"**{tier}:**"
+            };
+
+            sb.AppendLine(tierHeader);
+
+            // Group by executable
+            var rulesByExecutable = tierRules
+                .Where(r => r.ArgumentPatterns != null) // Only include rules with specific argument patterns
+                .GroupBy(r => r.Executable, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var execGroup in rulesByExecutable)
+            {
+                var executable = execGroup.Key;
+                var execRules = execGroup.ToList();
+
+                // Collect all argument patterns for this executable at this tier
+                var allPatterns = execRules
+                    .SelectMany(r => r.ArgumentPatterns ?? [])
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(p => p, StringComparer.OrdinalIgnoreCase);
+
+                if (allPatterns.Any())
+                {
+                    sb.AppendLine(CultureInfo.InvariantCulture, $"  {executable}: {string.Join(", ", allPatterns)}");
+                }
+            }
+
+            // Handle rules without specific patterns (like cat, type, echo — always safe)
+            var wildcardRules = tierRules
+                .Where(r => r.ArgumentPatterns == null)
+                .OrderBy(r => r.Executable, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (wildcardRules.Count > 0)
+            {
+                var wildcardExecutables = wildcardRules.Select(r => r.Executable).ToList();
+                if (tier == CommandRiskTier.Safe)
+                {
+                    sb.AppendLine(CultureInfo.InvariantCulture, $"  Always safe: {string.Join(", ", wildcardExecutables)}");
+                }
+                else if (tier == CommandRiskTier.Dangerous)
+                {
+                    sb.AppendLine(CultureInfo.InvariantCulture, $"  Always blocked: {string.Join(", ", wildcardExecutables)}");
+                }
+                else
+                {
+                    // For Moderate/Elevated tiers, list individually if needed (typically won't have many)
+                    foreach (var exec in wildcardExecutables)
+                    {
+                        sb.AppendLine(CultureInfo.InvariantCulture, $"  {exec}: (any arguments)");
+                    }
+                }
+            }
+
+            sb.AppendLine();
+        }
+
+        // Add footer note about unknown commands
+        sb.AppendLine("Unknown commands are blocked. If you need a specific tool, ask the user.");
 
         return sb.ToString().Trim();
     }
