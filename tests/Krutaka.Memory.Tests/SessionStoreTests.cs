@@ -460,4 +460,112 @@ public sealed class SessionStoreTests : IDisposable
         var assistantMsg = JsonSerializer.Serialize(messages[1]);
         assistantMsg.Should().Contain("\"content\":[{\"type\":\"text\"");
     }
+
+    [Fact]
+    public async Task Should_InjectSyntheticToolResultForOrphanedToolUse()
+    {
+        // Arrange — simulate session interrupted between tool_use and tool_result
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent("user", "user", "Read a file", DateTimeOffset.UtcNow));
+        await store.AppendAsync(new SessionEvent("assistant", "assistant", "I'll read it", DateTimeOffset.UtcNow.AddSeconds(1)));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"test.txt"}""", DateTimeOffset.UtcNow.AddSeconds(2), "read_file", "toolu_orphaned"));
+        // Session interrupted here - no tool_result saved
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert — should have 3 messages: user, assistant(text+tool_use), synthetic user(tool_result)
+        messages.Should().HaveCount(3);
+
+        var assistantMsg = JsonSerializer.Serialize(messages[1]);
+        assistantMsg.Should().Contain("\"role\":\"assistant\"");
+        assistantMsg.Should().Contain("toolu_orphaned");
+
+        // Synthetic tool_result message should be injected
+        var syntheticMsg = JsonSerializer.Serialize(messages[2]);
+        syntheticMsg.Should().Contain("\"role\":\"user\"");
+        syntheticMsg.Should().Contain("\"type\":\"tool_result\"");
+        syntheticMsg.Should().Contain("\"tool_use_id\":\"toolu_orphaned\"");
+        syntheticMsg.Should().Contain("Session was interrupted");
+        syntheticMsg.Should().Contain("\"is_error\":true");
+    }
+
+    [Fact]
+    public async Task Should_InjectSyntheticToolResultsForMultipleOrphanedToolUses()
+    {
+        // Arrange — multiple orphaned tool_use blocks
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent("user", "user", "Read two files", DateTimeOffset.UtcNow));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"a.txt"}""", DateTimeOffset.UtcNow.AddSeconds(1), "read_file", "toolu_A"));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"b.txt"}""", DateTimeOffset.UtcNow.AddSeconds(2), "read_file", "toolu_B"));
+        // Session interrupted - no tool_results
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert — should inject a single user message with both tool_results
+        messages.Should().HaveCount(3);
+
+        var syntheticMsg = JsonSerializer.Serialize(messages[2]);
+        syntheticMsg.Should().Contain("\"role\":\"user\"");
+        syntheticMsg.Should().Contain("toolu_A");
+        syntheticMsg.Should().Contain("toolu_B");
+        syntheticMsg.Should().Contain("Session was interrupted");
+    }
+
+    [Fact]
+    public async Task Should_NotInjectSyntheticToolResultWhenToolResultExists()
+    {
+        // Arrange — complete tool_use and tool_result pair
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent("user", "user", "Read file", DateTimeOffset.UtcNow));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"test.txt"}""", DateTimeOffset.UtcNow.AddSeconds(1), "read_file", "toolu_complete"));
+        await store.AppendAsync(new SessionEvent("tool_result", "user", "file contents", DateTimeOffset.UtcNow.AddSeconds(2), "read_file", "toolu_complete"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert — should NOT inject synthetic message (3 messages: user, assistant, user)
+        messages.Should().HaveCount(3);
+
+        var toolResultMsg = JsonSerializer.Serialize(messages[2]);
+        toolResultMsg.Should().Contain("file contents");
+        toolResultMsg.Should().NotContain("Session was interrupted");
+    }
+
+    [Fact]
+    public async Task Should_AugmentExistingUserMessageWhenPartialToolResultsExist()
+    {
+        // Arrange — multiple tool_use blocks, only some tool_results persisted before crash
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent("user", "user", "Read three files", DateTimeOffset.UtcNow));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"a.txt"}""", DateTimeOffset.UtcNow.AddSeconds(1), "read_file", "toolu_A"));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"b.txt"}""", DateTimeOffset.UtcNow.AddSeconds(2), "read_file", "toolu_B"));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"c.txt"}""", DateTimeOffset.UtcNow.AddSeconds(3), "read_file", "toolu_C"));
+        // Only toolu_A completed before crash
+        await store.AppendAsync(new SessionEvent("tool_result", "user", "contents A", DateTimeOffset.UtcNow.AddSeconds(4), "read_file", "toolu_A"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert — should be 3 messages: user, assistant(3 tool_use), user(1 existing + 2 synthetic tool_result)
+        messages.Should().HaveCount(3);
+
+        var userMsg = JsonSerializer.Serialize(messages[2]);
+        userMsg.Should().Contain("\"role\":\"user\"");
+        // Should have all three tool_results in the same message
+        userMsg.Should().Contain("toolu_A");
+        userMsg.Should().Contain("toolu_B");
+        userMsg.Should().Contain("toolu_C");
+        userMsg.Should().Contain("contents A"); // Existing result
+        userMsg.Should().Contain("Session was interrupted"); // Synthetic results
+    }
 }

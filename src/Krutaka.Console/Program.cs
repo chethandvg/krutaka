@@ -603,6 +603,11 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
                     textAccumulator.Clear();
                 }
 
+                // CRITICAL TIMING WINDOW: The tool_use event is persisted IMMEDIATELY when emitted by Claude.
+                // If the process crashes/terminates between this point and the corresponding
+                // ToolCallCompleted/ToolCallFailed event being persisted, the session will have
+                // an orphaned tool_use block. This is handled by SessionStore.RepairOrphanedToolUseBlocks()
+                // which detects missing tool_result blocks and injects synthetic error responses during resume.
                 await sessionStore.AppendAsync(
                     new SessionEvent("tool_use", "assistant", tool.Input, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
                     cancellationToken).ConfigureAwait(false);

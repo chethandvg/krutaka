@@ -351,48 +351,48 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             switch (typeProperty)
             {
                 case "text":
-                {
-                    var text = itemType.GetProperty("text")?.GetValue(item)?.ToString() ?? string.Empty;
-                    blocks.Add((ContentBlockParam)new TextBlockParam { Text = text });
-                    break;
-                }
+                    {
+                        var text = itemType.GetProperty("text")?.GetValue(item)?.ToString() ?? string.Empty;
+                        blocks.Add((ContentBlockParam)new TextBlockParam { Text = text });
+                        break;
+                    }
                 case "tool_use":
-                {
-                    var id = itemType.GetProperty("id")?.GetValue(item)?.ToString() ?? string.Empty;
-                    var name = itemType.GetProperty("name")?.GetValue(item)?.ToString() ?? string.Empty;
-                    var input = itemType.GetProperty("input")?.GetValue(item);
-
-                    var inputDict = DeserializeToJsonElementDict(input);
-
-                    blocks.Add((ContentBlockParam)new ToolUseBlockParam
                     {
-                        ID = id,
-                        Name = name,
-                        Input = inputDict
-                    });
-                    break;
-                }
+                        var id = itemType.GetProperty("id")?.GetValue(item)?.ToString() ?? string.Empty;
+                        var name = itemType.GetProperty("name")?.GetValue(item)?.ToString() ?? string.Empty;
+                        var input = itemType.GetProperty("input")?.GetValue(item);
+
+                        var inputDict = DeserializeToJsonElementDict(input);
+
+                        blocks.Add((ContentBlockParam)new ToolUseBlockParam
+                        {
+                            ID = id,
+                            Name = name,
+                            Input = inputDict
+                        });
+                        break;
+                    }
                 case "tool_result":
-                {
-                    var toolUseId = itemType.GetProperty("tool_use_id")?.GetValue(item)?.ToString() ?? string.Empty;
-                    var resultContent = itemType.GetProperty("content")?.GetValue(item)?.ToString() ?? string.Empty;
-                    var isError = itemType.GetProperty("is_error")?.GetValue(item) as bool? ?? false;
-
-                    blocks.Add((ContentBlockParam)new ToolResultBlockParam
                     {
-                        ToolUseID = toolUseId,
-                        Content = resultContent,
-                        IsError = isError
-                    });
-                    break;
-                }
+                        var toolUseId = itemType.GetProperty("tool_use_id")?.GetValue(item)?.ToString() ?? string.Empty;
+                        var resultContent = itemType.GetProperty("content")?.GetValue(item)?.ToString() ?? string.Empty;
+                        var isError = itemType.GetProperty("is_error")?.GetValue(item) as bool? ?? false;
+
+                        blocks.Add((ContentBlockParam)new ToolResultBlockParam
+                        {
+                            ToolUseID = toolUseId,
+                            Content = resultContent,
+                            IsError = isError
+                        });
+                        break;
+                    }
                 default:
-                {
-                    // Unknown type: serialize to text
-                    var text = System.Text.Json.JsonSerializer.Serialize(item);
-                    blocks.Add((ContentBlockParam)new TextBlockParam { Text = text });
-                    break;
-                }
+                    {
+                        // Unknown type: serialize to text
+                        var text = System.Text.Json.JsonSerializer.Serialize(item);
+                        blocks.Add((ContentBlockParam)new TextBlockParam { Text = text });
+                        break;
+                    }
             }
         }
 

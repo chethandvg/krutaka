@@ -191,6 +191,11 @@ public sealed class SessionStore : ISessionStore, IDisposable
             messages.Add(BuildMessage(currentRole, currentBlocks));
         }
 
+        // Validate and repair orphaned tool_use blocks
+        // If a tool_use appears in an assistant message without a matching tool_result in a subsequent user message,
+        // inject a synthetic tool_result to satisfy Claude API requirements
+        RepairOrphanedToolUseBlocks(messages);
+
         return messages.AsReadOnly();
     }
 
@@ -200,6 +205,233 @@ public sealed class SessionStore : ISessionStore, IDisposable
     private static object BuildMessage(string role, List<object> contentBlocks)
     {
         return new { role, content = contentBlocks.ToArray() };
+    }
+
+    /// <summary>
+    /// Validates that all tool_use blocks have matching tool_result blocks.
+    /// If orphaned tool_use blocks are found (tool_use without matching tool_result),
+    /// injects synthetic tool_result messages to satisfy Claude API requirements.
+    /// This can happen when a session is interrupted between tool_use and tool_result events.
+    /// </summary>
+    private static void RepairOrphanedToolUseBlocks(List<object> messages)
+    {
+        // Track all tool_use IDs seen in assistant messages
+        var toolUseIds = new HashSet<string>(StringComparer.Ordinal);
+        
+        // Track all tool_result IDs seen in user messages
+        var toolResultIds = new HashSet<string>(StringComparer.Ordinal);
+        
+        // Track indices of assistant messages with tool_use blocks
+        var assistantMessageIndices = new List<int>();
+
+        // First pass: collect all tool_use and tool_result IDs
+        for (int i = 0; i < messages.Count; i++)
+        {
+            var messageJson = JsonSerializer.Serialize(messages[i]);
+            var messageDoc = JsonDocument.Parse(messageJson);
+            var root = messageDoc.RootElement;
+
+            if (!root.TryGetProperty("role", out var roleElement) ||
+                !root.TryGetProperty("content", out var contentElement))
+            {
+                continue;
+            }
+
+            var role = roleElement.GetString();
+            
+            if (role == "assistant")
+            {
+                assistantMessageIndices.Add(i);
+                
+                // Check for tool_use blocks
+                if (contentElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var block in contentElement.EnumerateArray())
+                    {
+                        if (block.TryGetProperty("type", out var typeElement) &&
+                            typeElement.GetString() == "tool_use" &&
+                            block.TryGetProperty("id", out var idElement))
+                        {
+                            var id = idElement.GetString();
+                            if (!string.IsNullOrEmpty(id))
+                            {
+                                toolUseIds.Add(id);
+                            }
+                        }
+                    }
+                }
+            }
+            else if (role == "user")
+            {
+                // Check for tool_result blocks
+                if (contentElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var block in contentElement.EnumerateArray())
+                    {
+                        if (block.TryGetProperty("type", out var typeElement) &&
+                            typeElement.GetString() == "tool_result" &&
+                            block.TryGetProperty("tool_use_id", out var toolUseIdElement))
+                        {
+                            var toolUseId = toolUseIdElement.GetString();
+                            if (!string.IsNullOrEmpty(toolUseId))
+                            {
+                                toolResultIds.Add(toolUseId);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Find orphaned tool_use IDs (in toolUseIds but not in toolResultIds)
+        var orphanedToolUseIds = toolUseIds.Except(toolResultIds).ToList();
+
+        if (orphanedToolUseIds.Count == 0)
+        {
+            return; // No orphaned tool_use blocks
+        }
+
+        // Second pass: inject synthetic tool_result blocks for orphaned tool_use blocks
+        // If a user message already exists after the assistant message, augment it with synthetic results
+        // Otherwise, create a new user message
+        int insertOffset = 0; // Track how many messages we've inserted (to adjust indices)
+
+        foreach (var assistantMessageIndex in assistantMessageIndices)
+        {
+            var adjustedIndex = assistantMessageIndex + insertOffset;
+            
+            if (adjustedIndex >= messages.Count)
+            {
+                break; // Safety check
+            }
+
+            var messageJson = JsonSerializer.Serialize(messages[adjustedIndex]);
+            var messageDoc = JsonDocument.Parse(messageJson);
+            var root = messageDoc.RootElement;
+
+            if (!root.TryGetProperty("content", out var contentElement) ||
+                contentElement.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            // Find orphaned tool_use IDs in this message
+            var orphanedIdsInMessage = new List<string>();
+            foreach (var block in contentElement.EnumerateArray())
+            {
+                if (block.TryGetProperty("type", out var typeElement) &&
+                    typeElement.GetString() == "tool_use" &&
+                    block.TryGetProperty("id", out var idElement))
+                {
+                    var id = idElement.GetString();
+                    if (!string.IsNullOrEmpty(id) && orphanedToolUseIds.Contains(id))
+                    {
+                        orphanedIdsInMessage.Add(id);
+                    }
+                }
+            }
+
+            if (orphanedIdsInMessage.Count > 0)
+            {
+                // Create synthetic tool_result blocks for all orphaned tool_use IDs in this message
+                var syntheticBlocks = orphanedIdsInMessage.Select(id => new
+                {
+                    type = "tool_result",
+                    tool_use_id = id,
+                    content = "Session was interrupted before tool execution completed",
+                    is_error = true
+                }).ToList();
+
+                // Check if there's already a user message immediately after this assistant message
+                var nextMessageIndex = adjustedIndex + 1;
+                if (nextMessageIndex < messages.Count)
+                {
+                    var nextMessageJson = JsonSerializer.Serialize(messages[nextMessageIndex]);
+                    var nextMessageDoc = JsonDocument.Parse(nextMessageJson);
+                    var nextRoot = nextMessageDoc.RootElement;
+
+                    if (nextRoot.TryGetProperty("role", out var nextRoleElement) &&
+                        nextRoleElement.GetString() == "user" &&
+                        nextRoot.TryGetProperty("content", out var nextContentElement) &&
+                        nextContentElement.ValueKind == JsonValueKind.Array)
+                    {
+                        // User message exists - augment it with synthetic tool_results
+                        // Parse existing content blocks
+                        var existingBlocks = new List<object>();
+                        foreach (var block in nextContentElement.EnumerateArray())
+                        {
+                            // Reconstruct each block as an anonymous object
+                            if (block.TryGetProperty("type", out var blockTypeElement))
+                            {
+                                var blockType = blockTypeElement.GetString();
+                                if (blockType == "tool_result")
+                                {
+                                    // Reconstruct tool_result block
+                                    var toolUseId = block.TryGetProperty("tool_use_id", out var idElem) ? idElem.GetString() : "";
+                                    var content = block.TryGetProperty("content", out var contentElem) ? contentElem.GetString() : "";
+                                    var isError = block.TryGetProperty("is_error", out var errorElem) && errorElem.GetBoolean();
+                                    
+                                    existingBlocks.Add(new
+                                    {
+                                        type = "tool_result",
+                                        tool_use_id = toolUseId,
+                                        content = content ?? string.Empty,
+                                        is_error = isError
+                                    });
+                                }
+                                else if (blockType == "text")
+                                {
+                                    // Reconstruct text block
+                                    var text = block.TryGetProperty("text", out var textElem) ? textElem.GetString() : "";
+                                    existingBlocks.Add(new
+                                    {
+                                        type = "text",
+                                        text = text ?? string.Empty
+                                    });
+                                }
+                            }
+                        }
+
+                        // Add synthetic blocks to existing blocks
+                        existingBlocks.AddRange(syntheticBlocks);
+
+                        // Replace the existing user message with augmented version
+                        var augmentedMessage = new
+                        {
+                            role = "user",
+                            content = existingBlocks.ToArray()
+                        };
+
+                        messages[nextMessageIndex] = augmentedMessage;
+                        // No need to adjust insertOffset since we replaced rather than inserted
+                    }
+                    else
+                    {
+                        // Next message is not a user message - insert new synthetic user message
+                        var syntheticMessage = new
+                        {
+                            role = "user",
+                            content = syntheticBlocks.ToArray()
+                        };
+
+                        messages.Insert(nextMessageIndex, syntheticMessage);
+                        insertOffset++; // Adjust for the newly inserted message
+                    }
+                }
+                else
+                {
+                    // No message after assistant - insert new synthetic user message at the end
+                    var syntheticMessage = new
+                    {
+                        role = "user",
+                        content = syntheticBlocks.ToArray()
+                    };
+
+                    messages.Insert(nextMessageIndex, syntheticMessage);
+                    insertOffset++; // Adjust for the newly inserted message
+                }
+            }
+        }
     }
 
     /// <summary>

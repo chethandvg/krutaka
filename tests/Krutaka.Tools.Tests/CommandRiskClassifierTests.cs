@@ -862,4 +862,184 @@ public sealed class CommandRiskClassifierTests
     }
 
     #endregion
+
+    #region TierOverrides Tests
+
+    [Fact]
+    public void Should_ApplyTierOverride_ForCustomExecutable()
+    {
+        // Arrange - add "cargo" as Moderate tier via overrides
+        var overrides = new[]
+        {
+            new CommandRiskRule("cargo", new[] { "build" }, CommandRiskTier.Moderate, "Rust build")
+        };
+        
+        var classifier = new CommandRiskClassifier(overrides);
+        var request = new CommandExecutionRequest(
+            "cargo",
+            new[] { "build" },
+            "/test",
+            "Build rust project");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert
+        tier.Should().Be(CommandRiskTier.Moderate);
+    }
+
+    [Fact]
+    public void Should_ApplyTierOverride_ForExistingExecutable_OverridingDefault()
+    {
+        // Arrange - override "git status" to be Moderate instead of Safe
+        var overrides = new[]
+        {
+            new CommandRiskRule("git", new[] { "status" }, CommandRiskTier.Moderate, "Override git status to Moderate")
+        };
+        
+        var classifier = new CommandRiskClassifier(overrides);
+        var request = new CommandExecutionRequest(
+            "git",
+            new[] { "status" },
+            "/test",
+            "Git status");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert - user override takes precedence over default Safe tier
+        tier.Should().Be(CommandRiskTier.Moderate);
+    }
+
+    [Fact]
+    public void Should_FallbackToDefaultRules_WhenOverrideDoesNotMatch()
+    {
+        // Arrange - override only "git status", but query "git log"
+        var overrides = new[]
+        {
+            new CommandRiskRule("git", new[] { "status" }, CommandRiskTier.Moderate, "Override git status")
+        };
+        
+        var classifier = new CommandRiskClassifier(overrides);
+        var request = new CommandExecutionRequest(
+            "git",
+            new[] { "log" },
+            "/test",
+            "Git log");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert - should use default Safe tier for "git log"
+        tier.Should().Be(CommandRiskTier.Safe);
+    }
+
+    [Fact]
+    public void Should_IgnoreTierOverride_ForBlocklistedExecutable()
+    {
+        // Arrange - attempt to promote "powershell" from Dangerous to Safe (should be rejected)
+        var overrides = new[]
+        {
+            new CommandRiskRule("powershell", null, CommandRiskTier.Safe, "Attempt to promote blocklisted command")
+        };
+        
+        var classifier = new CommandRiskClassifier(overrides);
+        var request = new CommandExecutionRequest(
+            "powershell",
+            new[] { "-Command", "echo test" },
+            "/test",
+            "Powershell command");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert - should remain Dangerous (blocklist takes precedence)
+        tier.Should().Be(CommandRiskTier.Dangerous);
+    }
+
+    [Fact]
+    public void Should_IgnoreTierOverride_WithDangerousTier()
+    {
+        // Arrange - attempt to add "malicious" to Dangerous tier via config (should be rejected)
+        var overrides = new[]
+        {
+            new CommandRiskRule("malicious", null, CommandRiskTier.Dangerous, "Attempt to add to blocklist")
+        };
+        
+        var classifier = new CommandRiskClassifier(overrides);
+        var request = new CommandExecutionRequest(
+            "malicious",
+            new[] { "arg" },
+            "/test",
+            "Malicious command");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert - should be Dangerous (unknown executable, fail-closed), but NOT because of override
+        tier.Should().Be(CommandRiskTier.Dangerous);
+        
+        // Verify the override was NOT applied (GetRules should not contain it)
+        var rules = classifier.GetRules();
+        rules.Should().NotContain(r => r.Executable.Equals("malicious", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Should_IncludeOverridesInGetRules()
+    {
+        // Arrange
+        var overrides = new[]
+        {
+            new CommandRiskRule("cargo", new[] { "build" }, CommandRiskTier.Moderate, "Rust build"),
+            new CommandRiskRule("make", null, CommandRiskTier.Moderate, "Makefile execution")
+        };
+        
+        var classifier = new CommandRiskClassifier(overrides);
+
+        // Act
+        var rules = classifier.GetRules();
+
+        // Assert - should contain both user overrides and default rules
+        rules.Should().Contain(r => r.Executable.Equals("cargo", StringComparison.OrdinalIgnoreCase));
+        rules.Should().Contain(r => r.Executable.Equals("make", StringComparison.OrdinalIgnoreCase));
+        rules.Should().Contain(r => r.Executable.Equals("git", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Should_HandleNullTierOverrides()
+    {
+        // Arrange
+        var classifier = new CommandRiskClassifier(tierOverrides: null);
+        var request = new CommandExecutionRequest(
+            "git",
+            new[] { "status" },
+            "/test",
+            "Git status");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert - should work with default rules
+        tier.Should().Be(CommandRiskTier.Safe);
+    }
+
+    [Fact]
+    public void Should_HandleEmptyTierOverrides()
+    {
+        // Arrange
+        var classifier = new CommandRiskClassifier(tierOverrides: []);
+        var request = new CommandExecutionRequest(
+            "git",
+            new[] { "status" },
+            "/test",
+            "Git status");
+
+        // Act
+        var tier = classifier.Classify(request);
+
+        // Assert - should work with default rules
+        tier.Should().Be(CommandRiskTier.Safe);
+    }
+
+    #endregion
 }

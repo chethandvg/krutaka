@@ -11,12 +11,28 @@ namespace Krutaka.Tools;
 public sealed class CommandRiskClassifier : ICommandRiskClassifier
 {
     private readonly IReadOnlyList<CommandRiskRule> _defaultRules;
+    private readonly IReadOnlyList<CommandRiskRule> _allRules;
     private readonly Dictionary<string, IReadOnlyList<CommandRiskRule>> _rulesByExecutable;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CommandRiskClassifier"/> class with default rules only.
+    /// </summary>
     public CommandRiskClassifier()
+        : this(tierOverrides: null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CommandRiskClassifier"/> class with user-defined tier overrides.
+    /// </summary>
+    /// <param name="tierOverrides">User-defined tier override rules from configuration. Can be null or empty.
+    /// User overrides are checked BEFORE default rules during classification.
+    /// Security invariants are enforced: blocklisted commands cannot be promoted, Dangerous tier cannot be assigned via config.</param>
+    public CommandRiskClassifier(CommandRiskRule[]? tierOverrides)
     {
         _defaultRules = BuildDefaultRules();
-        _rulesByExecutable = BuildRuleIndex(_defaultRules);
+        _allRules = MergeRulesWithOverrides(_defaultRules, tierOverrides);
+        _rulesByExecutable = BuildRuleIndex(_allRules);
     }
 
     public CommandRiskTier Classify(CommandExecutionRequest request)
@@ -55,7 +71,7 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
 
     public IReadOnlyList<CommandRiskRule> GetRules()
     {
-        return _defaultRules;
+        return _allRules;
     }
 
     /// <summary>
@@ -220,6 +236,56 @@ public sealed class CommandRiskClassifier : ICommandRiskClassifier
                 g => g.Key,
                 g => (IReadOnlyList<CommandRiskRule>)g.ToList(),
                 StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Merges user-defined tier overrides with default rules.
+    /// User overrides are prepended (checked first) to ensure they take precedence.
+    /// Enforces security invariants: blocklisted executables are filtered out, Dangerous tier overrides are rejected.
+    /// </summary>
+    /// <param name="defaultRules">The default hardcoded rules.</param>
+    /// <param name="tierOverrides">User-defined tier overrides from configuration. Can be null or empty.</param>
+    /// <returns>The merged list of rules with user overrides appearing before defaults for each executable.</returns>
+    private static IReadOnlyList<CommandRiskRule> MergeRulesWithOverrides(
+        IReadOnlyList<CommandRiskRule> defaultRules,
+        CommandRiskRule[]? tierOverrides)
+    {
+        if (tierOverrides == null || tierOverrides.Length == 0)
+        {
+            return defaultRules;
+        }
+
+        // Filter out invalid overrides:
+        // 1. Blocklisted executables (cannot be promoted from Dangerous tier)
+        // 2. Rules with Dangerous tier (users cannot add to blocklist via config)
+        var validOverrides = tierOverrides
+            .Where(rule =>
+            {
+                // Normalize executable name (strip .exe suffix for comparison)
+                var executableName = NormalizeExecutableName(rule.Executable);
+
+                // Reject if blocklisted
+                if (CommandPolicy.BlockedExecutables.Contains(executableName))
+                {
+                    return false;
+                }
+
+                // Reject if tier is Dangerous
+                if (rule.Tier == CommandRiskTier.Dangerous)
+                {
+                    return false;
+                }
+
+                return true;
+            })
+            .ToList();
+
+        // Merge: user overrides first, then default rules
+        var mergedRules = new List<CommandRiskRule>(validOverrides.Count + defaultRules.Count);
+        mergedRules.AddRange(validOverrides);
+        mergedRules.AddRange(defaultRules);
+
+        return mergedRules.AsReadOnly();
     }
 
     // Static readonly arrays for argument patterns (CA1861)
