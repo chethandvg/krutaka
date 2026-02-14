@@ -184,6 +184,7 @@ dotnet test tests/Krutaka.Tools.Tests --filter "FullyQualifiedName~CommandTierCo
    - Overly broad wildcard patterns (null argument patterns)
    - Duplicate rule handling
    - Very long executable/argument patterns (edge cases)
+   - **Cross-platform path separator handling** (backslash on Windows vs Unix)
 
 ### Attack Vectors Tested
 
@@ -211,11 +212,13 @@ git --unknown-flag value  // → Elevated (git's default)
 #### Path Injection
 ```csharp
 // All MUST be classified as Dangerous
-C:\tools\git                    // Path separator
-/usr/bin/git                    // Path separator
+C:\tools\git                    // Path separator (Windows: backslash; Unix: rejected as metacharacter)
+/usr/bin/git                    // Path separator (cross-platform)
 ./git                           // Relative path
 tool|malicious                  // Shell metacharacter
 ```
+
+**Note:** Path separator validation is OS-dependent. Backslash (`\`) is a path separator on Windows but a shell metacharacter on Unix. Tests handle both cases to ensure cross-platform compatibility.
 
 #### Directory Trust Bypass
 ```csharp

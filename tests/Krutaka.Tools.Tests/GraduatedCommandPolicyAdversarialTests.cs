@@ -240,7 +240,7 @@ public sealed class GraduatedCommandPolicyAdversarialTests
     }
 
     [Fact]
-    public async Task Should_ThrowSecurityException_WhenModerateCommand_ContainsPipeOperator()
+    public async Task Should_ThrowSecurityException_WhenModerateCommand_ContainsCommandChaining()
     {
         // Arrange
         var policy = new GraduatedCommandPolicy(
@@ -302,7 +302,7 @@ public sealed class GraduatedCommandPolicyAdversarialTests
     }
 
     [Fact]
-    public async Task Should_ValidateCommand_BeforeClassification_Always()
+    public async Task Should_CallSecurityPolicyValidateCommand_ForEveryRequest()
     {
         // Arrange
         var policy = new GraduatedCommandPolicy(
@@ -323,7 +323,7 @@ public sealed class GraduatedCommandPolicyAdversarialTests
         // Act
         await policy.EvaluateAsync(request, CancellationToken.None);
 
-        // Assert - SecurityPolicy.ValidateCommand called FIRST
+        // Assert - SecurityPolicy.ValidateCommand is called
         _mockSecurityPolicy.Received(1).ValidateCommand(
             request.Executable,
             request.Arguments,
@@ -538,7 +538,7 @@ public sealed class GraduatedCommandPolicyAdversarialTests
     }
 
     [Fact]
-    public async Task Should_PassCorrelationContext_ToAllComponents()
+    public async Task Should_PassCorrelationContext_ToSecurityPolicy()
     {
         // Arrange
         var policy = new GraduatedCommandPolicy(

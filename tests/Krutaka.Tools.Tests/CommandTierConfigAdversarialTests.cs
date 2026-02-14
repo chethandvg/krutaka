@@ -171,6 +171,7 @@ public sealed class CommandTierConfigAdversarialTests
     public void Should_RejectExecutable_WithBackslash()
     {
         // Arrange - attempt path injection via backslash
+        // Note: On Windows, backslash is a path separator; on Unix, it's a shell metacharacter
         var rules = new[]
         {
             new CommandRiskRule(
@@ -183,17 +184,19 @@ public sealed class CommandTierConfigAdversarialTests
         // Act
         var result = _validator.ValidateRules(rules);
 
-        // Assert - backslash is detected as shell metacharacter or path separator
+        // Assert - backslash is rejected (either as path separator on Windows or metacharacter on Unix)
         result.IsValid.Should().BeFalse();
         result.Errors.Should().NotBeEmpty();
-        // Could be either metacharacter or path separator error
-        result.Errors.Should().ContainMatch("*metacharacter*");
+        // Accept either error message since it's OS-dependent
+        var errorText = string.Join(" ", result.Errors);
+        errorText.Should().MatchRegex("(path separator|metacharacter)",
+            "backslash should be rejected as either a path separator (Windows) or shell metacharacter (Unix)");
     }
 
     [Fact]
-    public void Should_RejectExecutable_WithForwardSlash()
+    public void Should_RejectExecutable_WithForwardSlash_CrossPlatform()
     {
-        // Arrange - attempt path injection via forward slash
+        // Arrange - forward slash is a path separator on both Windows and Unix
         var rules = new[]
         {
             new CommandRiskRule(
@@ -206,8 +209,9 @@ public sealed class CommandTierConfigAdversarialTests
         // Act
         var result = _validator.ValidateRules(rules);
 
-        // Assert
+        // Assert - forward slash should always be rejected as a path separator on all platforms
         result.IsValid.Should().BeFalse();
+        result.Errors.Should().NotBeEmpty();
         result.Errors.Should().ContainMatch("*path separator*");
     }
 
