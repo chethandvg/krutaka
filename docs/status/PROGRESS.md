@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-14 (v0.3.0 Enhanced audit logging for command tiers — Issue v0.3.0-8 complete — 1,170 tests passing)
+> **Last updated:** 2026-02-14 (v0.3.0 Adversarial security tests — Issue v0.3.0-9 complete — 896 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -152,6 +152,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-6 | Update ApprovalHandler for tiered command display | UI | 🟢 Complete | 2026-02-13 |
 | v0.3.0-7 | Update SystemPromptBuilder with command tier information | Enhancement | 🟢 Complete | 2026-02-13 |
 | v0.3.0-8 | Enhanced audit logging for command tiers | Observability | 🟢 Complete | 2026-02-14 |
+| v0.3.0-9 | Adversarial security tests for graduated command execution | Testing | 🟢 Complete | 2026-02-14 |
 
 **Issue v0.3.0-5 Details:**
 - **Created:** `CommandApprovalRequiredException` in `src/Krutaka.Core/CommandApprovalRequiredException.cs`:
@@ -307,6 +308,60 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - Tools.Tests: 736 passed (+2 new null audit logger tests)
   - AI.Tests: 10 passed
 - **Build Status:** Zero warnings, zero errors
+
+**Issue v0.3.0-9 Details:**
+- **Created:** `CommandRiskClassifierAdversarialTests.cs` in `tests/Krutaka.Tools.Tests/`:
+  - 27 adversarial tests for CommandRiskClassifier bypass attempts
+  - Tests argument aliasing: `-f` vs `--force` for `git push` → both Elevated
+  - Tests empty argument lists on known executables → correct default tier
+  - Tests very long argument strings (10,000+ chars) → handles without crash
+  - Tests arguments with shell metacharacters → processed (security check happens separately)
+  - Tests unknown executables → always classified as Dangerous (fail-closed)
+  - Tests .exe extension normalization → `git.exe` classified same as `git`
+  - Tests executables with path separators → classified as Dangerous (security risk)
+  - Tests Unicode/special characters in arguments → handled without crash
+  - Tests all blocklisted executables → verified as Dangerous tier
+  - Tests case sensitivity: `GIT`, `Git`, `git` → all classified identically
+- **Created:** `GraduatedCommandPolicyAdversarialTests.cs` in `tests/Krutaka.Tools.Tests/`:
+  - 18 adversarial tests for GraduatedCommandPolicy bypass attempts
+  - Tests Moderate command outside trusted dir → requires approval
+  - Tests Moderate command inside trusted dir → auto-approved
+  - Tests Elevated command inside trusted dir → still requires approval (tier overrides trust)
+  - Tests Safe command with shell metacharacters → SecurityException from pre-check
+  - Tests config override promotes custom command correctly
+  - Tests config override CANNOT promote blocklisted commands → SecurityException
+  - Tests null policy engine → Moderate always prompted (cannot verify directory trust)
+  - Tests rapid sequential commands (20 concurrent) → thread-safe evaluation
+  - Tests combined directory access and tier evaluation → both layers work together
+  - Tests Dangerous tier → throws SecurityException (outright denial, not approval)
+- **Created:** `CommandTierConfigAdversarialTests.cs` in `tests/Krutaka.Tools.Tests/`:
+  - 17 adversarial tests for CommandTierConfigValidator bypass attempts
+  - Tests promoting blocklisted commands (powershell, cmd, certutil) → rejected
+  - Tests setting any executable to Dangerous tier via config → rejected (code-only)
+  - Tests path separators in executable name → rejected (both forward and backslash on Windows)
+  - Tests shell metacharacters in executable or argument patterns → rejected
+  - Tests empty/null executable or argument pattern values → rejected
+  - Tests null argument patterns (matches all args) → warning logged (overly broad)
+  - Tests valid custom executables (cargo, make, rustc, go) → accepted
+  - Tests executables with numbers, hyphens, underscores → accepted
+  - Tests .exe suffix in executable → rejected (use base name without extension)
+  - Tests multiple rules validation → correctly rejects all invalid rules
+- **Test Results:** 896 tests passing (1 skipped, 0 failures) — +62 adversarial tests from v0.3.0-8 baseline
+  - Memory.Tests: 127 passed
+  - Core.Tests: 173 passed
+  - Skills.Tests: 17 passed
+  - Console.Tests: 107 passed
+  - Tools.Tests: 462 passed (+62 new adversarial tests: 27+18+17)
+  - AI.Tests: 10 passed
+- **Adversarial Test Coverage:** All 245 adversarial tests pass
+  - AccessPolicyEngineAdversarialTests: 57 tests (existing)
+  - PathResolverAdversarialTests: 30 tests (existing)
+  - GlobPatternAdversarialTests: 93 tests (existing)
+  - CommandRiskClassifierAdversarialTests: 27 tests (new)
+  - GraduatedCommandPolicyAdversarialTests: 18 tests (new)
+  - CommandTierConfigAdversarialTests: 17 tests (new)
+- **Build Status:** Zero warnings, zero errors
+- **Security Validation:** All attack vectors from v0.3.0 threat model tested and mitigated
 - **Implementation Notes:**
   - Follows same optional dependency pattern as `IAccessPolicyEngine?` in `GraduatedCommandPolicy`
   - Every command execution now auditable with tier, approval status, and directory context

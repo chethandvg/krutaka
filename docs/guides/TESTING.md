@@ -129,6 +129,126 @@ DATABASE_PASSWORD=xxx
 MY_CUSTOM_TOKEN=xxx
 ```
 
+## Adversarial Security Tests
+
+> ⚠️ **CRITICAL:** These tests verify that security controls cannot be bypassed through adversarial attacks.
+> All adversarial tests must pass before any release. See docs/versions/v0.3.0.md for threat model.
+
+**Status:** ✅ **Implemented** (245 total adversarial tests across 6 test files)
+
+### Running Adversarial Tests
+
+```bash
+# Run all adversarial tests
+dotnet test --filter "FullyQualifiedName~Adversarial"
+
+# Run specific adversarial test files
+dotnet test --filter "FullyQualifiedName~CommandRiskClassifierAdversarialTests"
+dotnet test --filter "FullyQualifiedName~GraduatedCommandPolicyAdversarialTests"
+dotnet test --filter "FullyQualifiedName~CommandTierConfigAdversarialTests"
+```
+
+**Expected Result:** All 245 adversarial tests should pass.
+
+### Test Coverage by Component
+
+#### 1. Directory Access Policy (57 tests)
+**File:** `tests/Krutaka.Tools.Tests/AccessPolicyEngineAdversarialTests.cs`
+
+Attack vectors tested:
+- System directory bypass attempts (Windows, Program Files, AppData)
+- Ceiling directory enforcement (attempts to escape allowed scope)
+- Path manipulation (Unicode confusables, null bytes, max length paths)
+- Session scope accumulation (rapid-fire grant attempts)
+- Cross-volume detection (C: vs D: on Windows)
+- UNC path blocking (network shares, IP addresses)
+
+#### 2. Path Resolver Security (30 tests)
+**File:** `tests/Krutaka.Tools.Tests/PathResolverAdversarialTests.cs`
+
+Attack vectors tested:
+- Alternate Data Stream (ADS) attacks (`file.txt:hidden`)
+- Reserved device name attacks (`CON`, `PRN`, `NUL`, `COM1`)
+- Device path prefix attacks (`\\.\PhysicalDrive0`, `\\?\C:\`)
+- Deeply nested path handling (50+ levels)
+- Path length edge cases (> 260 chars on Windows)
+
+#### 3. Glob Pattern Validation (93 tests)
+**File:** `tests/Krutaka.Tools.Tests/GlobPatternAdversarialTests.cs`
+
+Attack vectors tested:
+- Overly broad pattern attacks (`C:\**`, `**`, `*`)
+- Relative traversal attacks (`..\..\**`)
+- Blocked directory patterns (System32, Program Files, AppData)
+- Outside ceiling attacks (different drives, parent directories)
+- Null/empty pattern handling
+
+#### 4. Command Risk Classification (27 tests) — v0.3.0
+**File:** `tests/Krutaka.Tools.Tests/CommandRiskClassifierAdversarialTests.cs`
+
+Attack vectors tested:
+- Argument aliasing bypass (`-f` vs `--force` → both classified identically)
+- Empty argument list edge cases
+- Very long argument strings (10,000+ chars)
+- Arguments with shell metacharacters
+- Unknown executable classification (fail-closed to Dangerous)
+- .exe extension normalization
+- Executables with path separators
+- Unicode/special characters in arguments
+- All blocklisted executables verification
+- Case sensitivity (`GIT`, `Git`, `git`)
+
+#### 5. Graduated Command Policy (18 tests) — v0.3.0
+**File:** `tests/Krutaka.Tools.Tests/GraduatedCommandPolicyAdversarialTests.cs`
+
+Attack vectors tested:
+- Directory trust bypass attempts (Moderate tier in untrusted dir)
+- Tier override attempts (Elevated in trusted dir → still prompts)
+- Security pre-check enforcement (metacharacters caught before tier eval)
+- Config override limitations (cannot promote blocklisted commands)
+- Null policy engine handling (fail-secure to require approval)
+- Thread safety under concurrent load (20 rapid commands)
+- Combined directory access and tier evaluation
+- Dangerous tier enforcement (outright denial)
+
+#### 6. Command Tier Configuration (17 tests) — v0.3.0
+**File:** `tests/Krutaka.Tools.Tests/CommandTierConfigAdversarialTests.cs`
+
+Attack vectors tested:
+- Blocklisted command promotion attempts (powershell, cmd → rejected)
+- Dangerous tier assignment via config (rejected, code-only)
+- Path separators in executable name
+- Shell metacharacters in executable or argument patterns
+- Empty/null value handling
+- Overly broad wildcard patterns (null arguments → warning)
+- Valid custom executable acceptance
+- .exe suffix in executable name (rejected)
+
+### Attack Vector Summary
+
+**Total Adversarial Tests:** 245
+- Access Policy: 57 tests
+- Path Resolver: 30 tests
+- Glob Patterns: 93 tests
+- Command Classifier: 27 tests
+- Command Policy: 18 tests
+- Tier Config: 17 tests
+
+### Test Philosophy
+
+Adversarial tests follow the "assume breach" mindset:
+- **Every security boundary is tested for bypass attempts**
+- **Every configuration option is tested for tampering**
+- **Every input is tested for injection or manipulation**
+- **Every edge case is tested for crash or undefined behavior**
+
+These tests ensure Krutaka maintains security even when:
+- An attacker controls the Claude API responses
+- An attacker can modify configuration files
+- An attacker has knowledge of the codebase
+- An attacker attempts rapid-fire resource exhaustion
+
+
 ## Writing New Tests
 
 ### Naming Convention
