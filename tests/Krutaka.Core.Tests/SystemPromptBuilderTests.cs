@@ -522,6 +522,29 @@ public sealed class SystemPromptBuilderTests : IDisposable
         result.Should().Contain("Unknown commands are blocked");
         result.Should().Contain("If you need a specific tool, ask the user");
     }
+
+    [Fact]
+    public async Task BuildAsync_Should_ListDangerousExecutables_InTierSection()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("powershell", null, CommandRiskTier.Dangerous, "Blocked executable");
+        classifier.AddRule("cmd", null, CommandRiskTier.Dangerous, "Blocked executable");
+        classifier.AddRule("wget", null, CommandRiskTier.Dangerous, "Blocked executable");
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - Dangerous tier should be present with executables listed
+        result.Should().Contain("**Dangerous (always blocked):**");
+        result.Should().Contain("Always blocked: cmd, powershell, wget");
+    }
 }
 
 // Mock implementations for testing

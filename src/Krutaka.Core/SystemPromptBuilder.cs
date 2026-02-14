@@ -375,9 +375,13 @@ public sealed class SystemPromptBuilder
                 {
                     sb.AppendLine(CultureInfo.InvariantCulture, $"  Always safe: {string.Join(", ", wildcardExecutables)}");
                 }
+                else if (tier == CommandRiskTier.Dangerous)
+                {
+                    sb.AppendLine(CultureInfo.InvariantCulture, $"  Always blocked: {string.Join(", ", wildcardExecutables)}");
+                }
                 else
                 {
-                    // For other tiers, list individually if needed (typically won't have many)
+                    // For Moderate/Elevated tiers, list individually if needed (typically won't have many)
                     foreach (var exec in wildcardExecutables)
                     {
                         sb.AppendLine(CultureInfo.InvariantCulture, $"  {exec}: (any arguments)");
