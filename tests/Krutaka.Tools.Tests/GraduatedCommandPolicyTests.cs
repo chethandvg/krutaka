@@ -93,6 +93,21 @@ public sealed class GraduatedCommandPolicyTests
         act.Should().NotThrow();
     }
 
+    [Fact]
+    public void Constructor_Should_AcceptNullAuditLogger()
+    {
+        // Act
+        var act = () => new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
+            null,
+            _defaultOptions);
+
+        // Assert
+        act.Should().NotThrow();
+    }
+
     #endregion
 
     #region EvaluateAsync - Null Request Tests
@@ -113,6 +128,32 @@ public sealed class GraduatedCommandPolicyTests
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_Should_NotThrow_WhenAuditLoggerIsNull()
+    {
+        // Arrange
+        var request = new CommandExecutionRequest(
+            Executable: "git",
+            Arguments: new[] { "status" },
+            WorkingDirectory: "C:\\Projects",
+            Justification: "Check repository status");
+
+        _mockClassifier.Classify(Arg.Any<CommandExecutionRequest>()).Returns(CommandRiskTier.Safe);
+
+        var policy = new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
+            null, // Null audit logger
+            _defaultOptions);
+
+        // Act
+        var act = async () => await policy.EvaluateAsync(request, CancellationToken.None);
+
+        // Assert
+        await act.Should().NotThrowAsync();
     }
 
     #endregion
