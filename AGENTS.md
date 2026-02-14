@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents (GitHub Copilot, etc.) work
 
 Krutaka is an OpenClaw-inspired AI agent built in C#/.NET 10 for Windows. It is a console application that uses the Claude API to perform agentic tasks (read/write files, execute commands, search code) with human-in-the-loop approval for destructive operations.
 
-**Implementation Status:** ✅ **v0.3.0 Graduated Command Execution Complete** — All core features, dynamic directory scoping, and graduated command execution implemented and tested (1,273 tests passing, 1 skipped). Auto-resume on startup, session discovery, layered access policy engine, adversarial test coverage, and tiered command execution complete. The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for details.
+**Implementation Status:** 🟡 **v0.4.0 Telegram Integration & Multi-Session In Progress** — v0.3.0 is complete with 1,289 tests passing (1 skipped). v0.4.0 adds Telegram bot interface and multi-session architecture. Auto-resume on startup, session discovery, layered access policy engine, adversarial test coverage, and tiered command execution complete. The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for details.
 
 **Important:** We use the official `Anthropic` NuGet package (v12.4.0), NOT the community `Anthropic.SDK` package. Always refer to it as the "official Anthropic package" or "Anthropic NuGet package" to avoid confusion. See ADR-003 in `docs/architecture/DECISIONS.md` for details.
 
@@ -28,6 +28,7 @@ After every task, update the following files **only with necessary changes**:
    - `docs/status/DEPENDENCY-MAP.md` for package version changes
 3. **Do NOT create new documentation files** unless the issue explicitly says to.
 4. **Do NOT update `README.md`** unless the issue explicitly says to.
+5. **For v0.4.0 issues**, new documentation files ARE permitted when the issue explicitly requests their creation.
 
 ## Build and Test Commands
 
@@ -84,11 +85,12 @@ Krutaka.Tools         → Krutaka.Core
 Krutaka.Memory        → Krutaka.Core
 Krutaka.Skills        → Krutaka.Core
 Krutaka.Console       → All above projects
+Krutaka.Telegram      → Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI (composition root, like Console)
 ```
 
 - `Krutaka.Core` must NEVER reference any other Krutaka project.
 - `Krutaka.AI`, `Krutaka.Tools`, `Krutaka.Memory`, `Krutaka.Skills` must NEVER reference each other directly.
-- Only `Krutaka.Console` (the composition root) may reference all projects.
+- Only `Krutaka.Console` and `Krutaka.Telegram` (composition roots) may reference all projects.
 
 ## Security Rules (Non-Negotiable)
 
@@ -118,4 +120,7 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `docs/guides/TESTING.md` | Test strategy and procedures |
 | `docs/versions/v0.2.0.md` | v0.2.0 dynamic directory scoping architecture design |
 | `docs/versions/v0.3.0.md` | v0.3.0 graduated command execution architecture design |
+| `docs/versions/v0.4.0.md` | v0.4.0 Telegram integration and multi-session architecture design |
+| `docs/architecture/MULTI-SESSION.md` | Multi-session isolation architecture |
+| `docs/architecture/TELEGRAM.md` | Telegram security architecture |
 | `CHANGELOG.md` | Release notes following Keep a Changelog format |

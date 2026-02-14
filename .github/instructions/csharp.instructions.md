@@ -36,6 +36,12 @@
 - **IPascalCase**: Interfaces start with `I`
   - `ITool`, `IClaudeClient`, `ISecurityPolicy`
 
+### File Size Limits
+- Use `partial class` to split `.cs` files that exceed **300 lines** of code
+- Up to **330 lines** is acceptable before requiring a split
+- Name partial files descriptively: `MyClass.cs` + `MyClass.Validation.cs`, `MyClass.EventHandlers.cs`
+- Keep each partial file focused on a single responsibility or logical grouping
+
 ### File-Scoped Namespaces
 - **ALWAYS** use file-scoped namespaces (C# 10+ feature):
   ```csharp
@@ -255,3 +261,9 @@
   result.Should().BeOfType<string>();
   result.Should().Be("expected value");
   ```
+
+## Multi-Session Patterns
+
+- Per-session mutable state (`AgentOrchestrator`, `CorrelationContext`, `SessionStore`, `ISessionAccessStore`, `ICommandApprovalCache`, `IToolRegistry`) must NEVER be registered as singleton when multi-session is active
+- Use `ISessionFactory` to create fully isolated session instances
+- Shared stateless services (`IClaudeClient`, `ISecurityPolicy`, `IAuditLogger`, `IAccessPolicyEngine`, `ICommandRiskClassifier`, `ToolOptions`) remain singletons

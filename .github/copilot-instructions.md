@@ -4,7 +4,7 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
-**Implementation Status:** ✅ **v0.3.0 Graduated Command Execution Complete** — All core features, dynamic directory scoping, and graduated command execution implemented with 1,273 tests passing. See `docs/status/PROGRESS.md` for detailed status.
+**Implementation Status:** 🟡 **v0.4.0 Telegram Integration & Multi-Session In Progress** — v0.3.0 is complete with 1,289 tests passing (1 skipped). v0.4.0 adds Telegram bot interface and multi-session architecture. See `docs/status/PROGRESS.md` for detailed status.
 
 ## Coding Conventions
 
@@ -22,6 +22,8 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - Prefer `switch` expressions and pattern matching over `if/else` chains
 - Use `record` types for immutable data carriers
 - Use `readonly record struct` for small value types
+- Use `partial class` if a `.cs` file exceeds 300 lines of code. Up to 330 lines is acceptable before splitting is required.
+- Name partial files descriptively: `MyClass.cs` + `MyClass.Validation.cs` or `MyClass.EventHandlers.cs`
 
 ### Project Structure
 - Solution uses central package management (`Directory.Packages.props`)
@@ -29,6 +31,8 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - Interfaces live in `Krutaka.Core` — implementations in their respective projects
 - Tests use xUnit with FluentAssertions
 - Test classes mirror source classes: `MyClass.cs` → `MyClassTests.cs`
+- `Krutaka.Telegram` is a composition root (like `Krutaka.Console`) that provides Telegram bot interface
+- `ISessionFactory`/`ISessionManager` replace the singleton orchestrator pattern for multi-session support
 
 ### Security (Critical)
 - NEVER hardcode secrets, API keys, or credentials
@@ -37,8 +41,12 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - ALWAYS validate file paths through `PathResolver.ResolveToFinalTarget()` to resolve symlinks, junctions, and reparse points
 - ALWAYS validate commands through `ICommandPolicy.EvaluateAsync()` for tier-based approval
 - ALWAYS wrap untrusted content in `<untrusted_content>` tags when sending to Claude
+- ALWAYS wrap Telegram user input in `<untrusted_content source="telegram:user:{userId}">` tags before sending to Claude
 - ALWAYS use `CancellationToken` for cancellable operations
+- ALWAYS ensure per-session state (orchestrator, correlation context, session store, access store, approval cache) is instantiated per-session, NEVER as a singleton
+- ALWAYS validate Telegram inline keyboard callbacks with HMAC-SHA256 before processing
 - NEVER log sensitive data — use the log redaction filter
+- NEVER store Telegram bot tokens in `appsettings.json` — use `ISecretsProvider` (Windows Credential Manager) or environment variables
 
 ### Dependencies
 - Use only packages declared in `Directory.Packages.props`
@@ -54,4 +62,7 @@ Before making changes, read:
 - `docs/architecture/SECURITY.md` — Security model (for security-sensitive code)
 - `docs/versions/v0.2.0.md` — v0.2.0 dynamic directory scoping architecture design
 - `docs/versions/v0.3.0.md` — v0.3.0 graduated command execution architecture design
+- `docs/versions/v0.4.0.md` — v0.4.0 Telegram integration and multi-session architecture design
+- `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
+- `docs/architecture/TELEGRAM.md` — Telegram security architecture
 - `docs/architecture/DECISIONS.md` — Architecture Decision Records (ADR-013 for graduated command execution)
