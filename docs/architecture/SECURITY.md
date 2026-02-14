@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-13 (v0.2.0 release documentation complete — all dynamic directory scoping security features implemented)
+> **Last updated:** 2026-02-14 (v0.3.0 release documentation complete — graduated command execution with tiered risk classification)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -100,6 +100,45 @@ Any command or argument containing these characters must be rejected:
 - Implemented in `Krutaka.Tools/CommandPolicy.cs`
 - **Shell metacharacters are checked BEFORE allowlist/blocklist** to prevent injection attacks from bypassing list checks
 
+### Graduated Command Execution (v0.3.0)
+
+✅ **Complete** (Issues v0.3.0-1 through v0.3.0-10 — 2026-02-14)
+
+v0.3.0 adds tiered risk classification on top of the existing allowlist/blocklist. Commands are classified into four risk tiers, reducing approval fatigue while maintaining strict controls for dangerous operations.
+
+**Tier Model:**
+
+| Tier | Approval Behavior | Examples |
+|---|---|---|
+| **Safe** | Always auto-approved | `git status`, `git log`, `dotnet --version`, `cat`, `grep`, `find` |
+| **Moderate** | Auto-approved in trusted directories, prompted elsewhere | `git add`, `git commit`, `dotnet build`, `dotnet test`, `npm run` |
+| **Elevated** | Always requires human approval | `git push`, `git pull`, `npm install`, `dotnet publish`, `pip install` |
+| **Dangerous** | Always blocked | Blocklisted executables, unknown commands, executables with path separators |
+
+**Implementation:**
+- `ICommandRiskClassifier`: Classifies commands by executable + arguments → `CommandRiskTier`
+- `ICommandPolicy`: Three-stage evaluation (security pre-check → classification → tier-based decision)
+- `GraduatedCommandPolicy`: Integrates with `IAccessPolicyEngine` for Moderate tier directory trust evaluation
+- `CommandTierConfigValidator`: Startup validation prevents promoting blocklisted commands via config
+
+**Threat Model (v0.3.0):**
+
+| # | Threat | Severity | Attack Vector | Mitigation | Status |
+|---|---|---|---|---|---|
+| CT1 | Safe tier bypass | High | Craft arguments so destructive command classifies as Safe | Classification is code-side, not AI-determined. Arguments pattern-matched against hardcoded rules. Unknown args → higher default tier. | Mitigated |
+| CT2 | Argument pattern evasion | Critical | Use alias (`-f` for `--force`) to evade classification | Known aliases handled. Unknown aliases → executable's default tier (not Safe). Shell metacharacter check runs FIRST. | Mitigated |
+| CT3 | Moderate auto-approve abuse | Medium | Chain many Moderate commands to achieve Elevated-equivalent effect | Each command classified independently. Audit log captures all auto-approvals. Per-session review possible. | Accepted |
+| CT4 | Configuration tampering | High | Modify appsettings.json to promote dangerous commands | Startup validation blocks: blocklisted command promotion, Dangerous tier via config, .exe suffix bypass, metacharacters in executables/args | Mitigated |
+| CT5 | Unknown command execution | Critical | Request execution of unrecognized executable | Unknown executables → Dangerous tier (fail-closed). Path separators in executables → Dangerous. | Mitigated |
+| CT6 | Hard denial downgrade | High | Moderate command in system directory should be denied, not prompted | `AccessOutcome.Denied` returns `CommandDecision.Deny` (not RequireApproval). Hard boundaries preserved. | Mitigated |
+
+**Security Invariants (v0.3.0):**
+1. Shell metacharacter check runs FIRST — before tier classification, before everything
+2. Blocklisted commands are ALWAYS blocked — cannot be promoted via config
+3. Elevated tier NEVER auto-approves — directory trust does NOT override
+4. Unknown commands are ALWAYS Dangerous — fail-closed behavior
+5. Hard denials are NEVER downgraded to RequiresApproval
+
 ## Path Validation Rules
 
 ### Implementation Status
@@ -188,9 +227,9 @@ known_hosts, authorized_keys
 - ✅ Displays tool name, input parameters, and risk level in formatted panels
 - ✅ For `write_file`: shows content preview (truncated at 50 lines with "View full" option)
 - ✅ For `edit_file`: shows diff preview of lines being replaced vs new content
-- ✅ For `run_command`: shows only [Y]es and [N]o options (no "Always" per security policy)
+- ✅ For `run_command`: **[v0.3.0]** Tier-based approval — Safe auto-approved, Moderate shows [Y]es/[N]o/[A]lways, Elevated shows [Y]es/[N]o only
 - ✅ For other tools: shows [Y]es, [N]o, [A]lways for this session, [V]iew full content
-- ✅ Session-level "always approve" cache per tool name (except `run_command`)
+- ✅ Session-level "always approve" cache per tool name (including Moderate tier commands in v0.3.0)
 - ✅ Denial creates descriptive message (not error) for Claude: "The user denied execution of {tool_name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification."
 - ✅ Comprehensive unit tests in `tests/Krutaka.Console.Tests/ApprovalHandlerTests.cs` (8 tests, all passing)
 - ✅ **Integrated** (Issue #29): AgentOrchestrator blocks execution via `TaskCompletionSource<bool>` until `ApproveTool()` or `DenyTool()` is called
@@ -203,7 +242,7 @@ known_hosts, authorized_keys
 | `search_files` | Low | No (auto-approve) | N/A |
 | `write_file` | High | **Yes** | Yes (per session) |
 | `edit_file` | High | **Yes** | Yes (per session) |
-| `run_command` | Critical | **Yes, always** | **No** (every invocation) |
+| `run_command` | **[v0.3.0]** Tiered | **Tier-based** (Safe: auto, Moderate: context, Elevated: always, Dangerous: blocked) | Yes (Moderate tier only) |
 | `memory_store` | Medium | No (auto-approve) | N/A |
 | `memory_search` | Low | No (auto-approve) | N/A |
 
@@ -216,7 +255,7 @@ known_hosts, authorized_keys
   Allow? [Y]es / [N]o / [A]lways for this session / [V]iew full content
 ```
 
-For `run_command`, only `[Y]es` and `[N]o` are offered.
+For `run_command`, approval behavior depends on command risk tier (see Graduated Command Execution section above).
 
 ### Denial Handling
 When user denies a tool call:
@@ -456,7 +495,7 @@ These properties are **guaranteed in v0.1.0 and remain guaranteed in v0.2.0**. T
 7. **CancellationToken on everything** — All async operations respect cancellation
 8. **Sensitive file pattern blocking** — `.env`, `.key`, `.pem`, etc. are ALWAYS blocked
 9. **Agent config self-protection** — `~/.krutaka/` is ALWAYS blocked from agent access
-10. **Human approval for run_command** — ALWAYS required, no "Always" option, no bypass
+10. **Graduated command execution** — Commands classified by risk tier (Safe/Moderate/Elevated/Dangerous) via `ICommandPolicy.EvaluateAsync()`. Elevated commands ALWAYS require approval. Dangerous commands ALWAYS blocked. Unknown commands fail-closed to Dangerous.
 
 ### Four-Layer Policy Evaluation
 
