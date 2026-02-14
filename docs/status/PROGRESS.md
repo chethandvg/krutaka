@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-14 (v0.3.0 Enhanced audit logging for command tiers — Issue v0.3.0-8 complete — 1,170 tests passing)
+> **Last updated:** 2026-02-14 (v0.3.0 Adversarial security tests — Issue v0.3.0-9 complete — 1,251 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -152,6 +152,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-6 | Update ApprovalHandler for tiered command display | UI | 🟢 Complete | 2026-02-13 |
 | v0.3.0-7 | Update SystemPromptBuilder with command tier information | Enhancement | 🟢 Complete | 2026-02-13 |
 | v0.3.0-8 | Enhanced audit logging for command tiers | Observability | 🟢 Complete | 2026-02-14 |
+| v0.3.0-9 | Adversarial security tests for graduated command execution | Testing | 🟢 Complete | 2026-02-14 |
 
 **Issue v0.3.0-5 Details:**
 - **Created:** `CommandApprovalRequiredException` in `src/Krutaka.Core/CommandApprovalRequiredException.cs`:
