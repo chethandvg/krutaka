@@ -263,6 +263,47 @@ When user denies a tool call:
 - **[N]** Deny access (tool fails with descriptive message)
 - **[S]** Session grant (creates TTL-bounded grant via `ISessionAccessStore`)
 
+## Audit Logging
+
+### Implementation Status
+✅ **Complete** (Issue #24 — 2026-02-11, Enhanced in v0.3.0-8 — 2026-02-14)
+- ✅ Structured audit logging via `AuditLogger` and `IAuditLogger` interface
+- ✅ Event types: UserInput, ClaudeApiRequest, ClaudeApiResponse, ToolExecution, Compaction, SecurityViolation
+- ✅ **v0.3.0-8**: Added `CommandClassificationEvent` for command tier audit trail
+- ✅ All events include correlation IDs (SessionId, TurnId, RequestId) for tracing
+- ✅ Tier-based log levels for command classification:
+  - Safe tier → `Debug` (high volume, noise reduction)
+  - Moderate tier → `Information` (noteworthy but routine)
+  - Elevated tier → `Warning` (always notable, requires human approval)
+  - Dangerous tier → `Error` (security event, already covered by existing violation logging)
+- ✅ Logs stored in `~/.krutaka/logs` (tamper-proof — Layer 1 hard-deny prevents agent access)
+
+### Command Classification Audit Trail (v0.3.0-8)
+
+Every command execution is logged with:
+- **Executable name**: The command being run (e.g., `git`, `dotnet`, `npm`)
+- **Arguments**: Command arguments (sanitized, truncated if > 500 chars)
+- **Risk tier**: Safe, Moderate, Elevated, or Dangerous
+- **Approval status**: Auto-approved (true) or required manual approval (false)
+- **Trusted directory**: Path if auto-approved based on directory trust (Moderate tier only)
+- **Reason**: Justification for the decision (e.g., "Auto-approved (Safe tier - read-only operation)")
+- **Correlation context**: SessionId, TurnId, RequestId for tracing
+
+**Example log entries:**
+```
+[DBG] Audit: CommandClassificationEvent | SessionId=abc123 TurnId=5 RequestId=req_xyz | {"executable":"git","arguments":"status","tier":"Safe","autoApproved":true,"trustedDirectory":null,"reason":"Auto-approved (Safe tier - read-only operation)"}
+
+[INF] Audit: CommandClassificationEvent | SessionId=abc123 TurnId=6 RequestId=req_xyz | {"executable":"dotnet","arguments":"build","tier":"Moderate","autoApproved":true,"trustedDirectory":"C:\\Projects\\MyApp","reason":"Auto-approved (Moderate tier in trusted directory)"}
+
+[WRN] Audit: CommandClassificationEvent | SessionId=abc123 TurnId=7 RequestId=req_xyz | {"executable":"git","arguments":"push origin main","tier":"Elevated","autoApproved":false,"trustedDirectory":null,"reason":"Requires approval (Elevated tier - potentially destructive operation)"}
+```
+
+**Investigation use cases:**
+- "Was command X auto-approved or manually approved?" → Filter by `autoApproved` field
+- "What commands ran in trusted directory Y?" → Filter by `trustedDirectory` field
+- "Show all Elevated tier commands" → Filter by `tier:Elevated`
+- "Trace all commands in session Z" → Filter by `SessionId`
+
 ## Process Sandboxing
 
 ### Implementation Status
