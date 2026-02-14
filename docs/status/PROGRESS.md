@@ -155,8 +155,6 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-9 | Adversarial security tests for graduated command execution | Testing | 🟢 Complete | 2026-02-14 |
 | v0.3.0-10 | Release documentation, CHANGELOG, and verification | Docs | 🟢 Complete | 2026-02-14 |
 
-| v0.3.0-10 | Release documentation, CHANGELOG, and verification | Docs | 🟢 Complete | 2026-02-14 |
-
 **Issue v0.3.0-10 Details:**
 - **Updated:** `CHANGELOG.md` with complete v0.3.0 entry (Added, Changed, Security sections)
 - **Updated:** `README.md` with v0.3.0 status, graduated command execution features, updated test count (1,273), tiered security controls
