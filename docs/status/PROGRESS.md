@@ -269,7 +269,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - Updated SystemPromptBuilder registration to inject `ICommandRiskClassifier` via `sp.GetService<ICommandRiskClassifier>()`
   - Passes classifier to SystemPromptBuilder constructor
 - **Modified:** `SystemPromptBuilderTests.cs` in `tests/Krutaka.Core.Tests/SystemPromptBuilderTests.cs`:
-  - Added 7 new tests for tier information functionality:
+  - Added 6 new tests for tier information functionality:
     1. `BuildAsync_Should_IncludeCommandTierInformation_WhenClassifierProvided`
     2. `BuildAsync_Should_NotIncludeCommandTierInformation_WhenClassifierIsNull`
     3. `BuildAsync_Should_IncludeAllFourTierLabels_WhenClassifierProvided`
@@ -279,7 +279,7 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
   - Added `MockCommandRiskClassifier` file-scoped class for testing
 - **Test Results:** 1,159 tests passing (1 skipped, 0 failures)
   - Memory.Tests: 127 passed
-  - Core.Tests: 172 passed (7 new tier information tests)
+  - Core.Tests: 172 passed (6 new tier information tests)
   - Skills.Tests: 17 passed
   - Console.Tests: 99 passed
   - Tools.Tests: 734 passed
