@@ -31,11 +31,12 @@ public class RunCommandTool : ToolBase
     /// <summary>
     /// Windows shell built-ins that require cmd.exe to execute.
     /// These commands are not standalone executables but are implemented as part of cmd.exe.
+    /// Only includes commands that are in the AllowedExecutables allowlist.
     /// </summary>
     private static readonly HashSet<string> WindowsShellBuiltins = new(StringComparer.OrdinalIgnoreCase)
     {
-        "mkdir", "md", "rmdir", "rd", "dir", "type", "echo", "sort",
-        "find", "findstr", "where", "tree", "copy", "move", "del"
+        "mkdir", "dir", "type", "echo", "sort",
+        "find", "findstr", "where", "tree"
     };
 
     /// <summary>

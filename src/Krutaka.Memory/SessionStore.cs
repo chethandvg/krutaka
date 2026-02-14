@@ -291,8 +291,9 @@ public sealed class SessionStore : ISessionStore, IDisposable
             return; // No orphaned tool_use blocks
         }
 
-        // Second pass: inject synthetic tool_result messages for orphaned tool_use blocks
-        // Insert after the assistant message containing the orphaned tool_use
+        // Second pass: inject synthetic tool_result blocks for orphaned tool_use blocks
+        // If a user message already exists after the assistant message, augment it with synthetic results
+        // Otherwise, create a new user message
         int insertOffset = 0; // Track how many messages we've inserted (to adjust indices)
 
         foreach (var assistantMessageIndex in assistantMessageIndices)
@@ -339,17 +340,96 @@ public sealed class SessionStore : ISessionStore, IDisposable
                     tool_use_id = id,
                     content = "Session was interrupted before tool execution completed",
                     is_error = true
-                }).ToArray();
+                }).ToList();
 
-                // Insert synthetic user message with tool_result blocks after this assistant message
-                var syntheticMessage = new
+                // Check if there's already a user message immediately after this assistant message
+                var nextMessageIndex = adjustedIndex + 1;
+                if (nextMessageIndex < messages.Count)
                 {
-                    role = "user",
-                    content = syntheticBlocks
-                };
+                    var nextMessageJson = JsonSerializer.Serialize(messages[nextMessageIndex]);
+                    var nextMessageDoc = JsonDocument.Parse(nextMessageJson);
+                    var nextRoot = nextMessageDoc.RootElement;
 
-                messages.Insert(adjustedIndex + 1, syntheticMessage);
-                insertOffset++; // Adjust for the newly inserted message
+                    if (nextRoot.TryGetProperty("role", out var nextRoleElement) &&
+                        nextRoleElement.GetString() == "user" &&
+                        nextRoot.TryGetProperty("content", out var nextContentElement) &&
+                        nextContentElement.ValueKind == JsonValueKind.Array)
+                    {
+                        // User message exists - augment it with synthetic tool_results
+                        // Parse existing content blocks
+                        var existingBlocks = new List<object>();
+                        foreach (var block in nextContentElement.EnumerateArray())
+                        {
+                            // Reconstruct each block as an anonymous object
+                            if (block.TryGetProperty("type", out var blockTypeElement))
+                            {
+                                var blockType = blockTypeElement.GetString();
+                                if (blockType == "tool_result")
+                                {
+                                    // Reconstruct tool_result block
+                                    var toolUseId = block.TryGetProperty("tool_use_id", out var idElem) ? idElem.GetString() : "";
+                                    var content = block.TryGetProperty("content", out var contentElem) ? contentElem.GetString() : "";
+                                    var isError = block.TryGetProperty("is_error", out var errorElem) && errorElem.GetBoolean();
+                                    
+                                    existingBlocks.Add(new
+                                    {
+                                        type = "tool_result",
+                                        tool_use_id = toolUseId,
+                                        content = content ?? string.Empty,
+                                        is_error = isError
+                                    });
+                                }
+                                else if (blockType == "text")
+                                {
+                                    // Reconstruct text block
+                                    var text = block.TryGetProperty("text", out var textElem) ? textElem.GetString() : "";
+                                    existingBlocks.Add(new
+                                    {
+                                        type = "text",
+                                        text = text ?? string.Empty
+                                    });
+                                }
+                            }
+                        }
+
+                        // Add synthetic blocks to existing blocks
+                        existingBlocks.AddRange(syntheticBlocks);
+
+                        // Replace the existing user message with augmented version
+                        var augmentedMessage = new
+                        {
+                            role = "user",
+                            content = existingBlocks.ToArray()
+                        };
+
+                        messages[nextMessageIndex] = augmentedMessage;
+                        // No need to adjust insertOffset since we replaced rather than inserted
+                    }
+                    else
+                    {
+                        // Next message is not a user message - insert new synthetic user message
+                        var syntheticMessage = new
+                        {
+                            role = "user",
+                            content = syntheticBlocks.ToArray()
+                        };
+
+                        messages.Insert(nextMessageIndex, syntheticMessage);
+                        insertOffset++; // Adjust for the newly inserted message
+                    }
+                }
+                else
+                {
+                    // No message after assistant - insert new synthetic user message at the end
+                    var syntheticMessage = new
+                    {
+                        role = "user",
+                        content = syntheticBlocks.ToArray()
+                    };
+
+                    messages.Insert(nextMessageIndex, syntheticMessage);
+                    insertOffset++; // Adjust for the newly inserted message
+                }
             }
         }
     }

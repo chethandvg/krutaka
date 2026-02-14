@@ -538,4 +538,34 @@ public sealed class SessionStoreTests : IDisposable
         toolResultMsg.Should().Contain("file contents");
         toolResultMsg.Should().NotContain("Session was interrupted");
     }
+
+    [Fact]
+    public async Task Should_AugmentExistingUserMessageWhenPartialToolResultsExist()
+    {
+        // Arrange — multiple tool_use blocks, only some tool_results persisted before crash
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        await store.AppendAsync(new SessionEvent("user", "user", "Read three files", DateTimeOffset.UtcNow));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"a.txt"}""", DateTimeOffset.UtcNow.AddSeconds(1), "read_file", "toolu_A"));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"b.txt"}""", DateTimeOffset.UtcNow.AddSeconds(2), "read_file", "toolu_B"));
+        await store.AppendAsync(new SessionEvent("tool_use", "assistant", """{"path":"c.txt"}""", DateTimeOffset.UtcNow.AddSeconds(3), "read_file", "toolu_C"));
+        // Only toolu_A completed before crash
+        await store.AppendAsync(new SessionEvent("tool_result", "user", "contents A", DateTimeOffset.UtcNow.AddSeconds(4), "read_file", "toolu_A"));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert — should be 3 messages: user, assistant(3 tool_use), user(1 existing + 2 synthetic tool_result)
+        messages.Should().HaveCount(3);
+
+        var userMsg = JsonSerializer.Serialize(messages[2]);
+        userMsg.Should().Contain("\"role\":\"user\"");
+        // Should have all three tool_results in the same message
+        userMsg.Should().Contain("toolu_A");
+        userMsg.Should().Contain("toolu_B");
+        userMsg.Should().Contain("toolu_C");
+        userMsg.Should().Contain("contents A"); // Existing result
+        userMsg.Should().Contain("Session was interrupted"); // Synthetic results
+    }
 }
