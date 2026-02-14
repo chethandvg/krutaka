@@ -5,7 +5,7 @@
 
 An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened console agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations.
 
-> **Status:** ✅ v0.2.0 — Dynamic directory scoping with layered access policy. 853 tests passing, ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
+> **Status:** ✅ v0.3.0 — Graduated command execution with risk-tiered approval. 1,273 tests passing, ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
 
 ## Why Krutaka?
 
@@ -17,6 +17,7 @@ Krutaka is built to avoid those mistakes:
 - **DPAPI-encrypted secrets** — API keys stored in Windows Credential Manager, never in files or environment variables.
 - **Mandatory human approval** — Write and execute operations require explicit user confirmation.
 - **Command allowlisting** — Shell execution uses a strict allowlist enforced in code, not config.
+- **Graduated command execution** — Commands classified into risk tiers (Safe/Moderate/Elevated/Dangerous) for context-appropriate approval instead of blanket prompting.
 - **Dynamic directory scoping** — Multi-directory access with layered policy engine (hard deny → auto-grant → session grants → user prompts).
 - **Path hardening** — Segment-by-segment symlink resolution, ADS blocking, device name blocking, ceiling enforcement.
 - **Prompt injection defense** — Untrusted content (file contents, command output) is tagged with XML delimiters and the model is instructed to treat it as data only.
@@ -145,7 +146,7 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 | Control | Implementation | Status |
 |---|---|---|
 | **Secrets Management** | Windows Credential Manager with DPAPI encryption | ✅ Complete |
-| **Command Allowlist** | Hardcoded allowlist/blocklist in `CommandPolicy` | ✅ Complete |
+| **Command Allowlist** | Tiered risk classification via `GraduatedCommandPolicy` (Safe/Moderate/Elevated/Dangerous) | ✅ Complete |
 | **Path Validation** | Symlink resolution + ADS/device name blocking + ceiling enforcement | ✅ Complete |
 | **Directory Access Control** | Layered policy engine with auto-grant patterns and session grants | ✅ Complete |
 | **Process Sandboxing** | Windows Job Objects (256MB memory, 30s CPU limits) | ✅ Complete |
@@ -157,12 +158,13 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 
 ### Security Test Coverage
 
-- **212+ security policy tests** covering:
+- **580+ security policy tests** covering:
   - 40 command validation tests (allowlist, blocklist, metacharacters)
   - 40 path validation tests (traversal, blocked directories, file patterns)
   - 20 environment scrubbing tests
   - 25 access policy engine tests (layer logic, deny precedence, grant flow)
   - 87 adversarial tests (symlink escapes, ADS attacks, device names, glob pattern abuse, ceiling violations)
+  - ~370 graduated command execution tests (tier classification, policy evaluation, config validation, adversarial scenarios)
 - **All security tests passing** in CI/CD pipeline
 - **Separate security test workflow** for critical security validations
 
@@ -196,7 +198,7 @@ Contributions are welcome! Please follow these guidelines:
    - Never hardcode secrets
    - Always validate directory access through `IAccessPolicyEngine.EvaluateAsync()`
    - Always validate paths through `PathResolver.ResolveToFinalTarget()`
-   - Always validate commands through `CommandPolicy.ValidateCommand()`
+   - Always validate commands through `ICommandPolicy.EvaluateAsync()` for tier-based approval
    - Use CliWrap with explicit argument arrays (never string interpolation)
    - Wrap untrusted content in `<untrusted_content>` tags
 

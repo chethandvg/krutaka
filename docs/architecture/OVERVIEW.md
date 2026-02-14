@@ -1,6 +1,6 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-13 (v0.3.0 GraduatedCommandPolicy added)
+> **Last updated:** 2026-02-14 (v0.3.0 release documentation complete)
 
 ## System Architecture
 

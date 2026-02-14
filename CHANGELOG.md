@@ -14,6 +14,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `RunAsync_Should_AllowInfiniteApprovalTimeout_WhenSetToZero` - Confirms zero timeout = infinite wait
   - `Should_ThrowIOException_WhenSymlinkDepthExceedsMaximum` - Tests 32-level symlink depth limit with graceful permission skip
 
+## [0.3.0] - 2026-02-14
+
+### Added
+- **Graduated command execution**: Commands are now classified into four risk tiers instead of requiring blanket approval for all `run_command` invocations
+  - **Safe tier** (auto-approved): Read-only commands like `git status`, `git log`, `dotnet --version`, `cat`, `grep`, `find`, `dir`, `echo`
+  - **Moderate tier** (context-dependent): Build/local commands like `git add`, `git commit`, `dotnet build`, `dotnet test`, `npm run`, `python` — auto-approved in trusted directories, prompted elsewhere
+  - **Elevated tier** (always prompted): Potentially destructive commands like `git push`, `git pull`, `npm install`, `dotnet publish`, `pip install`
+  - **Dangerous tier** (always blocked): Blocklisted executables (`powershell`, `cmd`, `curl`, `wget`, etc.) and unknown commands
+- **`ICommandRiskClassifier` interface** (`Krutaka.Core`): Classifies commands by executable name and arguments into risk tiers
+- **`ICommandPolicy` interface** (`Krutaka.Core`): Evaluates command execution requests and returns tier-based approval decisions
+- **`CommandRiskClassifier`** (`Krutaka.Tools`): Default classifier with hardcoded rules for Safe/Moderate/Elevated/Dangerous tiers, fail-closed for unknown commands
+- **`GraduatedCommandPolicy`** (`Krutaka.Tools`): Three-stage evaluation — security pre-check → risk classification → tier-based decision with directory trust integration
+- **`CommandApprovalRequiredException`**: New exception type for graduated command approval flow (follows `DirectoryAccessRequiredException` pattern)
+- **`CommandApprovalRequested` event**: New agent event yielded when command requires interactive approval
+- **Configurable command tier overrides** via `appsettings.json`: Users can customize tier assignments for custom executables (e.g., `cargo`, `make`) with startup validation preventing security downgrades
+- **`CommandTierConfigValidator`**: Startup validation for tier overrides — blocks promotion of blocklisted commands, prevents Dangerous tier assignment via config, validates executable names and argument patterns
+- **Tier-aware approval UI**: `ApprovalHandler` displays tier-specific labels and emoji (🟢 Safe, 🟡 Moderate, 🔴 Elevated), "Always" option for Moderate tier commands
+- **Session-level command approval caching**: "Always" option caches approval for specific command signatures within a session
+- **System prompt command tier information**: `SystemPromptBuilder` includes tier listings so Claude knows which commands require approval
+- **Command classification audit logging**: Every command logged with tier, approval status, and directory trust context; tier-based log levels (Safe→Debug, Moderate→Info, Elevated→Warning)
+- **New model types**: `CommandRiskTier` enum, `CommandOutcome` enum, `CommandRiskRule` record, `CommandExecutionRequest` record (with defensive argument copy), `CommandDecision` record (with factory methods), `CommandPolicyOptions`, `CommandClassificationEvent`
+- **~370 new tests** across all test projects for graduated command execution, bringing total to 1,273 (1 skipped)
+
+### Changed
+- **`RunCommandTool` refactored**: Now uses `ICommandPolicy.EvaluateAsync()` instead of direct `ISecurityPolicy.ValidateCommand()` for tier-based approval decisions
+- **`run_command` removed from static approval list**: Approval is now determined dynamically by `ICommandPolicy` tier evaluation instead of `CommandPolicy.ToolsRequiringApproval`
+- **`AgentOrchestrator` enhanced**: Added command approval flow with `ApproveCommand()`/`DenyCommand()` methods and session-level approval caching
+- **`ApprovalHandler` enhanced**: New `HandleCommandApproval()` method with tier-specific UI formatting
+- **`SystemPromptBuilder` enhanced**: Optional `ICommandRiskClassifier` dependency for including tier information in system prompt
+- **`IAuditLogger` enhanced**: New `LogCommandClassification()` method with tier-based log levels
+- **`GraduatedCommandPolicy` updated**: Optional `IAuditLogger` for command classification audit trail
+
+### Security
+- **Fail-closed classification**: Unknown executables and executables with path separators are classified as Dangerous (always blocked)
+- **Immutable security pre-check**: Shell metacharacter and blocklist validation always runs before tier classification
+- **Elevated commands never auto-approved**: Directory trust does NOT override Elevated tier — `git push` always requires approval
+- **Hard denial enforcement**: `AccessOutcome.Denied` from access policy engine returns `CommandDecision.Deny`, preventing security downgrade where non-overridable denials could become approvable
+- **Configuration tampering prevention**: Startup validation prevents promoting blocklisted commands via config, prevents `.exe` suffix bypass (e.g., `powershell.exe`)
+- **Defensive argument copy**: `CommandExecutionRequest` creates immutable copy of arguments to prevent post-classification mutation
+- **Adversarial test coverage**: New tests for tier bypass attempts, argument pattern evasion, configuration manipulation, and unknown command handling
+
 ## [0.2.0] - 2026-02-13
 
 ### Added
@@ -105,7 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/chethandvg/krutaka/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/chethandvg/krutaka/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/chethandvg/krutaka/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/chethandvg/krutaka/releases/tag/v0.1.0

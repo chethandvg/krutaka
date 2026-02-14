@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-14 (v0.3.0 Adversarial security tests — Issue v0.3.0-9 complete — 1,251 tests passing)
+> **Last updated:** 2026-02-14 (v0.3.0 Release documentation complete — 1,273 tests passing)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -131,9 +131,9 @@ v0.2.0 replaces the static, single-directory `WorkingDirectory` configuration wi
 
 ---
 
-## v0.3.0 — Graduated Command Execution (In Progress)
+## v0.3.0 — Graduated Command Execution (Complete)
 
-> **Status:** 🟡 **In Progress** (Issue v0.3.0-5 complete — 2026-02-13)  
+> **Status:** 🟢 **Complete** (All 10 issues complete — 2026-02-14)  
 > **Reference:** See `docs/versions/v0.3.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
@@ -153,6 +153,19 @@ v0.3.0 evolves command execution from a static binary allowlist/blocklist into a
 | v0.3.0-7 | Update SystemPromptBuilder with command tier information | Enhancement | 🟢 Complete | 2026-02-13 |
 | v0.3.0-8 | Enhanced audit logging for command tiers | Observability | 🟢 Complete | 2026-02-14 |
 | v0.3.0-9 | Adversarial security tests for graduated command execution | Testing | 🟢 Complete | 2026-02-14 |
+| v0.3.0-10 | Release documentation, CHANGELOG, and verification | Docs | 🟢 Complete | 2026-02-14 |
+
+**Issue v0.3.0-10 Details:**
+- **Updated:** `CHANGELOG.md` with complete v0.3.0 entry (Added, Changed, Security sections)
+- **Updated:** `README.md` with v0.3.0 status, graduated command execution features, updated test count (1,273), tiered security controls
+- **Updated:** `.github/copilot-instructions.md` with v0.3.0 implementation status, `ICommandPolicy.EvaluateAsync()` security guidance, v0.3.0 docs reference
+- **Updated:** `AGENTS.md` with v0.3.0 implementation status, updated security rules, v0.3.0 docs in Key Files Reference
+- **Updated:** `docs/status/PROGRESS.md` with v0.3.0 completion status, all 10 issues marked complete
+- **Updated:** `docs/architecture/OVERVIEW.md` with v0.3.0 final consistency timestamp
+- **Updated:** `docs/architecture/SECURITY.md` with graduated command execution threat model, updated immutable boundaries, command tier security controls
+- **Added:** ADR-013 in `docs/architecture/DECISIONS.md` for graduated command execution with static tier assignment
+- **Updated:** `docs/versions/v0.3.0.md` status from Planning to Complete
+- **Verification:** `dotnet build` zero warnings, `dotnet test` 1,273 passing (1 skipped), all v0.3.0 issues complete
 
 **Issue v0.3.0-5 Details:**
 - **Created:** `CommandApprovalRequiredException` in `src/Krutaka.Core/CommandApprovalRequiredException.cs`:

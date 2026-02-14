@@ -199,3 +199,64 @@ Implement a **four-layer access policy engine** (`LayeredAccessPolicyEngine`) th
 - See `docs/versions/v0.2.0.md` for complete architecture design, data flow diagrams, and threat model
 - Implementation tracked across 11 sub-issues (v0.2.0-1 through v0.2.0-11)
 - Symlink resolution addresses security gap identified in v0.1.0 (SafeFileOperations did not resolve links)
+
+---
+
+## ADR-013: Graduated Command Execution with Static Tier Assignment
+
+**Date:** 2026-02-14  
+**Status:** Accepted  
+
+**Context:**
+
+v0.2.0's command execution model requires human approval for every `run_command` invocation, regardless of risk. `CommandPolicy.IsApprovalRequired("run_command")` returns `true` unconditionally. This creates approval fatigue: users rubber-stamp harmless commands like `git status` and `dotnet --version` dozens of times per session, reducing attention for genuinely dangerous operations like `git push --force` or `npm install`.
+
+Two approaches were considered:
+
+1. **Static tier classification** — Commands are assigned to fixed risk tiers (Safe, Moderate, Elevated, Dangerous) based on executable name and arguments. Classification is deterministic and does not change during a session. The agent does not "earn" trust.
+
+2. **Dynamic trust progression** — The agent earns trust over time based on behavior history. Successfully completing commands without issues would gradually reduce approval requirements. This approach is adaptive but introduces attack vectors: a compromised model could build trust with safe operations before executing a destructive command.
+
+**Decision:**
+
+Implement **static tier classification** via `ICommandRiskClassifier` and `ICommandPolicy`. Commands are classified at evaluation time by their executable name and argument patterns using hardcoded default rules. The classification is deterministic, predictable, and does not change during a session.
+
+Four tiers:
+- **Safe**: Auto-approved (e.g., `git status`, `dotnet --version`, `cat`, `grep`)
+- **Moderate**: Auto-approved in trusted directories (v0.2.0 synergy), prompted elsewhere (e.g., `git commit`, `dotnet build`, `npm run`)
+- **Elevated**: Always requires human approval (e.g., `git push`, `npm install`, `dotnet publish`)
+- **Dangerous**: Always blocked (blocklisted executables, unknown commands)
+
+**Rejected alternative: Dynamic trust progression** — Rejected because:
+- Introduces a new attack vector where a compromised model builds trust with safe operations then exploits it
+- Trust state is opaque to the user (when did it change? why?)
+- Difficult to audit and verify
+- Session-level trust accumulation conflicts with the principle of least privilege
+- Adds significant complexity for marginal UX improvement over static tiers
+
+**Consequences:**
+
+✅ **Benefits:**
+- Dramatically reduces approval fatigue — `git status` never prompts, `dotnet build` auto-approves in trusted directories
+- Predictable behavior — every command's tier is deterministic and documented
+- Auditable — every classification logged with tier, approval status, and directory context
+- Secure by default — unknown commands are Dangerous (fail-closed), Elevated never auto-approves
+- v0.2.0 synergy — Moderate tier leverages `IAccessPolicyEngine` trusted directory evaluation
+- Configurable — users can customize tier assignments for custom executables via `appsettings.json`
+
+⚠️ **Trade-offs:**
+- Fixed classification may not cover all edge cases (mitigated by config overrides and fail-closed default)
+- Moderate tier auto-approval depends on directory trust evaluation (adds latency)
+- More complex approval flow in `AgentOrchestrator` (three-outcome handling instead of binary)
+
+🛡️ **Security guarantees:**
+- Shell metacharacter check always runs FIRST (immutable security boundary)
+- Blocklisted commands cannot be promoted via configuration (startup validation)
+- Elevated tier never auto-approves regardless of directory trust
+- Hard denials from access policy engine are enforced (not downgraded to RequiresApproval)
+- Unknown executables always classified as Dangerous (fail-closed)
+
+**Related:**
+- See `docs/versions/v0.3.0.md` for complete architecture design, tier assignments, and threat model
+- Implementation tracked across 10 sub-issues (v0.3.0-1 through v0.3.0-10)
+- Extends v0.2.0 dynamic directory scoping (ADR-012) — Moderate tier leverages trusted directory evaluation
