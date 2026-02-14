@@ -55,7 +55,7 @@ public sealed class GraduatedCommandPolicyAdversarialTests
         _mockPolicyEngine.EvaluateAsync(
             Arg.Is<DirectoryAccessRequest>(r =>
                 r.Path == "/untrusted/dir" &&
-                r.Level == AccessLevel.ReadWrite),
+                r.Level == AccessLevel.Execute),
             Arg.Any<CancellationToken>())
             .Returns(AccessDecision.RequireApproval("/untrusted/dir"));
 
@@ -91,11 +91,11 @@ public sealed class GraduatedCommandPolicyAdversarialTests
         _mockPolicyEngine.EvaluateAsync(
             Arg.Is<DirectoryAccessRequest>(r =>
                 r.Path == "/trusted/dir" &&
-                r.Level == AccessLevel.ReadWrite),
+                r.Level == AccessLevel.Execute),
             Arg.Any<CancellationToken>())
             .Returns(AccessDecision.Grant(
                 "/trusted/dir",
-                AccessLevel.ReadWrite,
+                AccessLevel.Execute,
                 null));
 
         // Act
@@ -195,12 +195,11 @@ public sealed class GraduatedCommandPolicyAdversarialTests
         _mockClassifier.Classify(request).Returns(CommandRiskTier.Dangerous);
 
         // Act
-        var decision = await policy.EvaluateAsync(request, CancellationToken.None);
+        var action = async () => await policy.EvaluateAsync(request, CancellationToken.None);
 
-        // Assert - Dangerous commands are ALWAYS blocked (defense-in-depth)
-        decision.RequiresApproval.Should().BeTrue();
-        decision.IsApproved.Should().BeFalse();
-        decision.Tier.Should().Be(CommandRiskTier.Dangerous);
+        // Assert - Dangerous commands throw SecurityException (defense-in-depth)
+        await action.Should().ThrowAsync<SecurityException>()
+            .WithMessage("*Dangerous tier*cannot be executed*");
     }
 
     #endregion
@@ -602,7 +601,7 @@ public sealed class GraduatedCommandPolicyAdversarialTests
         await _mockPolicyEngine.Received(1).EvaluateAsync(
             Arg.Is<DirectoryAccessRequest>(r =>
                 r.Path == "/project/src" &&
-                r.Level == AccessLevel.ReadWrite),
+                r.Level == AccessLevel.Execute),
             Arg.Any<CancellationToken>());
     }
 

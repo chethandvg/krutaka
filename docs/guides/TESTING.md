@@ -129,6 +129,115 @@ DATABASE_PASSWORD=xxx
 MY_CUSTOM_TOKEN=xxx
 ```
 
+## Command Tier Adversarial Tests (v0.3.0)
+
+> ⚠️ **Critical Security Tests** — These tests validate that the graduated command execution system cannot be bypassed through argument manipulation, configuration tampering, or tier promotion attacks.
+
+**Status:** ✅ **Implemented** (81 tests across 3 files)
+
+### Running Adversarial Tests
+
+```bash
+# Run all adversarial tests (old + new)
+dotnet test --filter "FullyQualifiedName~Adversarial"
+
+# Run only command tier adversarial tests
+dotnet test tests/Krutaka.Tools.Tests --filter "FullyQualifiedName~CommandRiskClassifierAdversarial"
+dotnet test tests/Krutaka.Tools.Tests --filter "FullyQualifiedName~GraduatedCommandPolicyAdversarial"
+dotnet test tests/Krutaka.Tools.Tests --filter "FullyQualifiedName~CommandTierConfigAdversarial"
+```
+
+**Expected Result:** All 181 adversarial tests should pass (100 from v0.2.0 + 81 from v0.3.0).
+
+### Adversarial Test Files
+
+1. **`CommandRiskClassifierAdversarialTests.cs`** (31 tests)
+   - Argument aliasing attacks (flags vs. subcommands)
+   - Empty argument list edge cases
+   - Very long argument strings (10,000+ characters)
+   - Shell metacharacter handling
+   - Unknown executable classification (fail-closed)
+   - Executable extension normalization (.exe stripping)
+   - Path separator detection in executable names
+   - Unicode and special character handling
+   - Blocklist enforcement (case-insensitive)
+   - Case sensitivity across all classification paths
+
+2. **`GraduatedCommandPolicyAdversarialTests.cs`** (19 tests)
+   - Directory trust manipulation attempts
+   - Moderate tier auto-approval in trusted vs. untrusted directories
+   - Elevated tier bypass attempts (tier overrides directory trust)
+   - Safe command validation with metacharacters (pre-check integration)
+   - Dangerous command detection and blocking
+   - Configuration tampering (auto-approval toggle)
+   - Null policy engine handling
+   - Thread safety under rapid sequential/concurrent evaluations
+   - Access policy engine integration and parameter validation
+
+3. **`CommandTierConfigAdversarialTests.cs`** (31 tests)
+   - Blocklist promotion prevention (powershell, cmd, certutil, curl, wget)
+   - Dangerous tier assignment rejection
+   - Path separator injection in executable names
+   - Shell metacharacter injection in executable and argument patterns
+   - Empty/null/whitespace validation
+   - File extension handling (.exe suffix rejection)
+   - Overly broad wildcard patterns (null argument patterns)
+   - Duplicate rule handling
+   - Very long executable/argument patterns (edge cases)
+
+### Attack Vectors Tested
+
+#### Argument Aliasing
+```csharp
+// Both should classify as Elevated (git push)
+git push --force origin main
+git push -f origin main
+
+// Unknown flags should default to executable's highest tier
+git --unknown-flag value  // → Elevated (git's default)
+```
+
+#### Tier Promotion Attempts
+```csharp
+// MUST be rejected - blocklisted executables cannot be promoted
+{ "executable": "powershell", "tier": "Safe" }       // ❌ REJECTED
+{ "executable": "cmd", "tier": "Moderate" }          // ❌ REJECTED
+{ "executable": "certutil", "tier": "Safe" }         // ❌ REJECTED
+
+// MUST be rejected - cannot add to Dangerous tier via config
+{ "executable": "mytool", "tier": "Dangerous" }      // ❌ REJECTED
+```
+
+#### Path Injection
+```csharp
+// All MUST be classified as Dangerous
+C:\tools\git                    // Path separator
+/usr/bin/git                    // Path separator
+./git                           // Relative path
+tool|malicious                  // Shell metacharacter
+```
+
+#### Directory Trust Bypass
+```csharp
+// Moderate command in trusted directory → auto-approved
+git commit -m "test"  // in /project/src (trusted)  // ✅ AUTO-APPROVED
+
+// Elevated command in trusted directory → STILL requires approval
+git push origin main  // in /project/src (trusted)  // ❌ REQUIRES APPROVAL
+
+// Dangerous command anywhere → always blocked
+unknownTool arg       // in /project/src (trusted)  // ❌ BLOCKED
+```
+
+### Test Coverage Matrix
+
+| Component | Test File | Tests | Coverage |
+|---|---|---|---|
+| CommandRiskClassifier | CommandRiskClassifierAdversarialTests.cs | 31 | Argument aliasing, edge cases, blocklist, unicode, path separators |
+| GraduatedCommandPolicy | GraduatedCommandPolicyAdversarialTests.cs | 19 | Directory trust, tier evaluation, pre-check integration, thread safety |
+| CommandTierConfigValidator | CommandTierConfigAdversarialTests.cs | 31 | Config tampering, blocklist promotion, path/metacharacter injection |
+| **Total (v0.3.0)** | 3 files | **81** | All attack vectors from v0.3.0 threat model |
+
 ## Writing New Tests
 
 ### Naming Convention

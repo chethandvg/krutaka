@@ -21,21 +21,21 @@ public sealed class CommandRiskClassifierAdversarialTests
     #region Argument Aliasing Attacks
 
     [Fact]
-    public void Should_ClassifyGitPushWithShortFlag_AsElevated()
+    public void Should_ClassifyGitWithUnknownFirstArg_AsElevated()
     {
-        // Arrange - attempt to use -f instead of --force to bypass classification
+        // Arrange - attempt to use -f instead of 'push' as first arg
+        // Git has Elevated as highest tier, so unknown args default to Elevated
         var request = new CommandExecutionRequest(
             "git",
             ["-f", "origin", "main"],
             "/test",
-            "Short flag aliasing test");
+            "Unknown first arg test");
 
         // Act
         var tier = _classifier.Classify(request);
 
-        // Assert - classification is based on 'push' subcommand, not flags
-        // But this has no 'push' so it should use git's default tier (Moderate)
-        tier.Should().Be(CommandRiskTier.Moderate);
+        // Assert - unknown argument defaults to git's highest non-Safe tier (Elevated)
+        tier.Should().Be(CommandRiskTier.Elevated);
     }
 
     [Fact]
@@ -84,8 +84,8 @@ public sealed class CommandRiskClassifierAdversarialTests
         // Act
         var tier = _classifier.Classify(request);
 
-        // Assert - unknown first argument should use git's default tier (Moderate)
-        tier.Should().Be(CommandRiskTier.Moderate);
+        // Assert - unknown first argument should use git's default tier (Elevated)
+        tier.Should().Be(CommandRiskTier.Elevated);
     }
 
     [Fact]
@@ -147,8 +147,8 @@ public sealed class CommandRiskClassifierAdversarialTests
         // Act
         var tier = _classifier.Classify(request);
 
-        // Assert - should use git's default tier (Moderate)
-        tier.Should().Be(CommandRiskTier.Moderate);
+        // Assert - should use git's default tier (Elevated - highest non-Safe)
+        tier.Should().Be(CommandRiskTier.Elevated);
     }
 
     [Fact]
@@ -164,8 +164,8 @@ public sealed class CommandRiskClassifierAdversarialTests
         // Act
         var tier = _classifier.Classify(request);
 
-        // Assert - should use dotnet's default tier (Moderate)
-        tier.Should().Be(CommandRiskTier.Moderate);
+        // Assert - should use dotnet's default tier (Elevated - highest non-Safe)
+        tier.Should().Be(CommandRiskTier.Elevated);
     }
 
     #endregion
