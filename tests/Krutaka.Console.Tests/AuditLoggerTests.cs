@@ -289,7 +289,7 @@ public class AuditLoggerTests
 
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
-        logEvent.Level.Should().Be(LogEventLevel.Debug);
+        logEvent.Level.Should().Be(LogEventLevel.Information); // Changed from Debug to Information for production visibility
         logEvent.Properties["EventType"].ToString().Should().Contain("CommandClassificationEvent");
         var eventData = logEvent.Properties["EventData"].ToString();
         eventData.Should().Contain("git");
@@ -444,7 +444,7 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    public void Should_ThrowArgumentNullException_WhenExecutableIsNullOrWhitespace_InCommandClassification()
+    public void Should_ThrowArgumentException_WhenExecutableIsNullOrWhitespace_InCommandClassification()
     {
         // Arrange
         var (logger, _) = CreateLoggerWithSink();
@@ -464,7 +464,7 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    public void Should_ThrowArgumentNullException_WhenReasonIsNullOrWhitespace_InCommandClassification()
+    public void Should_ThrowArgumentException_WhenReasonIsNullOrWhitespace_InCommandClassification()
     {
         // Arrange
         var (logger, _) = CreateLoggerWithSink();

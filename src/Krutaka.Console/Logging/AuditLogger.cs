@@ -215,27 +215,32 @@ internal sealed class AuditLogger : IAuditLogger
         };
 
         // Log at different levels based on tier
-        // Safe: Debug (high volume, noise reduction)
+        // Safe: Information (needs to be visible in production logs)
         // Moderate: Information (noteworthy but routine)
         // Elevated: Warning (always notable, requires human approval)
-        // Dangerous: Not logged here - security violations are logged via LogSecurityViolation
+        // Dangerous: Error (security event - command blocked)
         var logLevel = tier switch
         {
-            CommandRiskTier.Safe => LogEventLevel.Debug,
+            CommandRiskTier.Safe => LogEventLevel.Information,
             CommandRiskTier.Moderate => LogEventLevel.Information,
             CommandRiskTier.Elevated => LogEventLevel.Warning,
             CommandRiskTier.Dangerous => LogEventLevel.Error,
             _ => LogEventLevel.Information
         };
 
-        // Build EventData dictionary from event-specific properties
+        // Build EventData dictionary from event-specific properties with string enum serialization
         var eventType = @event.GetType();
         var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
         var eventData = eventType.GetProperties()
             .Where(p => !baseProperties.Contains(p.Name))
             .ToDictionary(
                 p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
-                p => p.GetValue(@event));
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
 
         // Serialize EventData as JSON
         var eventDataJson = JsonSerializer.Serialize(eventData);

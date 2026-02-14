@@ -156,6 +156,43 @@ public sealed class GraduatedCommandPolicyTests
         await act.Should().NotThrowAsync();
     }
 
+    [Fact]
+    public async Task EvaluateAsync_Should_LogClassificationDecision_WhenAuditLoggerAndCorrelationContextProvided()
+    {
+        // Arrange
+        var request = new CommandExecutionRequest(
+            Executable: "git",
+            Arguments: new[] { "status" },
+            WorkingDirectory: "C:\\Projects",
+            Justification: "Check repository status");
+
+        _mockClassifier.Classify(Arg.Any<CommandExecutionRequest>()).Returns(CommandRiskTier.Safe);
+
+        var mockAuditLogger = Substitute.For<IAuditLogger>();
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var policy = new GraduatedCommandPolicy(
+            _mockClassifier,
+            _mockSecurityPolicy,
+            _mockPolicyEngine,
+            mockAuditLogger,
+            _defaultOptions);
+
+        // Act
+        await policy.EvaluateAsync(request, CancellationToken.None, correlationContext);
+
+        // Assert - verify that LogCommandClassification was called with correct parameters
+        mockAuditLogger.Received(1).LogCommandClassification(
+            Arg.Is(correlationContext),
+            Arg.Is("git"),
+            Arg.Is("status"),
+            Arg.Is(CommandRiskTier.Safe),
+            Arg.Is(true),  // autoApproved
+            Arg.Is<string?>(dir => dir == null),  // trustedDirectory should be null for Safe tier
+            Arg.Is<string>(r => r.Contains("Safe")));  // reason should mention Safe tier
+    }
+
     #endregion
 
     #region Pre-check Security Validation Tests
