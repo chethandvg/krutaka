@@ -1,6 +1,6 @@
 # Krutaka — Multi-Session Architecture
 
-> **Last updated:** 2026-02-14 (v0.4.0 initial architecture)
+> **Last updated:** 2026-02-15 (v0.4.0 foundation complete — Issues #128–#134, #156)
 >
 > This document describes the multi-session isolation model introduced in v0.4.0.
 > It is **mandatory reading** before implementing any code that creates, manages, or interacts with sessions.
@@ -77,21 +77,26 @@ The orchestrator contains TWO separate approval caches. Both must be per-session
 ISessionFactory                     ISessionManager
      │                                   │
      │ Create(SessionRequest)            │ CreateSessionAsync()
-     ▼                                   │ GetOrCreateByKeyAsync()
-┌──────────────┐                        │ ResumeSessionAsync()
-│ ManagedSession│◄───────────────────────│ TerminateSessionAsync()
-│              │                        │ ListActiveSessions()
-│ SessionId    │                        │ TerminateAllAsync()
-│ ProjectPath  │                        ▼
-│ ExternalKey  │               ┌──────────────────┐
-│ State        │               │  SessionManager  │
+     │ Create(SessionRequest, Guid)      │ GetOrCreateByKeyAsync()
+     ▼                                   │ ResumeSessionAsync()
+┌──────────────┐                        │ TerminateSessionAsync()
+│ ManagedSession│◄───────────────────────│ ListActiveSessions()
+│              │                        │ TerminateAllAsync()
+│ SessionId    │                        ▼
+│ ProjectPath  │               ┌──────────────────┐
+│ ExternalKey  │               │  SessionManager  │
+│ State        │               │  (Krutaka.Tools) │
 │ Budget       │               │                  │
 │ Orchestrator │               │ ConcurrentDict   │
 │ CorrelationCtx│              │ <Guid, Session>  │
-│ LastActivity │               │                  │
-└──────────────┘               │ ConcurrentDict   │
-                               │ <string, Guid>   │
+│ CreatedAt    │               │                  │
+│ LastActivity │               │ ConcurrentDict   │
+└──────────────┘               │ <string, Guid>   │
                                │ (external keys)  │
+                               │                  │
+                               │ ConcurrentDict   │
+                               │ <Guid, Suspended │
+                               │  SessionInfo>    │
                                │                  │
                                │ IdleTimer        │
                                │ EvictionLogic    │
@@ -103,17 +108,41 @@ ISessionFactory                     ISessionManager
 
 | Type | Kind | Location | Purpose |
 |---|---|---|---|
-| `ISessionFactory` | Interface | `Krutaka.Core` | Creates fully isolated `ManagedSession` instances |
+| `ISessionFactory` | Interface | `Krutaka.Core` | Creates fully isolated `ManagedSession` instances. Has two overloads: `Create(SessionRequest)` and `Create(SessionRequest, Guid)` for session ID preservation. |
 | `ISessionManager` | Interface | `Krutaka.Core` | Lifecycle management: create, idle, suspend, resume, terminate |
 | `ManagedSession` | Sealed Class | `Krutaka.Core` | Holds per-session components, implements `IAsyncDisposable` |
-| `SessionRequest` | Record | `Krutaka.Core` | Describes how to create a session (ProjectPath, ExternalKey, budgets) |
+| `SessionRequest` | Record | `Krutaka.Core` | Describes how to create a session (ProjectPath, ExternalKey, UserId, budgets) |
 | `SessionState` | Enum | `Krutaka.Core` | Active, Idle, Suspended, Terminated |
 | `SessionBudget` | Class | `Krutaka.Core` | Thread-safe token/tool-call/turn tracking with exhaustion check |
 | `SessionManagerOptions` | Record | `Krutaka.Core` | MaxActiveSessions, IdleTimeout, SuspendedTtl, per-user limits, eviction |
 | `SessionSummary` | Record | `Krutaka.Core` | Lightweight view of a session for listing |
+| `SuspendedSessionInfo` | Record | `Krutaka.Core` | Metadata for suspended sessions: SessionId, ProjectPath, ExternalKey, UserId, CreatedAt, SuspendedAt, LastActivity, TokensUsed, TurnsUsed |
 | `EvictionStrategy` | Enum | `Krutaka.Core` | SuspendOldestIdle, RejectNew, TerminateOldest |
-| `SessionFactory` | Class | Implementation project | Creates per-session instances, wires shared + per-session services |
-| `SessionManager` | Class | Implementation project | Lifecycle management with concurrent dictionaries, idle timer, eviction |
+| `SessionFactory` | Class | `Krutaka.Tools` | Creates per-session instances, wires shared + per-session services |
+| `SessionManager` | Class | `Krutaka.Tools` | Lifecycle management with concurrent dictionaries, idle timer, eviction |
+
+### Forbidden Dependency: `Krutaka.Tools` → `Krutaka.Memory`
+
+`SessionManager` (in `Krutaka.Tools`) does **NOT** reference `Krutaka.Memory`. This means:
+
+- `ResumeSessionAsync()` creates a new `ManagedSession` via the factory but does **NOT** reconstruct conversation history.
+- History reconstruction (via `SessionStore.ReconstructMessagesAsync()`) is the **caller's responsibility** (composition root).
+- This is by design — it keeps the session layer independent of the persistence mechanism.
+
+### Session ID Preservation (Issue #156)
+
+`ISessionFactory.Create(SessionRequest, Guid)` overload allows callers to specify a session ID when resuming:
+
+```csharp
+// SessionManager.ResumeSessionAsync uses the Guid overload
+var session = _factory.Create(request, sessionId);
+```
+
+This ensures:
+- External key mappings (e.g., Telegram chatId → sessionId) survive suspend/resume cycles
+- Audit logs maintain continuity with the same SessionId
+- JSONL files remain linked to the same logical session
+- `Guid.Empty` is rejected with `ArgumentException`
 
 ---
 
@@ -122,13 +151,16 @@ ISessionFactory                     ISessionManager
 ```text
   Created ──► Active ──► Idle (no messages for IdleTimeout)
                 │              │
+                │              │ (2× IdleTimeout grace period)
                 │              ▼
                 │        Suspended
                 │        (orchestrator disposed, JSONL on disk)
                 │              │
                 │              ├── Resume (new message arrives)
-                │              │   → SessionStore.ReconstructMessagesAsync()
-                │              │   → orchestrator.RestoreConversationHistory()
+                │              │   → Three-step pattern (caller responsibility):
+                │              │     1. SessionManager.ResumeSessionAsync()
+                │              │     2. SessionStore.ReconstructMessagesAsync()
+                │              │     3. orchestrator.RestoreConversationHistory()
                 │              │
                 │              └── Expired (SuspendedTtl reached)
                 │                  → Fully removed from tracking
@@ -144,13 +176,29 @@ ISessionFactory                     ISessionManager
 | From | To | Trigger | Actions |
 |---|---|---|---|
 | — | Active | `CreateSessionAsync` | Factory creates all per-session instances |
-| Active | Idle | No messages for `IdleTimeout` | Background timer transitions state |
+| Active | Idle | No messages for `IdleTimeout` | Background timer transitions state, records `_idleSince[sessionId]` |
 | Active | Terminated | Explicit terminate, /killswitch, or budget exhaustion | `ManagedSession.DisposeAsync()` |
-| Idle | Suspended | Idle timer fires | Dispose orchestrator (free memory), keep JSONL on disk |
+| Idle | Suspended | `2× IdleTimeout` grace period after becoming Idle | Dispose orchestrator (free memory), capture metadata in `SuspendedSessionInfo`, keep JSONL on disk |
 | Idle | Active | New message arrives | `UpdateLastActivity()` resets timer |
-| Suspended | Active | Resume request | Create new orchestrator, restore from JSONL via `ReconstructMessagesAsync` |
+| Suspended | Active | Resume request | Create new orchestrator via `_factory.Create(request, sessionId)`, restore from JSONL (caller responsibility) |
 | Suspended | Terminated | `SuspendedTtl` expired, or explicit terminate | Remove from tracking, optionally delete JSONL |
 | Terminated | — | Final state | All resources released, removed from all dictionaries |
+
+### Idle-to-Suspended Grace Period (Implementation Detail)
+
+The transition from Idle to Suspended is **NOT immediate**. The `RunIdleDetectionAsync` method implements a two-phase approach:
+
+```csharp
+var suspensionGracePeriod = idleTimeout * 2; // 2× IdleTimeout
+
+// Phase 1: Active → Idle (after IdleTimeout of inactivity)
+// Phase 2: Idle → Suspended (after 2× IdleTimeout of being in Idle state)
+```
+
+This means with the default `IdleTimeout` of 15 minutes:
+- **15 min** of inactivity → session transitions to **Idle**
+- **30 more minutes** (2× 15min) of remaining Idle → session is **Suspended**
+- **Total time from last activity to suspension:** 45 minutes
 
 ---
 
@@ -159,10 +207,10 @@ ISessionFactory                     ISessionManager
 | Resource | Limit | Default | Enforcement |
 |---|---|---|---|
 | Active sessions | `MaxActiveSessions` | 10 | SessionManager rejects or evicts per `EvictionStrategy` |
-| Sessions per user | `MaxSessionsPerUser` | 3 | SessionManager counts by `SessionRequest.UserId` |
+| Sessions per user | `MaxSessionsPerUser` | 3 | SessionManager counts by `SessionRequest.UserId` using `ImmutableHashSet<Guid>` with compare-and-swap via `ConcurrentDictionary.TryUpdate` |
 | Tokens per session | `SessionBudget.MaxTokens` | 200,000 | `SessionBudget.IsExhausted` check before each prompt |
 | Tool calls per session | `SessionBudget.MaxToolCalls` | 100 | `SessionBudget.IsExhausted` check before each tool call |
-| Tokens globally per hour | `GlobalMaxTokensPerHour` | 1,000,000 | SessionManager cumulative tracking across all sessions |
+| Tokens globally per hour | `GlobalMaxTokensPerHour` | 1,000,000 | SessionManager cumulative tracking across all sessions (clock-hour reset) |
 | Idle timeout | `IdleTimeout` | 15 min | Background timer transitions idle sessions |
 | Suspended session TTL | `SuspendedTtl` | 24 hours | Background timer removes expired suspended sessions |
 
@@ -170,15 +218,41 @@ ISessionFactory                     ISessionManager
 
 | Strategy | Behavior | When |
 |---|---|---|
-| `SuspendOldestIdle` | Suspend the session with the oldest `LastActivity` | Default — graceful, preserves data |
+| `SuspendOldestIdle` | Suspend the session with the oldest `LastActivity` (prefer Idle, fallback to Active) | Default — graceful, preserves data |
 | `RejectNew` | Throw exception, refuse to create session | Strict capacity enforcement |
 | `TerminateOldest` | Terminate the oldest session entirely | Aggressive — frees maximum resources |
+
+### Thread-Safety Implementation
+
+Per-user session tracking uses `ImmutableHashSet<Guid>` with compare-and-swap loops:
+
+```csharp
+// AddSessionToUserTracking uses ConcurrentDictionary.AddOrUpdate
+_userSessions.AddOrUpdate(
+    userId,
+    _ => ImmutableHashSet.Create(sessionId),
+    (_, existingSessions) => existingSessions.Add(sessionId));
+
+// RemoveSessionFromUserTracking uses retry loop with TryUpdate/TryRemove
+while (true)
+{
+    if (!_userSessions.TryGetValue(userId, out var sessions)) return;
+    var updated = sessions.Remove(sessionId);
+    if (updated.IsEmpty)
+    {
+        if (_userSessions.TryRemove(new KeyValuePair<...>(userId, sessions))) return;
+        continue; // Retry — concurrent modification
+    }
+    if (_userSessions.TryUpdate(userId, updated, sessions)) return;
+    // Retry — concurrent modification
+}
+```
 
 ---
 
 ## 6. Console Migration Path
 
-✅ **Status:** Complete (2026-02-15, Issue #160)
+✅ **Status:** Complete (2026-02-15, Issue #134)
 
 `Program.cs` has been successfully migrated from singleton orchestrator to `ISessionManager` as a "single-session client":
 
@@ -243,9 +317,11 @@ Program.cs:
 **Three-Step Resume Pattern:**
 ```csharp
 // Step 1: Resume session (creates new orchestrator, no history)
+// Uses Guid overload to preserve session ID (Issue #156)
 var session = await sessionManager.ResumeSessionAsync(sessionId, projectPath, ct);
 
 // Step 2: Load conversation history from JSONL on disk
+// Note: This uses Krutaka.Memory — which Krutaka.Tools CANNOT reference (forbidden dependency)
 var sessionStore = new SessionStore(projectPath, session.SessionId);
 var messages = await sessionStore.ReconstructMessagesAsync(ct);
 
@@ -255,6 +331,8 @@ if (messages.Count > 0)
     session.Orchestrator.RestoreConversationHistory(messages);
 }
 ```
+
+> **Critical:** Steps 2 and 3 are the caller's responsibility because `SessionManager` (in `Krutaka.Tools`) cannot reference `SessionStore` (in `Krutaka.Memory`). Every composition root (Console, Telegram, future platforms) must implement this three-step pattern.
 
 ### Key Invariant
 
@@ -303,7 +381,12 @@ public async ValueTask DisposeAsync()
 
 ### SessionManager — IAsyncDisposable
 
-`SessionManager` implements `IAsyncDisposable`. Its `DisposeAsync()` calls `TerminateAllAsync()` which disposes all active `ManagedSession` instances.
+`SessionManager` implements `IAsyncDisposable`. Its `DisposeAsync()`:
+
+1. Cancels the idle detection background timer via `CancellationTokenSource`
+2. Waits for `RunIdleDetectionAsync` task to complete
+3. Calls `TerminateAllAsync()` which disposes all active `ManagedSession` instances
+4. Disposes `_creationLock` SemaphoreSlim and all per-key locks
 
 ---
 
@@ -334,7 +417,13 @@ v0.9.0 (future):
 - `docs/architecture/TELEGRAM.md` — Telegram security architecture
 - `docs/architecture/OVERVIEW.md` — Component architecture
 - `docs/architecture/SECURITY.md` — Security model
+- `src/Krutaka.Core/ISessionFactory.cs` — Session factory interface (two overloads)
+- `src/Krutaka.Core/ISessionManager.cs` — Session lifecycle management interface
+- `src/Krutaka.Core/ManagedSession.cs` — Per-session container (IAsyncDisposable)
+- `src/Krutaka.Core/SuspendedSessionInfo.cs` — Suspended session metadata record
 - `src/Krutaka.Core/AgentOrchestrator.cs` — Per-session orchestrator (implements `IDisposable`)
 - `src/Krutaka.Core/CorrelationContext.cs` — Per-session correlation tracking
+- `src/Krutaka.Tools/SessionFactory.cs` — SessionFactory implementation
+- `src/Krutaka.Tools/SessionManager.cs` — SessionManager implementation
 - `src/Krutaka.Memory/SessionStore.cs` — JSONL session persistence
-- `src/Krutaka.Console/Program.cs` — Current singleton pattern (to be refactored)
+- `src/Krutaka.Console/Program.cs` — Console composition root (migrated in Issue #134)
