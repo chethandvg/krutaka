@@ -105,6 +105,18 @@ public sealed class ManagedSession : IAsyncDisposable
     }
 
     /// <summary>
+    /// Transitions the session to Idle state.
+    /// Called by SessionManager when idle timeout is detected.
+    /// </summary>
+    public void TransitionToIdle()
+    {
+        if (State == SessionState.Active)
+        {
+            State = SessionState.Idle;
+        }
+    }
+
+    /// <summary>
     /// Disposes the session, releasing all resources and transitioning to Terminated state.
     /// Calls Orchestrator.Dispose() synchronously since AgentOrchestrator implements IDisposable (not IAsyncDisposable).
     /// Disposes SessionAccessStore if present (InMemorySessionAccessStore implements IDisposable).
