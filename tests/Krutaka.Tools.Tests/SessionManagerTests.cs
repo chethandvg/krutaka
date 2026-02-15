@@ -384,7 +384,12 @@ public class SessionManagerTests : IAsyncDisposable
         var sessionId = session.SessionId;
 
         // Wait for session to be suspended (need to wait for 2x IdleTimeout)
-        await Task.Delay(150);
+        await Task.Delay(200);
+
+        // Verify the session is actually suspended
+        var summaries = manager.ListActiveSessions();
+        summaries.Should().Contain(s => s.SessionId == sessionId && s.State == SessionState.Suspended,
+            "Session should be suspended after idle timeout");
 
         // Delete the project directory
         var nonExistentPath = Path.Combine(Path.GetTempPath(), $"nonexistent-{Guid.NewGuid()}");
@@ -445,6 +450,62 @@ public class SessionManagerTests : IAsyncDisposable
         summaries.Should().HaveCount(3);
         summaries.Count(s => s.State == SessionState.Suspended).Should().Be(1);
         summaries.Count(s => s.State == SessionState.Active).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task GetOrCreateByKeyAsync_Should_ResumeSuspendedSession_WhenExternalKeyPointsToSuspendedSession()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(IdleTimeout: TimeSpan.FromMilliseconds(50));
+        await using var manager = new SessionManager(_sessionFactory, options, logger: null);
+
+        var externalKey = "telegram:12345";
+        var request = new SessionRequest(ProjectPath: _testDirectory, ExternalKey: externalKey);
+
+        // Create a session with external key
+        var session1 = await manager.GetOrCreateByKeyAsync(externalKey, request, CancellationToken.None);
+        var sessionId1 = session1.SessionId;
+
+        // Wait for session to be suspended (2x IdleTimeout)
+        await Task.Delay(150);
+
+        // Act - Get or create should resume the suspended session instead of creating a new one
+        var session2 = await manager.GetOrCreateByKeyAsync(externalKey, request, CancellationToken.None);
+
+        // Assert - Should be a new session instance (different GUID), but resumed from disk
+        session2.Should().NotBeNull();
+        session2.SessionId.Should().NotBe(sessionId1); // New session created, not the old one
+        session2.ExternalKey.Should().Be(externalKey);
+
+        // The old suspended session should be removed after resume
+        var summaries = manager.ListActiveSessions();
+        summaries.Should().HaveCount(1);
+        summaries.Should().AllSatisfy(s => s.State.Should().Be(SessionState.Active));
+    }
+
+    [Fact]
+    public async Task GetOrCreateByKeyAsync_Should_BeAtomic_UnderConcurrentCalls()
+    {
+        // Arrange
+        var externalKey = "telegram:concurrent";
+        var request = new SessionRequest(ProjectPath: _testDirectory, ExternalKey: externalKey);
+        await using var manager = new SessionManager(_sessionFactory, new SessionManagerOptions(), logger: null);
+
+        // Act - Make 5 concurrent calls for the same external key
+        var tasks = Enumerable.Range(0, 5)
+            .Select(_ => manager.GetOrCreateByKeyAsync(externalKey, request, CancellationToken.None))
+            .ToList();
+
+        var sessions = await Task.WhenAll(tasks);
+
+        // Assert - All should return the same session ID (idempotent)
+        sessions.Should().HaveCount(5);
+        var uniqueSessionIds = sessions.Select(s => s.SessionId).Distinct().ToList();
+        uniqueSessionIds.Should().ContainSingle("All concurrent calls should return the same session");
+
+        // Only one session should exist
+        var summaries = manager.ListActiveSessions();
+        summaries.Should().ContainSingle();
     }
 
     // Mock implementations

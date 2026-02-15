@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using Krutaka.Core;
-using Krutaka.Memory;
 using Microsoft.Extensions.Logging;
 
 namespace Krutaka.Tools;
@@ -33,6 +32,9 @@ public sealed class SessionManager : ISessionManager
 
     // Lock for compound operations during session creation
     private readonly SemaphoreSlim _creationLock = new(1, 1);
+
+    // Per-key locks for GetOrCreateByKeyAsync to prevent race conditions
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks = new();
 
     // Global token budget tracking per hour
     private readonly object _tokenBudgetLock = new();
@@ -164,23 +166,41 @@ public sealed class SessionManager : ISessionManager
         ArgumentException.ThrowIfNullOrWhiteSpace(externalKey);
         ArgumentNullException.ThrowIfNull(request);
 
-        // Try to get existing session by external key
-        if (_externalKeyMap.TryGetValue(externalKey, out var existingSessionId))
+        // Get or create a lock for this specific external key to serialize operations
+        var keyLock = _keyLocks.GetOrAdd(externalKey, _ => new SemaphoreSlim(1, 1));
+
+        await keyLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (_sessions.TryGetValue(existingSessionId, out var existingSession))
+            // Try to get existing active session by external key
+            if (_externalKeyMap.TryGetValue(externalKey, out var existingSessionId))
             {
-                // Update last activity and return existing session
-                existingSession.UpdateLastActivity();
-                return existingSession;
+                if (_sessions.TryGetValue(existingSessionId, out var existingSession))
+                {
+                    // Update last activity and return existing session
+                    existingSession.UpdateLastActivity();
+                    return existingSession;
+                }
+
+                // Check if session is suspended - if so, resume it
+                if (_suspendedSessions.TryGetValue(existingSessionId, out var suspendedInfo))
+                {
+                    // Resume the suspended session
+                    return await ResumeSessionAsync(existingSessionId, suspendedInfo.ProjectPath, cancellationToken).ConfigureAwait(false);
+                }
+
+                // Session ID found but session doesn't exist in active or suspended — clean up stale mapping
+                _externalKeyMap.TryRemove(externalKey, out _);
             }
 
-            // Session ID found but session doesn't exist — clean up stale mapping
-            _externalKeyMap.TryRemove(externalKey, out _);
+            // Create new session with external key
+            var newRequest = request with { ExternalKey = externalKey };
+            return await CreateSessionAsync(newRequest, cancellationToken).ConfigureAwait(false);
         }
-
-        // Create new session with external key
-        var newRequest = request with { ExternalKey = externalKey };
-        return await CreateSessionAsync(newRequest, cancellationToken).ConfigureAwait(false);
+        finally
+        {
+            keyLock.Release();
+        }
     }
 
     /// <inheritdoc/>
@@ -199,14 +219,14 @@ public sealed class SessionManager : ISessionManager
         }
 
         // Check if session is suspended
-        if (!_suspendedSessions.TryRemove(sessionId, out var suspendedInfo))
+        if (!_suspendedSessions.TryGetValue(sessionId, out var suspendedInfo))
         {
             throw new InvalidOperationException(
                 $"Session {sessionId} not found in active or suspended sessions. " +
                 "Cannot resume.");
         }
 
-        // Re-validate ProjectPath exists
+        // Re-validate ProjectPath exists BEFORE removing suspended entry
         if (!Directory.Exists(projectPath))
         {
             throw new InvalidOperationException(
@@ -221,34 +241,29 @@ public sealed class SessionManager : ISessionManager
             MaxTokenBudget: suspendedInfo.MaxTokenBudget,
             MaxToolCallBudget: suspendedInfo.MaxToolCallBudget);
 
-        // Create new session instance via factory
-        var newSession = await CreateSessionAsync(request, cancellationToken).ConfigureAwait(false);
-
-        // Reconstruct conversation history from JSONL
+        ManagedSession newSession;
         try
         {
-            using var sessionStore = new SessionStore(projectPath, sessionId);
-            var messages = await sessionStore.ReconstructMessagesAsync(cancellationToken).ConfigureAwait(false);
-
-            if (messages.Count > 0)
-            {
-                newSession.Orchestrator.RestoreConversationHistory(messages);
-
-                _logger?.LogInformation(
-                    "Session {SessionId} resumed with {MessageCount} messages from disk",
-                    sessionId,
-                    messages.Count);
-            }
+            // Create new session instance via factory
+            newSession = await CreateSessionAsync(request, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        catch
         {
-            _logger?.LogWarning(
-                ex,
-                "Failed to reconstruct conversation history for session {SessionId}",
-                sessionId);
-
-            // Continue with empty session rather than failing completely
+            // If creation fails, keep the suspended entry intact for retry
+            throw;
         }
+
+        // Only remove from suspended sessions after successful creation
+        _suspendedSessions.TryRemove(sessionId, out _);
+
+        // History reconstruction must be done by the caller (composition root)
+        // since SessionManager cannot reference Krutaka.Memory
+        // The caller should use SessionStore.ReconstructMessagesAsync() and
+        // orchestrator.RestoreConversationHistory() after getting the resumed session
+
+        _logger?.LogInformation(
+            "Session {SessionId} resumed (history reconstruction must be done by caller)",
+            sessionId);
 
         return newSession;
     }
@@ -392,6 +407,15 @@ public sealed class SessionManager : ISessionManager
 
         _timerCts.Dispose();
         _creationLock.Dispose();
+
+        // Dispose all per-key locks
+        foreach (var keyLock in _keyLocks.Values)
+        {
+            keyLock.Dispose();
+        }
+
+        _keyLocks.Clear();
+
         _disposed = true;
     }
 
