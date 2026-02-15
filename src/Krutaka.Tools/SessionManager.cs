@@ -25,11 +25,14 @@ public sealed class SessionManager : ISessionManager
     // Suspended sessions (orchestrator disposed, JSONL on disk)
     private readonly ConcurrentDictionary<Guid, SuspendedSessionInfo> _suspendedSessions = new();
 
-    // UserId to session IDs mapping for per-user limits
-    private readonly ConcurrentDictionary<string, HashSet<Guid>> _userSessions = new();
+    // UserId to session IDs mapping for per-user limits (using ConcurrentBag for thread safety)
+    private readonly ConcurrentDictionary<string, ConcurrentBag<Guid>> _userSessions = new();
 
     // Session ID to UserId mapping for cleanup
     private readonly ConcurrentDictionary<Guid, string> _sessionToUser = new();
+
+    // Lock for compound operations during session creation
+    private readonly SemaphoreSlim _creationLock = new(1, 1);
 
     // Global token budget tracking per hour
     private readonly object _tokenBudgetLock = new();
@@ -71,76 +74,79 @@ public sealed class SessionManager : ISessionManager
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        // Check global token budget
-        if (IsGlobalTokenBudgetExhausted())
+        // Use lock to prevent race conditions in validation and creation
+        await _creationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new InvalidOperationException(
-                $"Global token budget exhausted ({_options.GlobalMaxTokensPerHour} tokens per hour). " +
-                "Please wait or contact the administrator.");
-        }
-
-        // Validate per-user session limits
-        if (request.UserId is not null)
-        {
-            var userSessionCount = CountSessionsForUser(request.UserId);
-            if (userSessionCount >= _options.MaxSessionsPerUser)
+            // Check global token budget
+            if (IsGlobalTokenBudgetExhausted())
             {
                 throw new InvalidOperationException(
-                    $"User '{request.UserId}' has reached the maximum session limit ({_options.MaxSessionsPerUser}). " +
-                    "Please terminate an existing session before creating a new one.");
+                    $"Global token budget exhausted ({_options.GlobalMaxTokensPerHour} tokens per hour). " +
+                    "Please wait or contact the administrator.");
             }
-        }
 
-        // Check MaxActiveSessions and apply eviction if needed
-        while (_sessions.Count >= _options.MaxActiveSessions)
-        {
-            if (_options.EvictionStrategy == EvictionStrategy.RejectNew)
+            // Validate per-user session limits
+            if (request.UserId is not null)
             {
-                throw new InvalidOperationException(
-                    $"Maximum active sessions reached ({_options.MaxActiveSessions}). " +
-                    "Cannot create new session.");
-            }
-
-            await ApplyEvictionAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        // Create the session via factory
-        var session = _sessionFactory.Create(request);
-
-        // Store in active sessions dictionary
-        if (!_sessions.TryAdd(session.SessionId, session))
-        {
-            // This should never happen due to GUID uniqueness, but handle it defensively
-            await session.DisposeAsync().ConfigureAwait(false);
-            throw new InvalidOperationException($"Session with ID {session.SessionId} already exists.");
-        }
-
-        // Map external key if provided
-        if (request.ExternalKey is not null)
-        {
-            _externalKeyMap[request.ExternalKey] = session.SessionId;
-        }
-
-        // Track user sessions if UserId is provided
-        if (request.UserId is not null)
-        {
-            _sessionToUser[session.SessionId] = request.UserId;
-            _userSessions.AddOrUpdate(
-                request.UserId,
-                _ => [session.SessionId],
-                (_, sessionIds) =>
+                var userSessionCount = CountSessionsForUser(request.UserId);
+                if (userSessionCount >= _options.MaxSessionsPerUser)
                 {
-                    sessionIds.Add(session.SessionId);
-                    return sessionIds;
-                });
+                    throw new InvalidOperationException(
+                        $"User '{request.UserId}' has reached the maximum session limit ({_options.MaxSessionsPerUser}). " +
+                        "Please terminate an existing session before creating a new one.");
+                }
+            }
+
+            // Check MaxActiveSessions and apply eviction if needed
+            while (_sessions.Count >= _options.MaxActiveSessions)
+            {
+                if (_options.EvictionStrategy == EvictionStrategy.RejectNew)
+                {
+                    throw new InvalidOperationException(
+                        $"Maximum active sessions reached ({_options.MaxActiveSessions}). " +
+                        "Cannot create new session.");
+                }
+
+                await ApplyEvictionAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // Create the session via factory
+            var session = _sessionFactory.Create(request);
+
+            // Store in active sessions dictionary
+            if (!_sessions.TryAdd(session.SessionId, session))
+            {
+                // This should never happen due to GUID uniqueness, but handle it defensively
+                await session.DisposeAsync().ConfigureAwait(false);
+                throw new InvalidOperationException($"Session with ID {session.SessionId} already exists.");
+            }
+
+            // Map external key if provided
+            if (request.ExternalKey is not null)
+            {
+                _externalKeyMap[request.ExternalKey] = session.SessionId;
+            }
+
+            // Track user sessions if UserId is provided
+            if (request.UserId is not null)
+            {
+                _sessionToUser[session.SessionId] = request.UserId;
+                var bag = _userSessions.GetOrAdd(request.UserId, _ => new ConcurrentBag<Guid>());
+                bag.Add(session.SessionId);
+            }
+
+            _logger?.LogInformation(
+                "Session {SessionId} created for project '{ProjectPath}'",
+                session.SessionId,
+                session.ProjectPath);
+
+            return session;
         }
-
-        _logger?.LogInformation(
-            "Session {SessionId} created for project '{ProjectPath}'",
-            session.SessionId,
-            session.ProjectPath);
-
-        return session;
+        finally
+        {
+            _creationLock.Release();
+        }
     }
 
     /// <inheritdoc/>
@@ -262,14 +268,7 @@ public sealed class SessionManager : ISessionManager
             // Remove from user tracking if present
             if (_sessionToUser.TryRemove(sessionId, out var userId))
             {
-                if (_userSessions.TryGetValue(userId, out var sessionIds))
-                {
-                    sessionIds.Remove(sessionId);
-                    if (sessionIds.Count == 0)
-                    {
-                        _userSessions.TryRemove(userId, out _);
-                    }
-                }
+                RemoveSessionFromUserTracking(sessionId, userId);
             }
 
             await session.DisposeAsync().ConfigureAwait(false);
@@ -289,12 +288,17 @@ public sealed class SessionManager : ISessionManager
                 _externalKeyMap.TryRemove(suspendedInfo.ExternalKey, out _);
             }
 
+            // Remove from user tracking if present
+            if (suspendedInfo.UserId is not null)
+            {
+                _sessionToUser.TryRemove(sessionId, out _);
+                RemoveSessionFromUserTracking(sessionId, suspendedInfo.UserId);
+            }
+
             _logger?.LogInformation(
                 "Suspended session {SessionId} terminated",
                 sessionId);
         }
-
-        await Task.CompletedTask.ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -387,6 +391,7 @@ public sealed class SessionManager : ISessionManager
         await TerminateAllAsync(CancellationToken.None).ConfigureAwait(false);
 
         _timerCts.Dispose();
+        _creationLock.Dispose();
         _disposed = true;
     }
 
@@ -416,6 +421,8 @@ public sealed class SessionManager : ISessionManager
 
     /// <summary>
     /// Checks all active sessions for idle timeout and suspends them if needed.
+    /// Sessions transition to Idle state after IdleTimeout, then remain idle for one more
+    /// timer period before suspension to provide a grace period.
     /// </summary>
     private async Task CheckAndSuspendIdleSessionsAsync()
     {
@@ -427,19 +434,19 @@ public sealed class SessionManager : ISessionManager
             var session = kvp.Value;
             var idleDuration = now - session.LastActivity;
 
-            if (idleDuration >= _options.IdleTimeoutValue)
+            // First check: transition Active → Idle after IdleTimeout
+            if (session.State == SessionState.Active && idleDuration >= _options.IdleTimeoutValue)
             {
-                // Transition to Idle state first
-                if (session.State == SessionState.Active)
-                {
-                    session.TransitionToIdle();
-                }
-
-                // If already idle, suspend the session
-                if (session.State == SessionState.Idle)
-                {
-                    suspensionTasks.Add(SuspendSessionAsync(session));
-                }
+                session.TransitionToIdle();
+                _logger?.LogDebug(
+                    "Session {SessionId} transitioned to Idle state",
+                    session.SessionId);
+            }
+            // Second check: suspend Idle sessions that have been idle for 2x IdleTimeout
+            // This provides a grace period before suspension
+            else if (session.State == SessionState.Idle && idleDuration >= (_options.IdleTimeoutValue * 2))
+            {
+                suspensionTasks.Add(SuspendSessionAsync(session));
             }
         }
 
@@ -451,11 +458,14 @@ public sealed class SessionManager : ISessionManager
     /// </summary>
     private async Task SuspendSessionAsync(ManagedSession session)
     {
+        // Get UserId from tracking before removing session
+        _sessionToUser.TryGetValue(session.SessionId, out var userId);
+
         // Create suspended session info before disposing
         var suspendedInfo = new SuspendedSessionInfo(
             ProjectPath: session.ProjectPath,
             ExternalKey: session.ExternalKey,
-            UserId: null, // UserId not available on ManagedSession
+            UserId: userId,
             CreatedAt: session.CreatedAt,
             SuspendedAt: DateTimeOffset.UtcNow,
             TokensUsed: session.Budget.TokensUsed,
@@ -468,6 +478,10 @@ public sealed class SessionManager : ISessionManager
         {
             // Add to suspended sessions
             _suspendedSessions.TryAdd(session.SessionId, suspendedInfo);
+
+            // Remove from user active tracking but keep in _sessionToUser for later cleanup
+            // Note: We keep the session counted against the user's limit even when suspended
+            // This prevents users from creating unlimited sessions by letting them suspend
 
             // Dispose the orchestrator (free memory, keep JSONL on disk)
             await session.DisposeAsync().ConfigureAwait(false);
@@ -585,16 +599,37 @@ public sealed class SessionManager : ISessionManager
     }
 
     /// <summary>
-    /// Counts the number of active sessions for a given user.
+    /// Counts the number of active and suspended sessions for a given user.
     /// </summary>
     private int CountSessionsForUser(string userId)
     {
-        if (_userSessions.TryGetValue(userId, out var sessionIds))
-        {
-            return sessionIds.Count;
-        }
+        // Count all sessions in _sessionToUser mapping (includes both active and suspended)
+        // This ensures suspended sessions still count against the user's limit
+        return _sessionToUser.Count(kvp => kvp.Value == userId);
+    }
 
-        return 0;
+    /// <summary>
+    /// Removes a session from user tracking.
+    /// Thread-safe operation that handles ConcurrentBag cleanup.
+    /// </summary>
+    private void RemoveSessionFromUserTracking(Guid sessionId, string userId)
+    {
+        if (_userSessions.TryGetValue(userId, out var sessionBag))
+        {
+            // ConcurrentBag doesn't support Remove, so we rebuild without the target session
+            var remainingSessions = sessionBag.Where(id => id != sessionId).ToList();
+
+            if (remainingSessions.Count == 0)
+            {
+                // Remove the user entry entirely if no sessions remain
+                _userSessions.TryRemove(userId, out _);
+            }
+            else if (remainingSessions.Count != sessionBag.Count)
+            {
+                // Rebuild the bag with remaining sessions
+                _userSessions.TryUpdate(userId, new ConcurrentBag<Guid>(remainingSessions), sessionBag);
+            }
+        }
     }
 
     /// <summary>
@@ -618,10 +653,7 @@ public sealed class SessionManager : ISessionManager
         }
     }
 
-    /// <summary>
-    /// Records token usage for global budget tracking.
-    /// Should be called after each prompt/response cycle.
-    /// </summary>
+    /// <inheritdoc/>
     public void RecordTokenUsage(int tokens)
     {
         lock (_tokenBudgetLock)

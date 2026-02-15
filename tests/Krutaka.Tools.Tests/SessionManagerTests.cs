@@ -165,36 +165,6 @@ public class SessionManagerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task CreateSessionAsync_Should_EvictOldestIdle_WhenMaxActiveSessionsReached()
-    {
-        // Arrange
-        var options = new SessionManagerOptions(
-            MaxActiveSessions: 2,
-            IdleTimeout: TimeSpan.FromMilliseconds(100),
-            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
-        await using var manager = new SessionManager(_sessionFactory, options, logger: null);
-
-        var request1 = new SessionRequest(ProjectPath: _testDirectory);
-        var request2 = new SessionRequest(ProjectPath: _testDirectory);
-        var request3 = new SessionRequest(ProjectPath: _testDirectory);
-
-        var session1 = await manager.CreateSessionAsync(request1, CancellationToken.None);
-        var session2 = await manager.CreateSessionAsync(request2, CancellationToken.None);
-
-        // Wait for sessions to become idle
-        await Task.Delay(150);
-
-        // Act - This should trigger eviction
-        var session3 = await manager.CreateSessionAsync(request3, CancellationToken.None);
-
-        // Assert - Session 1 should be evicted (suspended)
-        session3.Should().NotBeNull();
-        var summaries = manager.ListActiveSessions();
-        summaries.Should().HaveCount(3); // 2 active + 1 suspended
-        summaries.Count(s => s.State == SessionState.Suspended).Should().BeGreaterOrEqualTo(1);
-    }
-
-    [Fact]
     public async Task CreateSessionAsync_Should_ThrowWhenMaxSessionsPerUserReached()
     {
         // Arrange
@@ -359,6 +329,122 @@ public class SessionManagerTests : IAsyncDisposable
         // Assert
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Global token budget exhausted*");
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_Should_AllowNewSessionAfterTerminationWhenMaxSessionsPerUserReached()
+    {
+        // Arrange
+        var userId = "user123";
+        var options = new SessionManagerOptions(MaxSessionsPerUser: 2);
+        await using var manager = new SessionManager(_sessionFactory, options, logger: null);
+
+        var request1 = new SessionRequest(ProjectPath: _testDirectory, UserId: userId);
+        var request2 = new SessionRequest(ProjectPath: _testDirectory, UserId: userId);
+        var request3 = new SessionRequest(ProjectPath: _testDirectory, UserId: userId);
+
+        var session1 = await manager.CreateSessionAsync(request1, CancellationToken.None);
+        var session2 = await manager.CreateSessionAsync(request2, CancellationToken.None);
+
+        // Act - Terminate one session and create a new one
+        await manager.TerminateSessionAsync(session1.SessionId, CancellationToken.None);
+        var session3 = await manager.CreateSessionAsync(request3, CancellationToken.None);
+
+        // Assert
+        session1.State.Should().Be(SessionState.Terminated);
+        session2.State.Should().Be(SessionState.Active);
+        session3.Should().NotBeNull();
+        session3.SessionId.Should().NotBe(session1.SessionId);
+        session3.SessionId.Should().NotBe(session2.SessionId);
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Should_ThrowWhenSessionNotFound()
+    {
+        // Act
+        var act = async () => await _sessionManager.ResumeSessionAsync(
+            Guid.NewGuid(),
+            _testDirectory,
+            CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*not found in active or suspended sessions*");
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Should_ThrowWhenProjectPathDoesNotExist()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(IdleTimeout: TimeSpan.FromMilliseconds(50));
+        await using var manager = new SessionManager(_sessionFactory, options, logger: null);
+
+        var request = new SessionRequest(ProjectPath: _testDirectory);
+        var session = await manager.CreateSessionAsync(request, CancellationToken.None);
+        var sessionId = session.SessionId;
+
+        // Wait for session to be suspended (need to wait for 2x IdleTimeout)
+        await Task.Delay(150);
+
+        // Delete the project directory
+        var nonExistentPath = Path.Combine(Path.GetTempPath(), $"nonexistent-{Guid.NewGuid()}");
+
+        // Act
+        var act = async () => await manager.ResumeSessionAsync(
+            sessionId,
+            nonExistentPath,
+            CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*project directory*does not exist*");
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Should_ReturnActiveSessionIfAlreadyActive()
+    {
+        // Arrange
+        var request = new SessionRequest(ProjectPath: _testDirectory);
+        var session = await _sessionManager.CreateSessionAsync(request, CancellationToken.None);
+
+        // Act
+        var resumedSession = await _sessionManager.ResumeSessionAsync(
+            session.SessionId,
+            _testDirectory,
+            CancellationToken.None);
+
+        // Assert
+        resumedSession.SessionId.Should().Be(session.SessionId);
+        resumedSession.State.Should().Be(SessionState.Active);
+    }
+
+    [Fact]
+    public async Task EvictionStrategy_Should_SuspendOldestIdleSession_WhenCapacityReached()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 2,
+            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
+        await using var manager = new SessionManager(_sessionFactory, options, logger: null);
+
+        var request1 = new SessionRequest(ProjectPath: _testDirectory);
+        var request2 = new SessionRequest(ProjectPath: _testDirectory);
+        var request3 = new SessionRequest(ProjectPath: _testDirectory);
+
+        var session1 = await manager.CreateSessionAsync(request1, CancellationToken.None);
+        await Task.Delay(50); // Ensure different LastActivity timestamps
+        var session2 = await manager.CreateSessionAsync(request2, CancellationToken.None);
+
+        // Act - This should trigger eviction of session1 (oldest)
+        var session3 = await manager.CreateSessionAsync(request3, CancellationToken.None);
+
+        // Assert
+        session3.Should().NotBeNull();
+        var summaries = manager.ListActiveSessions();
+        // Should have 3 total: 2 active + 1 suspended
+        summaries.Should().HaveCount(3);
+        summaries.Count(s => s.State == SessionState.Suspended).Should().Be(1);
+        summaries.Count(s => s.State == SessionState.Active).Should().Be(2);
     }
 
     // Mock implementations
