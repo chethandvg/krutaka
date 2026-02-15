@@ -241,6 +241,7 @@ try
     ManagedSession currentSession;
     SessionStore currentSessionStore;
     SystemPromptBuilder systemPromptBuilder;
+    IToolRegistry sessionToolRegistry;
 
     if (existingSessionId.HasValue)
     {
@@ -289,7 +290,7 @@ try
     // We need to access the tool registry from the session's orchestrator
     // Since AgentOrchestrator doesn't expose IToolRegistry, we'll need to use reflection or create it inline
     // For now, let's extract the tool registry creation logic to a helper
-    var sessionToolRegistry = CreateSessionToolRegistry(currentSession);
+    sessionToolRegistry = CreateSessionToolRegistry(currentSession);
     systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
 
     // Helper to extract tool registry from session (via reflection since it's not exposed)
