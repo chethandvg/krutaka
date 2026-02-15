@@ -61,4 +61,11 @@ public interface ISessionManager : IAsyncDisposable
     /// </summary>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     Task TerminateAllAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records token usage for global hourly budget tracking.
+    /// </summary>
+    /// <param name="tokens">Number of tokens consumed. Must be non-negative.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when tokens is negative.</exception>
+    void RecordTokenUsage(int tokens);
 }
