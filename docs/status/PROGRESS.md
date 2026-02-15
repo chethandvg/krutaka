@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 CorrelationContext agent identity fields complete — 1,357 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory complete — 1,378 tests (1,377 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1640,6 +1640,7 @@ Three fundamental changes:
 | # | Issue | Type | Status | Date Completed |
 |---|---|---|---|---|
 | v0.4.0-4 | CorrelationContext agent identity fields (AgentId, ParentAgentId, AgentRole) | Architecture | 🟢 Complete | 2026-02-15 |
+| #131 | SessionFactory implementation — per-session isolated instance creation | Architecture | 🟢 Complete | 2026-02-15 |
 
 **Implementation details:**
 - ✅ 3 new nullable properties in `CorrelationContext`: `AgentId`, `ParentAgentId`, `AgentRole` (all default null)
@@ -1651,6 +1652,38 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,332 existing tests pass, total 1,358 tests (1,357 passing, 1 skipped)
 - ✅ Full backward compatibility — audit log format unchanged when `AgentId` is null
 - ✅ No IAuditLogger interface signature changes
+
+**Issue #131 (SessionFactory) Implementation details:**
+- ✅ `SessionFactory` class in `src/Krutaka.Tools/SessionFactory.cs` implementing `ISessionFactory`
+- ✅ Constructor receives shared services: `IClaudeClient`, `ISecurityPolicy`, `IAuditLogger`, `IAccessPolicyEngine`, `ICommandRiskClassifier`, `ToolOptions`
+- ✅ `Create(SessionRequest)` method validates ProjectPath via `IAccessPolicyEngine` (Layer 1 hard deny check for system directories)
+- ✅ Creates per-session instances:
+  - ✅ `CorrelationContext` with new `Guid` session ID
+  - ✅ `InMemorySessionAccessStore` (per-session directory grants, disposed by ManagedSession)
+  - ✅ `LayeredAccessPolicyEngine` wired to per-session `InMemorySessionAccessStore` (Layer 3 grants isolation)
+  - ✅ `CommandApprovalCache` (per-session command approvals)
+  - ✅ `ToolRegistry` with tools scoped to `ProjectPath` working directory (using per-session access policy engine)
+  - ✅ `ContextCompactor` with per-session `CorrelationContext`
+  - ✅ `AgentOrchestrator` wired to all per-session and shared components
+  - ✅ `SessionBudget` initialized from `SessionRequest` (MaxTokens, MaxToolCalls)
+- ✅ Returns populated `ManagedSession` with all components
+- ✅ `ManagedSession` updated to own and dispose `ISessionAccessStore` (prevents resource leak)
+- ✅ DI registration performed inline in `ServiceExtensions.AddAgentTools()` (singleton `ISessionFactory` registration)
+- ✅ 19 comprehensive tests in `tests/Krutaka.Core.Tests/SessionFactoryTests.cs`:
+  - Unique SessionId generation
+  - Separate CorrelationContext instances per session
+  - Isolated ISessionAccessStore (directory grants don't leak between sessions)
+  - Isolated ICommandApprovalCache (command approvals don't leak between sessions, verified with reflection)
+  - Isolated orchestrators (separate instances verified)
+  - Tool registry scoped to correct ProjectPath per session
+  - System directory rejection (Windows/ProgramFiles when available)
+  - ManagedSession.DisposeAsync() calls Orchestrator.Dispose() and SessionAccessStore.Dispose()
+  - SessionBudget correctly applied from SessionRequest
+  - ProjectPath, ExternalKey, State initialization verified
+- ✅ Test project updated: `Krutaka.Core.Tests` now targets `net10.0-windows` and references `Krutaka.Tools` and `Krutaka.Memory`
+- ✅ Zero regressions — all 1,358 existing tests pass, total 1,378 tests (1,377 passing, 1 skipped)
+- ✅ Per-session isolation fully verified: no state leakage between sessions
+- ✅ **Critical review fix:** Per-session `LayeredAccessPolicyEngine` created for each session, wired to session's own `InMemorySessionAccessStore`, ensuring directory grants approved during session are visible to tools and command policy (fixes interactive grant flow)
 
 ### Next Steps
 
