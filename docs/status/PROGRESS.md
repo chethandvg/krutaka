@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory complete — 1,378 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory complete — 1,378 tests (1,377 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1660,19 +1660,21 @@ Three fundamental changes:
 - ✅ Creates per-session instances:
   - ✅ `CorrelationContext` with new `Guid` session ID
   - ✅ `InMemorySessionAccessStore` (per-session directory grants, disposed by ManagedSession)
+  - ✅ `LayeredAccessPolicyEngine` wired to per-session `InMemorySessionAccessStore` (Layer 3 grants isolation)
   - ✅ `CommandApprovalCache` (per-session command approvals)
-  - ✅ `ToolRegistry` with tools scoped to `ProjectPath` working directory
+  - ✅ `ToolRegistry` with tools scoped to `ProjectPath` working directory (using per-session access policy engine)
   - ✅ `ContextCompactor` with per-session `CorrelationContext`
   - ✅ `AgentOrchestrator` wired to all per-session and shared components
   - ✅ `SessionBudget` initialized from `SessionRequest` (MaxTokens, MaxToolCalls)
 - ✅ Returns populated `ManagedSession` with all components
 - ✅ `ManagedSession` updated to own and dispose `ISessionAccessStore` (prevents resource leak)
-- ✅ DI registration via `AddSessionFactory()` in `ServiceExtensions.AddAgentTools()` (singleton factory pattern)
+- ✅ DI registration performed inline in `ServiceExtensions.AddAgentTools()` (singleton `ISessionFactory` registration)
 - ✅ 19 comprehensive tests in `tests/Krutaka.Core.Tests/SessionFactoryTests.cs`:
   - Unique SessionId generation
   - Separate CorrelationContext instances per session
   - Isolated ISessionAccessStore (directory grants don't leak between sessions)
-  - Isolated orchestrators (command approval isolation verified)
+  - Isolated ICommandApprovalCache (command approvals don't leak between sessions, verified with reflection)
+  - Isolated orchestrators (separate instances verified)
   - Tool registry scoped to correct ProjectPath per session
   - System directory rejection (Windows/ProgramFiles when available)
   - ManagedSession.DisposeAsync() calls Orchestrator.Dispose() and SessionAccessStore.Dispose()
@@ -1681,6 +1683,7 @@ Three fundamental changes:
 - ✅ Test project updated: `Krutaka.Core.Tests` now targets `net10.0-windows` and references `Krutaka.Tools` and `Krutaka.Memory`
 - ✅ Zero regressions — all 1,358 existing tests pass, total 1,378 tests (1,377 passing, 1 skipped)
 - ✅ Per-session isolation fully verified: no state leakage between sessions
+- ✅ **Critical review fix:** Per-session `LayeredAccessPolicyEngine` created for each session, wired to session's own `InMemorySessionAccessStore`, ensuring directory grants approved during session are visible to tools and command policy (fixes interactive grant flow)
 
 ### Next Steps
 

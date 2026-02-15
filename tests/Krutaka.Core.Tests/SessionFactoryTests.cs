@@ -48,7 +48,7 @@ public sealed class SessionFactoryTests
     }
 
     [Fact]
-    public async Task Create_Should_IsolateDirextoryGrantsBetweenSessions()
+    public async Task Create_Should_IsolateDirectoryGrantsBetweenSessions()
     {
         // Arrange
         var factory = CreateSessionFactory();
@@ -93,9 +93,42 @@ public sealed class SessionFactoryTests
         await using var session1 = factory.Create(request1);
         await using var session2 = factory.Create(request2);
 
-        // Act - We can't directly access the private _commandApprovalCache in orchestrator,
-        // so we verify isolation by checking that each session has its own orchestrator instance
+        // Act - Verify each session has its own orchestrator (basic sanity check)
         session1.Orchestrator.Should().NotBe(session2.Orchestrator, "each session should have its own orchestrator");
+
+        // Reflect the private _commandApprovalCache field from each orchestrator to verify isolation
+        var cache1 = session1.Orchestrator.GetType()
+            .GetField("_commandApprovalCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+            .GetValue(session1.Orchestrator);
+
+        var cache2 = session2.Orchestrator.GetType()
+            .GetField("_commandApprovalCache", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+            .GetValue(session2.Orchestrator);
+
+        cache1.Should().NotBeNull("each orchestrator should have its own command approval cache");
+        cache2.Should().NotBeNull("each orchestrator should have its own command approval cache");
+        cache1.Should().NotBe(cache2, "command approval caches should not be shared between sessions");
+
+        // Verify that adding an approval to cache1 doesn't affect cache2
+        var cacheType = cache1!.GetType();
+        var addApprovalMethod = cacheType.GetMethod("AddApproval", [typeof(string), typeof(TimeSpan)]);
+        var isApprovedMethod = cacheType.GetMethod("IsApproved", [typeof(string)]);
+
+        addApprovalMethod.Should().NotBeNull("command approval cache should expose an AddApproval method");
+        isApprovedMethod.Should().NotBeNull("command approval cache should expose an IsApproved method");
+
+        var commandKey = "test-command-approval-isolation";
+
+        // Add approval in session1's cache
+        addApprovalMethod!.Invoke(cache1, [commandKey, TimeSpan.FromMinutes(5)]);
+
+        // Verify the command is approved in session1's cache
+        var isApprovedInSession1 = (bool)isApprovedMethod!.Invoke(cache1, [commandKey])!;
+        isApprovedInSession1.Should().BeTrue("command should be approved in the cache where it was added");
+
+        // Verify the same command is NOT approved in session2's cache
+        var isApprovedInSession2 = (bool)isApprovedMethod.Invoke(cache2, [commandKey])!;
+        isApprovedInSession2.Should().BeFalse("command approvals should not leak between sessions");
     }
 
     [Fact]
@@ -127,7 +160,7 @@ public sealed class SessionFactoryTests
     }
 
     [Fact]
-    public async Task Create_Should_ThrowInvalidOperationException_WhenProjectPathIsSystemDirectory()
+    public void Create_Should_ThrowInvalidOperationException_WhenProjectPathIsSystemDirectory()
     {
         // Arrange
         var factory = CreateSessionFactory();
@@ -148,7 +181,7 @@ public sealed class SessionFactoryTests
     }
 
     [Fact]
-    public async Task Create_Should_ThrowInvalidOperationException_WhenProjectPathIsProgramFiles()
+    public void Create_Should_ThrowInvalidOperationException_WhenProjectPathIsProgramFiles()
     {
         // Arrange
         var factory = CreateSessionFactory();

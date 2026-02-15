@@ -66,11 +66,20 @@ public sealed class SessionFactory : ISessionFactory
         // Create per-session InMemorySessionAccessStore
         var sessionAccessStore = new InMemorySessionAccessStore(_toolOptions.MaxConcurrentGrants);
 
+        // Create per-session IAccessPolicyEngine wired to the session's access store (Layer 3 grants)
+        // This ensures directory grants approved during this session are visible to tools and command policy
+        var fileOperations = new SafeFileOperations(_auditLogger);
+        var sessionAccessPolicyEngine = new LayeredAccessPolicyEngine(
+            fileOperations,
+            _toolOptions.CeilingDirectory,
+            _toolOptions.AutoGrantPatterns,
+            sessionAccessStore);
+
         // Create per-session CommandApprovalCache
         var commandApprovalCache = new CommandApprovalCache();
 
         // Create per-session IToolRegistry with tools scoped to ProjectPath
-        var toolRegistry = CreateSessionToolRegistry(request.ProjectPath, commandApprovalCache, correlationContext);
+        var toolRegistry = CreateSessionToolRegistry(request.ProjectPath, sessionAccessPolicyEngine, commandApprovalCache, correlationContext);
 
         // Create per-session ContextCompactor
         var contextCompactor = new ContextCompactor(
@@ -116,11 +125,13 @@ public sealed class SessionFactory : ISessionFactory
     /// Creates a per-session tool registry with tools scoped to the session's working directory.
     /// </summary>
     /// <param name="projectPath">The project directory path for this session.</param>
+    /// <param name="sessionAccessPolicyEngine">The per-session access policy engine wired to the session's access store.</param>
     /// <param name="commandApprovalCache">The per-session command approval cache.</param>
     /// <param name="correlationContext">The per-session correlation context.</param>
     /// <returns>A tool registry with tools scoped to the session's working directory.</returns>
     private ToolRegistry CreateSessionToolRegistry(
         string projectPath,
+        IAccessPolicyEngine sessionAccessPolicyEngine,
         ICommandApprovalCache commandApprovalCache,
         CorrelationContext correlationContext)
     {
@@ -129,11 +140,11 @@ public sealed class SessionFactory : ISessionFactory
         // Create IFileOperations for this session
         var fileOperations = new SafeFileOperations(_auditLogger);
 
-        // Create ICommandPolicy for this session
+        // Create ICommandPolicy for this session (using per-session access policy engine)
         var commandPolicy = new GraduatedCommandPolicy(
             _commandRiskClassifier,
             _securityPolicy,
-            _accessPolicyEngine,
+            sessionAccessPolicyEngine,
             _auditLogger,
             _toolOptions.CommandPolicy);
 
@@ -143,21 +154,21 @@ public sealed class SessionFactory : ISessionFactory
             Current = correlationContext
         };
 
-        // Register read-only tools (auto-approve)
-        registry.Register(new ReadFileTool(projectPath, fileOperations, _accessPolicyEngine));
-        registry.Register(new ListFilesTool(projectPath, fileOperations, _accessPolicyEngine));
-        registry.Register(new SearchFilesTool(projectPath, fileOperations, _accessPolicyEngine));
+        // Register read-only tools (auto-approve) - using per-session access policy engine
+        registry.Register(new ReadFileTool(projectPath, fileOperations, sessionAccessPolicyEngine));
+        registry.Register(new ListFilesTool(projectPath, fileOperations, sessionAccessPolicyEngine));
+        registry.Register(new SearchFilesTool(projectPath, fileOperations, sessionAccessPolicyEngine));
 
-        // Register write tools (require approval)
-        registry.Register(new WriteFileTool(projectPath, fileOperations, _accessPolicyEngine));
-        registry.Register(new EditFileTool(projectPath, fileOperations, _accessPolicyEngine));
+        // Register write tools (require approval) - using per-session access policy engine
+        registry.Register(new WriteFileTool(projectPath, fileOperations, sessionAccessPolicyEngine));
+        registry.Register(new EditFileTool(projectPath, fileOperations, sessionAccessPolicyEngine));
 
-        // Register command execution tool (graduated approval)
+        // Register command execution tool (graduated approval) - using per-session access policy engine
         registry.Register(new RunCommandTool(
             projectPath,
             _securityPolicy,
             _toolOptions.CommandTimeoutSeconds,
-            _accessPolicyEngine,
+            sessionAccessPolicyEngine,
             commandPolicy,
             commandApprovalCache,
             correlationContextAccessor));
