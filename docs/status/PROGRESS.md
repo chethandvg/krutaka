@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory complete — 1,378 tests (1,377 passing, 1 skipped))
+> **Last updated:** 2026-02-15 (v0.4.0 SessionManager complete — 1,395 tests (1,394 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1641,6 +1641,7 @@ Three fundamental changes:
 |---|---|---|---|---|
 | v0.4.0-4 | CorrelationContext agent identity fields (AgentId, ParentAgentId, AgentRole) | Architecture | 🟢 Complete | 2026-02-15 |
 | #131 | SessionFactory implementation — per-session isolated instance creation | Architecture | 🟢 Complete | 2026-02-15 |
+| #133 | SessionManager implementation — create, idle, suspend, resume, terminate with resource governance | Architecture | 🟢 Complete | 2026-02-15 |
 
 **Implementation details:**
 - ✅ 3 new nullable properties in `CorrelationContext`: `AgentId`, `ParentAgentId`, `AgentRole` (all default null)
@@ -1684,6 +1685,86 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,358 existing tests pass, total 1,378 tests (1,377 passing, 1 skipped)
 - ✅ Per-session isolation fully verified: no state leakage between sessions
 - ✅ **Critical review fix:** Per-session `LayeredAccessPolicyEngine` created for each session, wired to session's own `InMemorySessionAccessStore`, ensuring directory grants approved during session are visible to tools and command policy (fixes interactive grant flow)
+
+**Issue #133 (SessionManager) Implementation details:**
+- ✅ `SessionManager` class in `src/Krutaka.Tools/SessionManager.cs` implementing `ISessionManager`
+- ✅ Constructor receives: `ISessionFactory`, `SessionManagerOptions`, `ILogger<SessionManager>` (optional)
+- ✅ Concurrent session storage using `ConcurrentDictionary<Guid, ManagedSession>` for thread-safe access
+- ✅ External key mapping via `ConcurrentDictionary<string, Guid>` for Telegram chatId → session lookups
+- ✅ Suspended session tracking via `ConcurrentDictionary<Guid, SuspendedSessionInfo>` (orchestrator disposed, JSONL preserved)
+- ✅ Per-user session tracking via `ConcurrentDictionary<string, HashSet<Guid>>` for per-user limits enforcement
+- ✅ Session-to-user mapping via `ConcurrentDictionary<Guid, string>` for cleanup on termination
+- ✅ Global token budget tracking with hourly reset (lock-protected counter)
+- ✅ Idle detection timer using `PeriodicTimer` running background task
+- ✅ `CreateSessionAsync` implementation:
+  - Validates global token budget, throws if exhausted
+  - Validates per-user session limits (`MaxSessionsPerUser`), throws if exceeded
+  - Applies eviction strategy when `MaxActiveSessions` reached
+  - Creates session via `ISessionFactory.Create()`
+  - Stores in active sessions dictionary with GUID uniqueness check
+  - Maps external key if provided
+  - Tracks user sessions for per-user limit enforcement
+- ✅ `GetSession` returns existing session or null
+- ✅ `GetOrCreateByKeyAsync` idempotent session creation:
+  - Returns existing session if external key found
+  - Updates `LastActivity` when returning existing session
+  - Creates new session if key not found
+  - Cleans up stale key mappings
+- ✅ `ResumeSessionAsync` implementation:
+  - Returns active session if already running
+  - Retrieves from suspended sessions dictionary
+  - Re-validates `ProjectPath` exists before resume
+  - Creates new session via factory
+  - Reconstructs conversation history using `SessionStore.ReconstructMessagesAsync()`
+  - Restores history via `orchestrator.RestoreConversationHistory()`
+  - Handles reconstruction failures gracefully (continues with empty session)
+- ✅ `TerminateSessionAsync` implementation:
+  - Removes from active sessions
+  - Removes external key mapping
+  - Removes from user session tracking
+  - Calls `ManagedSession.DisposeAsync()`
+  - Removes from suspended sessions if found
+- ✅ `TerminateAllAsync` disposes all sessions, clears all dictionaries
+- ✅ `ListActiveSessions` returns `SessionSummary` list for both active and suspended sessions
+- ✅ `DisposeAsync` implementation:
+  - Cancels idle detection timer using `CancelAsync()` (not `Cancel()` for proper async)
+  - Disposes `PeriodicTimer`
+  - Awaits idle detection task completion
+  - Calls `TerminateAllAsync()` to dispose all sessions
+  - Disposes `CancellationTokenSource`
+- ✅ Background idle detection task:
+  - Runs on `PeriodicTimer` with configured `IdleTimeout`
+  - Transitions `Active` sessions to `Idle` state after timeout
+  - Suspends `Idle` sessions (disposes orchestrator, preserves JSONL)
+  - Removes expired suspended sessions after `SuspendedTtl`
+- ✅ Eviction strategies:
+  - `SuspendOldestIdle`: Suspends session with oldest `LastActivity` (prefers idle, falls back to active)
+  - `RejectNew`: Throws exception when capacity reached
+  - `TerminateOldest`: Terminates oldest session entirely
+- ✅ `ManagedSession.TransitionToIdle()` method added (public) for state management from SessionManager
+- ✅ `RecordTokenUsage()` method for global token budget tracking
+- ✅ DI registration in `ServiceExtensions.AddAgentTools()` as singleton
+- ✅ 17 comprehensive tests in `tests/Krutaka.Tools.Tests/SessionManagerTests.cs`:
+  - CreateSessionAsync creates and stores session
+  - GetSession returns existing session or null
+  - GetOrCreateByKeyAsync idempotent creation (same key returns same session)
+  - GetOrCreateByKeyAsync different keys create different sessions
+  - MaxActiveSessions enforcement with RejectNew strategy
+  - Eviction with SuspendOldestIdle strategy
+  - MaxSessionsPerUser enforcement
+  - TerminateSessionAsync disposes and removes from dictionaries
+  - TerminateSessionAsync removes external key mapping
+  - TerminateAllAsync disposes all sessions
+  - ListActiveSessions returns all active sessions
+  - Concurrent session creation (10 parallel tasks, no exceptions, no duplicates)
+  - DisposeAsync cancels idle detection timer
+  - RecordTokenUsage tracks global tokens
+  - Global token budget exhaustion throws exception
+- ✅ Zero regressions — all 1,378 existing tests pass, total **1,395 tests (1,394 passing, 1 skipped)**
+- ✅ Thread-safe concurrent access verified via parallel test
+- ✅ Proper resource cleanup on dispose (timer, sessions, dictionaries)
+- ✅ Idle/suspension lifecycle fully implemented and tested
+- ✅ Per-user limits and global token budget enforcement verified
 
 ### Next Steps
 
