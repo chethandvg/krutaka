@@ -692,6 +692,351 @@ public class AuditLoggerTests
         logEvent.Properties["AgentRole"].ToString().Should().Contain("coordinator");
     }
 
+    [Fact]
+    public void Should_LogTelegramAuthEvent_WithAllowedOutcome()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramAuthEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            Outcome = AuthOutcome.Allowed,
+            DeniedReason = null,
+            UpdateId = 42
+        };
+
+        // Act
+        auditLogger.LogTelegramAuth(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Information);
+        logEvent.Properties["EventType"].ToString().Should().Contain("TelegramAuthEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("123456789");
+        eventData.Should().Contain("987654321");
+        eventData.Should().Contain("Allowed");
+        eventData.Should().Contain("updateId");
+        eventData.Should().Contain("42");
+    }
+
+    [Fact]
+    public void Should_LogTelegramAuthEvent_WithDeniedOutcome()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramAuthEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            Outcome = AuthOutcome.Denied,
+            DeniedReason = "User not authorized",
+            UpdateId = 43
+        };
+
+        // Act
+        auditLogger.LogTelegramAuth(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("Denied");
+        eventData.Should().Contain("User not authorized");
+    }
+
+    [Fact]
+    public void Should_LogTelegramMessageEvent()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramMessageEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            Command = "/ask",
+            MessageLength = 256
+        };
+
+        // Act
+        auditLogger.LogTelegramMessage(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Information);
+        logEvent.Properties["EventType"].ToString().Should().Contain("TelegramMessageEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("123456789");
+        eventData.Should().Contain("987654321");
+        eventData.Should().Contain("/ask");
+        eventData.Should().Contain("messageLength");
+        eventData.Should().Contain("256");
+    }
+
+    [Fact]
+    public void Should_LogTelegramApprovalEvent_Approved()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramApprovalEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            ToolName = "execute_command",
+            ToolUseId = "toolu_abc123",
+            Approved = true
+        };
+
+        // Act
+        auditLogger.LogTelegramApproval(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties["EventType"].ToString().Should().Contain("TelegramApprovalEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("execute_command");
+        eventData.Should().Contain("toolu_abc123");
+        eventData.Should().Contain("approved");
+        eventData.Should().Contain("true");
+    }
+
+    [Fact]
+    public void Should_LogTelegramSessionEvent_Created()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramSessionEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramChatId = 987654321,
+            EventType = SessionEventType.Created,
+            UserId = "user_123"
+        };
+
+        // Act
+        auditLogger.LogTelegramSession(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties["EventType"].ToString().Should().Contain("TelegramSessionEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("987654321");
+        eventData.Should().Contain("Created");
+        eventData.Should().Contain("user_123");
+    }
+
+    [Fact]
+    public void Should_LogTelegramRateLimitEvent()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramRateLimitEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            CommandCount = 15,
+            LimitPerMinute = 10,
+            WindowDuration = TimeSpan.FromMinutes(1)
+        };
+
+        // Act
+        auditLogger.LogTelegramRateLimit(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties["EventType"].ToString().Should().Contain("TelegramRateLimitEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("123456789");
+        eventData.Should().Contain("commandCount");
+        eventData.Should().Contain("15");
+        eventData.Should().Contain("limitPerMinute");
+        eventData.Should().Contain("10");
+        eventData.Should().Contain("windowDuration");
+    }
+
+    [Fact]
+    public void Should_LogTelegramSecurityIncidentEvent_AtWarningLevel()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var evt = new TelegramSecurityIncidentEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            Type = IncidentType.CallbackTampering,
+            Details = "HMAC signature mismatch detected"
+        };
+
+        // Act
+        auditLogger.LogTelegramSecurityIncident(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Level.Should().Be(LogEventLevel.Warning);
+        logEvent.Properties["EventType"].ToString().Should().Contain("TelegramSecurityIncidentEvent");
+        var eventData = logEvent.Properties["EventData"].ToString();
+        eventData.Should().Contain("123456789");
+        eventData.Should().Contain("CallbackTampering");
+        eventData.Should().Contain("HMAC signature mismatch detected");
+    }
+
+    [Fact]
+    public void Should_IncludeAgentId_InTelegramAuthEvent_WhenAgentContextIsSet()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        var agentId = Guid.NewGuid();
+        correlationContext.SetAgentContext(agentId, null, "telegram-handler");
+
+        var evt = new TelegramAuthEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            Outcome = AuthOutcome.Allowed,
+            UpdateId = 42
+        };
+
+        // Act
+        auditLogger.LogTelegramAuth(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("AgentId");
+        logEvent.Properties["AgentId"].ToString().Should().Contain(agentId.ToString());
+        logEvent.Properties.Should().ContainKey("AgentRole");
+        logEvent.Properties["AgentRole"].ToString().Should().Contain("telegram-handler");
+    }
+
+    [Fact]
+    public void Should_OmitAgentId_InTelegramMessageEvent_WhenAgentIdIsNull()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        // AgentId not set (null)
+
+        var evt = new TelegramMessageEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            Command = "/status",
+            MessageLength = 10
+        };
+
+        // Act
+        auditLogger.LogTelegramMessage(correlationContext, evt);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().NotContainKey("AgentId");
+        logEvent.Properties.Should().NotContainKey("ParentAgentId");
+        logEvent.Properties.Should().NotContainKey("AgentRole");
+    }
+
+    [Fact]
+    public void TelegramAuthEvent_ShouldConstruct_WithAllProperties()
+    {
+        // Act
+        var evt = new TelegramAuthEvent
+        {
+            SessionId = Guid.NewGuid(),
+            TurnId = 1,
+            TelegramUserId = 123456789,
+            TelegramChatId = 987654321,
+            Outcome = AuthOutcome.RateLimited,
+            DeniedReason = "Too many requests",
+            UpdateId = 100
+        };
+
+        // Assert
+        evt.TelegramUserId.Should().Be(123456789);
+        evt.TelegramChatId.Should().Be(987654321);
+        evt.Outcome.Should().Be(AuthOutcome.RateLimited);
+        evt.DeniedReason.Should().Be("Too many requests");
+        evt.UpdateId.Should().Be(100);
+    }
+
+    [Fact]
+    public void TelegramSecurityIncidentEvent_ShouldConstruct_WithNullUserId()
+    {
+        // Act
+        var evt = new TelegramSecurityIncidentEvent
+        {
+            SessionId = Guid.NewGuid(),
+            TurnId = 1,
+            TelegramUserId = null,
+            Type = IncidentType.UnknownUserAttempt,
+            Details = "User ID not recognized"
+        };
+
+        // Assert
+        evt.TelegramUserId.Should().BeNull();
+        evt.Type.Should().Be(IncidentType.UnknownUserAttempt);
+        evt.Details.Should().Be("User ID not recognized");
+    }
+
+    [Fact]
+    public void AuthOutcome_ShouldHaveAllExpectedValues()
+    {
+        // Assert
+        Enum.GetNames<AuthOutcome>().Should().Contain(["Allowed", "Denied", "RateLimited", "LockedOut"]);
+    }
+
+    [Fact]
+    public void SessionEventType_ShouldHaveAllExpectedValues()
+    {
+        // Assert
+        Enum.GetNames<SessionEventType>().Should().Contain(["Created", "Suspended", "Resumed", "Terminated"]);
+    }
+
+    [Fact]
+    public void IncidentType_ShouldHaveAllExpectedValues()
+    {
+        // Assert
+        Enum.GetNames<IncidentType>().Should().Contain(["LockoutTriggered", "UnknownUserAttempt", "CallbackTampering", "ReplayAttempt"]);
+    }
+
     private static (ILogger Logger, TestSink Sink) CreateLoggerWithSink()
     {
         var sink = new TestSink();

@@ -283,7 +283,24 @@ internal sealed class AuditLogger : IAuditLogger
             UpdateId = evt.UpdateId
         };
 
-        Log(@event);
+        // Build EventData dictionary with string enum serialization
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        WriteAuditLog(LogEventLevel.Information, eventType.Name, @event, eventDataJson);
     }
 
     /// <inheritdoc />
@@ -352,7 +369,24 @@ internal sealed class AuditLogger : IAuditLogger
             UserId = evt.UserId
         };
 
-        Log(@event);
+        // Build EventData dictionary with string enum serialization
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        WriteAuditLog(LogEventLevel.Information, eventType.Name, @event, eventDataJson);
     }
 
     /// <inheritdoc />
