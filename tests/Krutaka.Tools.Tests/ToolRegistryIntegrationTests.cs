@@ -400,4 +400,72 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
             return Task.FromResult(0);
         }
     }
+
+    [Fact]
+    public void Should_UseConfiguredOrchestratorLimits_InToolOptions()
+    {
+        // Arrange
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddSingleton<IClaudeClient>(new MockClaudeClient());
+
+        // Act - Configure with custom orchestrator limits
+        services.AddAgentTools(options =>
+        {
+            options.DefaultWorkingDirectory = _testRoot;
+            options.CeilingDirectory = "/";
+            options.ToolTimeoutSeconds = 45; // Custom value
+            options.ApprovalTimeoutSeconds = 600; // Custom value (10 minutes)
+            options.MaxToolResultCharacters = 500_000; // Custom value
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var toolOptions = serviceProvider.GetService<ToolOptions>();
+
+        // Assert - Verify configured values are preserved
+        toolOptions.Should().NotBeNull();
+        toolOptions!.ToolTimeoutSeconds.Should().Be(45, "custom tool timeout should be preserved");
+        toolOptions.ApprovalTimeoutSeconds.Should().Be(600, "custom approval timeout should be preserved");
+        toolOptions.MaxToolResultCharacters.Should().Be(500_000, "custom max tool result characters should be preserved");
+    }
+
+    [Fact]
+    public async Task Should_UseToolOptionsLimits_InSessionFactory()
+    {
+        // Arrange
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddSingleton<IClaudeClient>(new MockClaudeClient());
+
+        // Configure with custom orchestrator limits
+        services.AddAgentTools(options =>
+        {
+            options.DefaultWorkingDirectory = _testRoot;
+            options.CeilingDirectory = "/";
+            options.ToolTimeoutSeconds = 50;
+            options.ApprovalTimeoutSeconds = 500;
+            options.MaxToolResultCharacters = 250_000;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var sessionFactory = serviceProvider.GetRequiredService<ISessionFactory>();
+
+        var sessionRequest = new SessionRequest(
+            ProjectPath: _testRoot,
+            MaxTokenBudget: 100_000,
+            MaxToolCallBudget: 100);
+
+        // Act - Create session (SessionFactory should use ToolOptions values)
+        var session = sessionFactory.Create(sessionRequest);
+
+        // Assert - Verify session was created successfully
+        session.Should().NotBeNull();
+        session.Orchestrator.Should().NotBeNull();
+
+        // Note: We can't directly verify the orchestrator's internal timeout values
+        // because AgentOrchestrator doesn't expose them as public properties.
+        // This test verifies that SessionFactory successfully creates a session
+        // when custom ToolOptions are configured, ensuring no errors occur.
+
+        // Cleanup
+        await session.DisposeAsync();
+    }
 }
