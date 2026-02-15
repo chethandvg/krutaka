@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory complete — 1,378 tests (1,377 passing, 1 skipped))
+> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory with session ID override — 1,385 tests (1,384 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1684,6 +1684,26 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,358 existing tests pass, total 1,378 tests (1,377 passing, 1 skipped)
 - ✅ Per-session isolation fully verified: no state leakage between sessions
 - ✅ **Critical review fix:** Per-session `LayeredAccessPolicyEngine` created for each session, wired to session's own `InMemorySessionAccessStore`, ensuring directory grants approved during session are visible to tools and command policy (fixes interactive grant flow)
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #135 | Logical Session IDs Across Resume/Restore (ISessionFactory Overload) | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Added overload `Create(SessionRequest, Guid)` to `ISessionFactory` for binary compatibility
+- ✅ Updated `SessionFactory` with two public methods: `Create(request)` and `Create(request, sessionId)`
+- ✅ Validates session ID is not `Guid.Empty` to prevent ID collisions
+- ✅ Comprehensive XML documentation explaining when/why to use overload (resume, external key stability, audit continuity)
+- ✅ Backward compatible — existing `Create(request)` calls continue to work unchanged
+- ✅ Tests updated in `tests/Krutaka.Core.Tests/SessionFactoryTests.cs`:
+  - Using provided session ID with overload
+  - Generating new GUID with parameterless overload
+  - Preserving session ID in CorrelationContext
+  - Resume scenario with external key mapping preservation
+  - Per-session component isolation even with same session ID
+  - Backward compatibility with existing calls
+  - Validation rejection of Guid.Empty
+- ✅ Ready for `SessionManager.ResumeSessionAsync()` implementation (issue #133)
 
 ### Next Steps
 

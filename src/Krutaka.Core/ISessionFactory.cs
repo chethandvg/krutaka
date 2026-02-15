@@ -32,4 +32,23 @@ public interface ISessionFactory
     /// - ToolOptions
     /// </remarks>
     ManagedSession Create(SessionRequest request);
+
+    /// <summary>
+    /// Creates a new managed session with a specific session ID (typically when resuming a suspended session).
+    /// </summary>
+    /// <param name="request">The session creation request containing project path, budgets, and external keys.</param>
+    /// <param name="sessionId">The session ID to use for this session. Must not be Guid.Empty.
+    /// Use this when resuming a suspended session to preserve the original session ID for external key mapping, 
+    /// audit log continuity, JSONL file linkage, and resource governance.</param>
+    /// <returns>A new managed session instance with the specified session ID.</returns>
+    /// <exception cref="ArgumentException">Thrown when sessionId is Guid.Empty.</exception>
+    /// <remarks>
+    /// This overload is used when resuming a suspended session to ensure external mappings 
+    /// (e.g., Telegram chatId → sessionId), audit logs, and JSONL files remain consistent 
+    /// across suspend/resume cycles.
+    /// 
+    /// The session ID must be a valid, non-empty GUID. Passing Guid.Empty will result in 
+    /// an ArgumentException to prevent ID collisions and maintain session identity invariants.
+    /// </remarks>
+    ManagedSession Create(SessionRequest request, Guid sessionId);
 }

@@ -45,6 +45,25 @@ public sealed class SessionFactory : ISessionFactory
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The sessionAccessStore and orchestrator are owned by ManagedSession and will be disposed via ManagedSession.DisposeAsync()")]
     public ManagedSession Create(SessionRequest request)
     {
+        return CreateInternal(request, sessionId: null);
+    }
+
+    /// <inheritdoc/>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The sessionAccessStore and orchestrator are owned by ManagedSession and will be disposed via ManagedSession.DisposeAsync()")]
+    public ManagedSession Create(SessionRequest request, Guid sessionId)
+    {
+        // Validate sessionId is not Guid.Empty to prevent ID collisions and maintain session identity invariant
+        if (sessionId == Guid.Empty)
+        {
+            throw new ArgumentException("Session ID cannot be Guid.Empty. A valid non-empty GUID is required for session identity.", nameof(sessionId));
+        }
+
+        return CreateInternal(request, sessionId);
+    }
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The sessionAccessStore and orchestrator are owned by ManagedSession and will be disposed via ManagedSession.DisposeAsync()")]
+    private ManagedSession CreateInternal(SessionRequest request, Guid? sessionId)
+    {
         ArgumentNullException.ThrowIfNull(request);
 
         // Validate ProjectPath is not a system directory (Layer 1 hard deny check)
@@ -57,11 +76,11 @@ public sealed class SessionFactory : ISessionFactory
                 $"Cannot create session with ProjectPath '{request.ProjectPath}': {string.Join(", ", validationResult.DeniedReasons)}");
         }
 
-        // Generate new session ID
-        var sessionId = Guid.NewGuid();
+        // Use provided session ID or generate new GUID
+        var actualSessionId = sessionId ?? Guid.NewGuid();
 
         // Create per-session CorrelationContext
-        var correlationContext = new CorrelationContext(sessionId);
+        var correlationContext = new CorrelationContext(actualSessionId);
 
         // Create per-session InMemorySessionAccessStore
         var sessionAccessStore = new InMemorySessionAccessStore(_toolOptions.MaxConcurrentGrants);
@@ -112,7 +131,7 @@ public sealed class SessionFactory : ISessionFactory
 
         // Create and return ManagedSession
         return new ManagedSession(
-            sessionId: sessionId,
+            sessionId: actualSessionId,
             projectPath: request.ProjectPath,
             externalKey: request.ExternalKey,
             orchestrator: orchestrator,
