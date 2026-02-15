@@ -52,6 +52,11 @@ public sealed class ManagedSession : IAsyncDisposable
     /// </summary>
     public SessionBudget Budget { get; }
 
+    /// <summary>
+    /// Gets the per-session access store for directory grants (IDisposable).
+    /// </summary>
+    public ISessionAccessStore? SessionAccessStore { get; }
+
     private bool _disposed;
 
     /// <summary>
@@ -63,13 +68,15 @@ public sealed class ManagedSession : IAsyncDisposable
     /// <param name="orchestrator">The per-session agent orchestrator.</param>
     /// <param name="correlationContext">The per-session correlation context.</param>
     /// <param name="budget">The session budget tracker.</param>
+    /// <param name="sessionAccessStore">Optional per-session access store for directory grants.</param>
     public ManagedSession(
         Guid sessionId,
         string projectPath,
         string? externalKey,
         AgentOrchestrator orchestrator,
         CorrelationContext correlationContext,
-        SessionBudget budget)
+        SessionBudget budget,
+        ISessionAccessStore? sessionAccessStore = null)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(correlationContext);
@@ -82,6 +89,7 @@ public sealed class ManagedSession : IAsyncDisposable
         Orchestrator = orchestrator;
         CorrelationContext = correlationContext;
         Budget = budget;
+        SessionAccessStore = sessionAccessStore;
         CreatedAt = DateTimeOffset.UtcNow;
         LastActivity = CreatedAt;
         State = SessionState.Active;
@@ -99,6 +107,7 @@ public sealed class ManagedSession : IAsyncDisposable
     /// <summary>
     /// Disposes the session, releasing all resources and transitioning to Terminated state.
     /// Calls Orchestrator.Dispose() synchronously since AgentOrchestrator implements IDisposable (not IAsyncDisposable).
+    /// Disposes SessionAccessStore if present (InMemorySessionAccessStore implements IDisposable).
     /// </summary>
     public ValueTask DisposeAsync()
     {
@@ -112,6 +121,12 @@ public sealed class ManagedSession : IAsyncDisposable
         // AgentOrchestrator implements IDisposable (synchronous), not IAsyncDisposable
         // It only releases the SemaphoreSlim — no async resources to dispose
         Orchestrator.Dispose();
+
+        // Dispose SessionAccessStore if present (InMemorySessionAccessStore has SemaphoreSlim)
+        if (SessionAccessStore is IDisposable disposableStore)
+        {
+            disposableStore.Dispose();
+        }
 
         _disposed = true;
 

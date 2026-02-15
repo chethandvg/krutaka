@@ -199,6 +199,9 @@ public static class ServiceExtensions
             return registry;
         });
 
+        // Register session factory (singleton) for v0.4.0 multi-session support
+        services.AddSingleton<ISessionFactory, SessionFactory>();
+
         return services;
     }
 
