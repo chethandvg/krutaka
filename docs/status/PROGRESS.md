@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionManager complete with review fixes — 1,399 tests (1,398 passing, 1 skipped))
+> **Last updated:** 2026-02-15 (v0.4.0 SessionManager complete with architectural fixes — 1,401 tests (1,400 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1691,6 +1691,7 @@ Three fundamental changes:
 - ✅ Constructor receives: `ISessionFactory`, `SessionManagerOptions`, `ILogger<SessionManager>` (optional)
 - ✅ Concurrent session storage using `ConcurrentDictionary<Guid, ManagedSession>` for thread-safe access
 - ✅ External key mapping via `ConcurrentDictionary<string, Guid>` for Telegram chatId → session lookups
+- ✅ Per-key locks via `ConcurrentDictionary<string, SemaphoreSlim>` for atomic GetOrCreateByKeyAsync
 - ✅ Suspended session tracking via `ConcurrentDictionary<Guid, SuspendedSessionInfo>` (orchestrator disposed, JSONL preserved)
 - ✅ Per-user session tracking via `ConcurrentDictionary<string, ConcurrentBag<Guid>>` for thread-safe per-user limits enforcement
 - ✅ Session-to-user mapping via `ConcurrentDictionary<Guid, string>` for cleanup on termination
@@ -1707,19 +1708,23 @@ Three fundamental changes:
   - Maps external key if provided
   - Tracks user sessions using thread-safe `ConcurrentBag<Guid>`
 - ✅ `GetSession` returns existing session or null
-- ✅ `GetOrCreateByKeyAsync` idempotent session creation:
-  - Returns existing session if external key found
+- ✅ `GetOrCreateByKeyAsync` idempotent session creation with per-key locking:
+  - Acquires key-specific `SemaphoreSlim` to serialize concurrent requests
+  - Returns existing active session if external key found
+  - Checks suspended sessions and resumes if key points to suspended session
   - Updates `LastActivity` when returning existing session
-  - Creates new session if key not found
+  - Creates new session if key not found in active or suspended
   - Cleans up stale key mappings
-- ✅ `ResumeSessionAsync` implementation:
+  - Atomic under concurrent calls for same key
+- ✅ `ResumeSessionAsync` implementation (NO history reconstruction):
   - Returns active session if already running
-  - Retrieves from suspended sessions dictionary
-  - Re-validates `ProjectPath` exists before resume
-  - Creates new session via factory
-  - Reconstructs conversation history using `SessionStore.ReconstructMessagesAsync()`
-  - Restores history via `orchestrator.RestoreConversationHistory()`
-  - Handles reconstruction failures gracefully (continues with empty session)
+  - Validates suspended session exists BEFORE removal
+  - Re-validates `ProjectPath` exists BEFORE removal (fail-safe)
+  - Creates new session via factory (wrapped in try-catch)
+  - Only removes from suspended sessions AFTER successful creation
+  - Preserves suspended entry on failure for retry
+  - **History reconstruction delegated to caller** (composition root must use SessionStore)
+  - Respects project dependency boundaries (Tools → Core only)
 - ✅ `TerminateSessionAsync` implementation:
   - Removes from active sessions
   - Removes external key mapping
@@ -1754,11 +1759,14 @@ Three fundamental changes:
   - `CountSessionsForUser()` counts sessions from `_sessionToUser` mapping (includes active + suspended)
   - `RemoveSessionFromUserTracking()` safely rebuilds `ConcurrentBag` without removed session
 - ✅ DI registration in `ServiceExtensions.AddAgentTools()` as singleton
-- ✅ 21 comprehensive tests in `tests/Krutaka.Tools.Tests/SessionManagerTests.cs`:
+- ✅ **Architectural compliance:** NO reference to Krutaka.Memory (Tools → Core only)
+- ✅ 23 comprehensive tests in `tests/Krutaka.Tools.Tests/SessionManagerTests.cs`:
   - CreateSessionAsync creates and stores session
   - GetSession returns existing session or null
   - GetOrCreateByKeyAsync idempotent creation (same key returns same session)
   - GetOrCreateByKeyAsync different keys create different sessions
+  - GetOrCreateByKeyAsync resumes suspended session for external key
+  - GetOrCreateByKeyAsync atomic under concurrent calls (5 parallel tasks)
   - MaxActiveSessions enforcement with RejectNew strategy
   - Eviction with SuspendOldestIdle strategy (proper eviction test, not idle timer)
   - MaxSessionsPerUser enforcement
@@ -1773,13 +1781,14 @@ Three fundamental changes:
   - Global token budget exhaustion throws exception
   - ResumeSessionAsync error handling (session not found, path validation)
   - ResumeSessionAsync idempotency (returns active session)
-  - ResumeSessionAsync with conversation history reconstruction
-- ✅ Zero regressions — all 1,378 existing tests pass, total **1,399 tests (1,398 passing, 1 skipped)**
+  - ResumeSessionAsync validates path before removing suspended entry
+- ✅ Zero regressions — all 1,378 existing tests pass, total **1,401 tests (1,400 passing, 1 skipped)**
 - ✅ Thread-safe concurrent access verified via parallel test and semaphore protection
-- ✅ Proper resource cleanup on dispose (timer, semaphore, sessions, dictionaries)
+- ✅ Proper resource cleanup on dispose (timer, semaphore, per-key locks, sessions, dictionaries)
 - ✅ Idle/suspension lifecycle fully implemented with grace period
 - ✅ Per-user limits count both active and suspended sessions
 - ✅ All code review issues addressed in commit 708d68d
+- ✅ All architectural issues fixed in commit 00a7fea
 
 ### Next Steps
 
