@@ -1,11 +1,12 @@
 # Krutaka — Telegram Security Architecture
 
-> **Last updated:** 2026-02-14 (v0.4.0 initial architecture)
+> **Last updated:** 2026-02-15 (v0.4.0 — updated with Phase B session integration details)
 >
 > This document describes the Telegram Bot API integration security model introduced in v0.4.0.
 > It is **mandatory reading** before implementing any code that handles Telegram updates, callbacks, file transfers, or bot configuration.
 >
 > **Version spec:** See `docs/versions/v0.4.0.md` for the complete v0.4.0 design.
+> **Session architecture:** See `docs/architecture/MULTI-SESSION.md` for the multi-session isolation model that Telegram depends on.
 
 ---
 
@@ -133,6 +134,18 @@ WRONG:
   4. Updates 101, 102 are lost forever
 ```
 
+### Kill Switch Integration with Session Manager
+
+When `/killswitch` is detected in a polling batch:
+
+1. `/killswitch` is processed **first**, before any other commands in the batch
+2. `ISessionManager.TerminateAllAsync()` is called — this disposes ALL active `ManagedSession` instances
+3. Each `ManagedSession.DisposeAsync()` calls `Orchestrator.Dispose()` **synchronously** (see `docs/architecture/MULTI-SESSION.md` Section 7)
+4. `IHostApplicationLifetime.StopApplication()` is called to trigger clean shutdown of the entire host
+5. `TelegramHealthMonitor.NotifyShutdownAsync()` sends "🔴 Krutaka bot is shutting down" to admin users
+
+**Important:** `AgentOrchestrator` implements `IDisposable` (synchronous), NOT `IAsyncDisposable`. Do NOT await orchestrator disposal.
+
 ---
 
 ## 5. Approval Flow Architecture
@@ -184,17 +197,20 @@ Verification (when button pressed):
   5. if (now - payload.timestamp > approvalTimeout) → REJECT "expired"
   6. if (payload.nonce in usedNonces) → REJECT "replay" (T7)
   7. usedNonces.Add(payload.nonce)
-  8. Route to orchestrator method:
-     - ApproveTool(toolUseId, alwaysApprove: action == "always")
-     - DenyTool(toolUseId)
-     - ApproveDirectoryAccess(grantedLevel, createSessionGrant: action == "always")
-     - DenyDirectoryAccess()
-     - ApproveCommand(alwaysApprove: action == "always")
-     - DenyCommand()
-  9. Edit original message to show decision ("✅ Approved by @username")
+  8. Look up session via ISessionManager.GetSession(session_id)
+  9. Route to session's orchestrator method via ManagedSession:
+     - session.Orchestrator.ApproveTool(toolUseId, alwaysApprove: action == "always")
+     - session.Orchestrator.DenyTool(toolUseId)
+     - session.Orchestrator.ApproveDirectoryAccess(grantedLevel, createSessionGrant: action == "always")
+     - session.Orchestrator.DenyDirectoryAccess()
+     - session.Orchestrator.ApproveCommand(alwaysApprove: action == "always")
+     - session.Orchestrator.DenyCommand()
+  10. Edit original message to show decision ("✅ Approved by @username")
 
 Server secret: RandomNumberGenerator.GetBytes(32) at startup, held in memory only.
 ```
+
+**Note:** The orchestrator is accessed via `ManagedSession.Orchestrator`, NOT via global DI. Each session has its own orchestrator with independent approval state. The `session_id` in the callback payload is used to look up the correct `ManagedSession` from `ISessionManager`.
 
 ### Approval Panels by Event Type
 
@@ -214,7 +230,126 @@ If no callback received within the configurable timeout:
 
 ---
 
-## 6. Streaming Architecture
+## 6. Telegram Session Mapping
+
+### External Key Format
+
+`TelegramSessionBridge` maps Telegram chat IDs to managed sessions via `ISessionManager.GetOrCreateByKeyAsync()`:
+
+| Chat Type | External Key Format | Session Scope |
+|---|---|---|
+| DM (Private) | `telegram:dm:{userId}` | Per-user — each user gets their own session |
+| Group | `telegram:group:{chatId}` | Per-group — all users in the group share one session |
+| Supergroup | `telegram:group:{chatId}` | Same as group |
+
+### Project Path Resolution
+
+When creating a session for a Telegram chat:
+
+1. If `TelegramUserConfig.ProjectPath` is set for this user → use it
+2. Otherwise → default to `{Environment.GetFolderPath(SpecialFolder.UserProfile)}\KrutakaProjects\{externalKey}\` (auto-created)
+
+### Three-Step Resume Pattern (Critical)
+
+When `TelegramSessionBridge.GetOrCreateSessionAsync()` is called for a chat that had a previous session (JSONL exists on disk), it must follow the **same three-step caller-driven resume pattern** established in Console (`Program.cs`, Issue #134):
+
+```text
+Step 1: SessionManager.ResumeSessionAsync(originalSessionId)
+        → Calls ISessionFactory.Create(request, originalGuid) to preserve session ID (Issue #156)
+        → Returns a new ManagedSession with fresh orchestrator but NO conversation history
+
+Step 2: SessionStore.ReconstructMessagesAsync()
+        → Reads JSONL from disk and reconstructs the conversation history
+        → This uses Krutaka.Memory — which Krutaka.Tools CANNOT reference
+
+Step 3: session.Orchestrator.RestoreConversationHistory(messages)
+        → Populates the orchestrator with the loaded history
+```
+
+**Why the caller must do this:** `SessionManager` (in `Krutaka.Tools`) has a **forbidden dependency** on `Krutaka.Memory` (where `SessionStore` lives). `Krutaka.Telegram` as a composition root CAN reference both projects, so it must implement the three-step pattern in `TelegramSessionBridge`.
+
+See `docs/architecture/MULTI-SESSION.md` Section 3 ("Forbidden Dependency") and Section 6 ("Three-Step Resume Pattern") for the full explanation and code example.
+
+### Session ID Preservation
+
+When resuming a suspended session, the original session ID is preserved via `ISessionFactory.Create(SessionRequest, Guid)` (Issue #156). This ensures:
+
+- External key mappings (`telegram:dm:12345` → `{sessionGuid}`) survive suspend/resume cycles
+- Audit log continuity (same `SessionId` in `CorrelationContext`)
+- JSONL file linkage (SessionStore uses SessionId in file naming)
+
+### Session Lifecycle Commands
+
+| Command | Action | Implementation |
+|---|---|---|
+| `/new` | Terminate current session, create fresh one | `ISessionManager.TerminateSessionAsync()` then `CreateSessionAsync()` |
+| `/sessions` | List active sessions for this user | `ISessionManager.ListActiveSessions()` filtered by user |
+| `/session <id>` | Switch to a different session | Verify session belongs to this chat/user, switch active mapping |
+
+---
+
+## 7. Dual-Mode Host
+
+### HostMode Enum
+
+`Program.cs` supports three operating modes via `HostMode` enum (in `Krutaka.Core`):
+
+| Mode | Behavior | `SessionManagerOptions` | Telegram Config Required? |
+|---|---|---|---|
+| **Console** (default) | Existing Console UI only. `TelegramBotService` NOT registered. | `MaxActiveSessions: 1`, `IdleTimeout: Zero` | No |
+| **Telegram** | Headless bot service only. `ConsoleUI` NOT registered. | From config (default: `MaxActiveSessions: 10`) | Yes — validated at startup |
+| **Both** | Console + Telegram concurrent. Shared `ISessionManager`. | From config (default: `MaxActiveSessions: 10`) | Yes — validated at startup |
+
+### Mode Selection
+
+1. **Configuration:** `"Mode": "Console"` in `appsettings.json` (default: `Console`)
+2. **CLI override:** `--mode telegram` or `--mode both` overrides config
+
+### DI Registration Split
+
+```text
+Console mode:
+  ✅ Register ISessionFactory, ISessionManager (via ServiceExtensions.AddAgentTools())
+  ✅ Register SessionManagerOptions (MaxActiveSessions: 1)
+  ✅ Register ConsoleUI
+  ❌ Do NOT register TelegramSecurityConfig, ITelegramAuthGuard, TelegramBotService, etc.
+  ❌ Do NOT require Telegram configuration section
+
+Telegram mode:
+  ✅ Register ISessionFactory, ISessionManager (via ServiceExtensions.AddAgentTools())
+  ✅ Register SessionManagerOptions (from config, MaxActiveSessions: 10)
+  ✅ Call services.AddTelegramBot(configuration) — registers all Telegram services
+  ✅ Register TelegramBotService as IHostedService
+  ❌ Do NOT register ConsoleUI
+
+Both mode:
+  ✅ All registrations from both Console and Telegram modes
+  ✅ SessionManagerOptions from config (Console's single session counts against the limit)
+```
+
+### Per-Session Components — NOT in DI
+
+The following are created **per-session** by `SessionFactory` and must **NOT** be registered in global DI:
+
+- `ICommandApprovalCache` — per-session command approval state
+- `ISessionAccessStore` — per-session directory grants
+- `IToolRegistry` / `ITool` implementations — per-session, scoped to project path
+- `CorrelationContext` — per-session, accessed via `ManagedSession.CorrelationContext`
+- `AgentOrchestrator` — per-session, accessed via `ManagedSession.Orchestrator`
+- `SessionStore` — per-session, created by composition root
+- `ContextCompactor` — per-session, created by `SessionFactory`
+- `SystemPromptBuilder` — per-session, built using session's `IToolRegistry`
+
+### Clean Shutdown
+
+`CancellationToken` propagates to both Console and Telegram:
+- **Ctrl+C** → host cancellation → both Console loop and `TelegramBotService` stop
+- **`/killswitch` from Telegram** → `ISessionManager.TerminateAllAsync()` → `IHostApplicationLifetime.StopApplication()` → both stop
+- **`/killswitch` from Console** → same flow
+
+---
+
+## 8. Streaming Architecture
 
 ### AgentEvent → Telegram Message Mapping
 
@@ -268,20 +403,20 @@ Interactive events (approvals):
 
 ---
 
-## 7. Input Sanitization
+## 9. Input Sanitization
 
 ### Defense-in-Depth Layers
 
 | Layer | Applied In | What It Does |
 |---|---|---|
-| 1. Bot mention stripping | `TelegramInputSanitizer` (Issue #12) | Remove `@botname` syntax from commands |
-| 2. `<untrusted_content>` wrapping | `TelegramInputSanitizer` (Issue #12) | Wrap ALL user text in `<untrusted_content source="telegram:user:{userId}">` tags |
-| 3. Telegram entity stripping | `TelegramInputSanitizer` (Issue #17) | Strip formatting entities (bold, italic, `text_link`, etc.) — extract plain text only |
-| 4. Unicode NFC normalization | `TelegramInputSanitizer` (Issue #17) | `string.Normalize(NormalizationForm.FormC)` prevents homoglyph attacks |
-| 5. Control character removal | `TelegramInputSanitizer` (Issue #17) | Remove U+0000–U+001F (except `\n`, `\t`) and U+007F (DEL) |
-| 6. Whitespace collapsing | `TelegramInputSanitizer` (Issue #17) | Collapse 3+ consecutive spaces into 2 |
+| 1. Bot mention stripping | `TelegramInputSanitizer` (Issue #139) | Remove `@botname` syntax from commands |
+| 2. `<untrusted_content>` wrapping | `TelegramInputSanitizer` (Issue #139) | Wrap ALL user text in `<untrusted_content source="telegram:user:{userId}">` tags |
+| 3. Telegram entity stripping | `TelegramInputSanitizer` (Issue #144) | Strip formatting entities (bold, italic, `text_link`, etc.) — extract plain text only |
+| 4. Unicode NFC normalization | `TelegramInputSanitizer` (Issue #144) | `string.Normalize(NormalizationForm.FormC)` prevents homoglyph attacks |
+| 5. Control character removal | `TelegramInputSanitizer` (Issue #144) | Remove U+0000–U+001F (except `\n`, `\t`) and U+007F (DEL) |
+| 6. Whitespace collapsing | `TelegramInputSanitizer` (Issue #144) | Collapse 3+ consecutive spaces into 2 |
 | 7. Callback data isolation | Design | Inline keyboard callback data is NEVER included in any prompt sent to Claude |
-| 8. Group chat @mention extraction | `TelegramInputSanitizer` (Issue #17) | In group chats, only text after `@botUsername` is forwarded to agent |
+| 8. Group chat @mention extraction | `TelegramInputSanitizer` (Issue #144) | In group chats, only text after `@botUsername` is forwarded to agent |
 
 ### Why Entity Stripping Matters
 
@@ -296,14 +431,14 @@ Without entity stripping, the URL could be forwarded to Claude and used for prom
 
 ### Callback Data Isolation
 
-Inline keyboard callback data (HMAC-signed JSON from Issue #14) is processed ONLY by `TelegramApprovalHandler`. It is **NEVER**:
+Inline keyboard callback data (HMAC-signed JSON from Issue #141) is processed ONLY by `TelegramApprovalHandler`. It is **NEVER**:
 - Included in any prompt sent to Claude
 - Forwarded to any tool
 - Logged with content (only metadata is logged)
 
 ---
 
-## 8. Configuration Model
+## 10. Configuration Model
 
 ### TelegramSecurityConfig
 
@@ -324,9 +459,20 @@ Inline keyboard callback data (HMAC-signed JSON from Issue #14) is processed ONL
     "PollingTimeoutSeconds": 30,
     "WebhookUrl": null,
     "RequireConfirmationForElevated": true
-  }
+  },
+  "SessionManager": {
+    "MaxActiveSessions": 10,
+    "MaxSessionsPerUser": 3,
+    "IdleTimeoutMinutes": 15,
+    "SuspendedTtlHours": 24,
+    "GlobalMaxTokensPerHour": 1000000,
+    "EvictionStrategy": "SuspendOldestIdle"
+  },
+  "Mode": "Telegram"
 }
 ```
+
+> **Note:** The `SessionManager` section configures `SessionManagerOptions` and applies to all modes. In Console mode, `Program.cs` overrides `MaxActiveSessions: 1` and `IdleTimeout: Zero`. In Telegram/Both modes, the values from config are used directly. The `Mode` field selects the host mode (Console, Telegram, Both).
 
 ### Field Descriptions and Defaults
 
@@ -372,10 +518,15 @@ All configuration is validated at startup (fail-fast). The following conditions 
 ## Related Documents
 
 - `docs/versions/v0.4.0.md` — Complete v0.4.0 version specification
-- `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
+- `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture (three-step resume pattern, dispose pattern, forbidden dependency)
 - `docs/architecture/OVERVIEW.md` — Component architecture
 - `docs/architecture/SECURITY.md` — Security model (to be updated with Telegram section)
 - `src/Krutaka.Core/IAuditLogger.cs` — Audit interface (extended with Telegram default methods)
 - `src/Krutaka.Core/TelegramSecurityConfig.cs` — Configuration model
+- `src/Krutaka.Core/ISessionFactory.cs` — Session factory interface (two overloads, including Guid preservation)
+- `src/Krutaka.Core/ISessionManager.cs` — Session lifecycle management interface
+- `src/Krutaka.Core/ManagedSession.cs` — Per-session container (IAsyncDisposable)
+- `src/Krutaka.Core/AgentOrchestrator.cs` — Orchestrator approval methods (implements IDisposable, NOT IAsyncDisposable)
 - `src/Krutaka.Console/ApprovalHandler.cs` — Console approval pattern (reference for Telegram adaptation)
-- `src/Krutaka.Core/AgentOrchestrator.cs` — Orchestrator approval methods
+- `src/Krutaka.Console/Program.cs` — Console composition root (reference implementation of three-step resume)
+- `src/Krutaka.Memory/SessionStore.cs` — JSONL session persistence and `ReconstructMessagesAsync()`
