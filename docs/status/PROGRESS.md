@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 Telegram configuration model complete — 1,465 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 Telegram audit events complete — 1,483 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1828,6 +1828,41 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,426 existing tests pass, total 1,465 tests (1,464 passing, 1 skipped)
 - ✅ Configuration model matches `docs/versions/v0.4.0.md` and `docs/architecture/TELEGRAM.md` specifications
 - ✅ Ready for Telegram bot service integration
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #141 | Telegram-specific audit event types and IAuditLogger extension | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Created 6 new event types in `src/Krutaka.Core/AuditEvent.cs`:
+  - `TelegramAuthEvent` (with `AuthOutcome` enum: Allowed, Denied, RateLimited, LockedOut)
+  - `TelegramMessageEvent` (command name + message length, NOT message content)
+  - `TelegramApprovalEvent` (tool name + tool use ID + approved boolean)
+  - `TelegramSessionEvent` (with `SessionEventType` enum: Created, Suspended, Resumed, Terminated)
+  - `TelegramRateLimitEvent` (command count + limit + window duration)
+  - `TelegramSecurityIncidentEvent` (with `IncidentType` enum: LockoutTriggered, UnknownUserAttempt, CallbackTampering, ReplayAttempt)
+- ✅ Extended `IAuditLogger` interface in `src/Krutaka.Core/IAuditLogger.cs`:
+  - Added 6 new methods with **default interface implementations** (empty bodies)
+  - Zero breaking changes to existing test mocks — all 1,468 existing tests pass without modification
+  - Methods: `LogTelegramAuth`, `LogTelegramMessage`, `LogTelegramApproval`, `LogTelegramSession`, `LogTelegramRateLimit`, `LogTelegramSecurityIncident`
+- ✅ Overrode defaults in `AuditLogger` implementation (`src/Krutaka.Console/Logging/AuditLogger.cs`):
+  - All 6 methods use structured Serilog logging with correlation context (SessionId, TurnId, RequestId, AgentId when set)
+  - Enum-to-string conversion for `AuthOutcome`, `SessionEventType`, `IncidentType` (prevents numeric serialization in EventData JSON)
+  - `LogTelegramSecurityIncident` logs at `Warning` level (all others at `Information`)
+  - AgentId/ParentAgentId/AgentRole conditionally included when `CorrelationContext.AgentId` is non-null
+  - **Sensitive data exclusion:** Message content NOT logged — only metadata (command name, message length)
+- ✅ 14 comprehensive tests in `tests/Krutaka.Console.Tests/AuditLoggerTests.cs`:
+  - Event construction tests (2 tests: TelegramAuthEvent with all properties, TelegramSecurityIncidentEvent with null UserId)
+  - Enum value tests (3 tests: AuthOutcome, SessionEventType, IncidentType — verify all 4/4/4 values exist)
+  - AuditLogger implementation tests (6 tests: one per event type, verifying structured properties and log levels)
+  - AgentId inclusion test (1 test: TelegramAuthEvent includes AgentId when CorrelationContext.AgentId is set)
+  - AgentId omission test (1 test: TelegramMessageEvent omits AgentId when CorrelationContext.AgentId is null)
+  - Log level test (1 test: TelegramSecurityIncidentEvent logs at Warning level)
+- ✅ XML documentation on all public members (event types, enums, interface methods)
+- ✅ All event types are immutable sealed records inheriting from `AuditEvent`
+- ✅ **Zero regressions:** All 1,468 existing tests pass unchanged (default interface methods prevent mock breakage)
+- ✅ **Total tests:** 1,483 tests (1,482 passing, 1 skipped)
+- ✅ Ready for Telegram bot implementation to consume audit events
 
 ### Next Steps
 
