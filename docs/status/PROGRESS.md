@@ -1864,6 +1864,42 @@ Three fundamental changes:
 - ✅ **Total tests:** 1,483 tests (1,482 passing, 1 skipped)
 - ✅ Ready for Telegram bot implementation to consume audit events
 
+### Krutaka.Telegram Project Scaffold (v0.4.0 Issue #137)
+
+**Status:** 🟢 Complete  
+**Date:** 2026-02-15
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-#137 | Create Krutaka.Telegram project and test project scaffold | Infrastructure | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Created `src/Krutaka.Telegram/Krutaka.Telegram.csproj` targeting `net10.0-windows`
+  - Project references: Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI (composition root)
+  - Package reference: Telegram.Bot (22.9.0)
+- ✅ Created `tests/Krutaka.Telegram.Tests/Krutaka.Telegram.Tests.csproj`
+  - Test framework: xUnit, FluentAssertions, NSubstitute (matching existing test projects)
+  - Project references: Krutaka.Telegram, Krutaka.Core, Krutaka.Tools
+- ✅ Updated `Krutaka.slnx` with both new projects
+- ✅ Added `Telegram.Bot` package (v22.9.0) to `Directory.Packages.props`
+- ✅ Created `src/Krutaka.Telegram/ServiceExtensions.cs` with `AddTelegramBot()` DI registration method
+  - Binds `TelegramSecurityConfig` from configuration section "Telegram"
+  - Runs `TelegramConfigValidator.Validate()` at registration time (fail-fast)
+  - Registers validated config as singleton
+- ✅ Created `tests/Krutaka.Telegram.Tests/ServiceExtensionsTests.cs` (6 tests)
+  - Test: Registers TelegramSecurityConfig when valid configuration provided
+  - Test: Throws InvalidOperationException when configuration is missing
+  - Test: Throws InvalidOperationException when AllowedUsers is empty
+  - Test: Service provider resolves TelegramSecurityConfig correctly
+  - Test: Throws ArgumentNullException when services is null
+  - Test: Throws ArgumentNullException when configuration is null
+- ✅ Created `tests/Krutaka.Telegram.Tests/GlobalSuppressions.cs` for test naming conventions
+- ✅ **All tests passing:** 1,489 tests (1,488 passing, 1 skipped)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 6 (NEW), Core: 348, Tools: 847 + 1 skipped
+- ✅ **Zero regressions:** All 1,483 existing tests pass unchanged
+- ✅ **Build succeeds:** Zero warnings, zero errors
+- ✅ **Ready for Telegram bot implementation:** Placeholder for ITelegramAuthGuard, ITelegramCommandRouter, ITelegramResponseStreamer (to be implemented in later issues)
+
 ### Next Steps
 
 Implementation of v0.4.0 components will follow the complete issue breakdown in `docs/versions/v0.4.0.md`.

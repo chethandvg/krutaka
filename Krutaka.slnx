@@ -5,6 +5,7 @@
     <Project Path="src/Krutaka.Core/Krutaka.Core.csproj" />
     <Project Path="src/Krutaka.Memory/Krutaka.Memory.csproj" />
     <Project Path="src/Krutaka.Skills/Krutaka.Skills.csproj" />
+    <Project Path="src/Krutaka.Telegram/Krutaka.Telegram.csproj" />
     <Project Path="src/Krutaka.Tools/Krutaka.Tools.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -13,6 +14,7 @@
     <Project Path="tests/Krutaka.Core.Tests/Krutaka.Core.Tests.csproj" />
     <Project Path="tests/Krutaka.Memory.Tests/Krutaka.Memory.Tests.csproj" />
     <Project Path="tests/Krutaka.Skills.Tests/Krutaka.Skills.Tests.csproj" />
+    <Project Path="tests/Krutaka.Telegram.Tests/Krutaka.Telegram.Tests.csproj" />
     <Project Path="tests/Krutaka.Tools.Tests/Krutaka.Tools.Tests.csproj" />
   </Folder>
 </Solution>

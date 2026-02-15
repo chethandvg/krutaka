@@ -1,0 +1,50 @@
+using Krutaka.Core;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Krutaka.Telegram;
+
+/// <summary>
+/// Extension methods for registering Telegram bot services.
+/// </summary>
+public static class ServiceExtensions
+{
+    /// <summary>
+    /// Adds Telegram bot services to the dependency injection container.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The configuration.</param>
+    /// <returns>The service collection for chaining.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when services or configuration is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when configuration validation fails.</exception>
+    public static IServiceCollection AddTelegramBot(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        // Bind TelegramSecurityConfig from configuration section "Telegram"
+        var telegramSection = configuration.GetSection("Telegram");
+        var config = telegramSection.Get<TelegramSecurityConfig>();
+
+        if (config is null)
+        {
+            throw new InvalidOperationException(
+                "Telegram configuration section is missing or invalid. " +
+                "Please ensure 'Telegram' section is present in appsettings.json with valid configuration.");
+        }
+
+        // Validate configuration at startup (fail-fast)
+        TelegramConfigValidator.Validate(config);
+
+        // Register validated config as singleton
+        services.AddSingleton(config);
+
+        // Placeholder registrations for interfaces to be implemented in later issues
+        // Note: ITelegramAuthGuard, ITelegramCommandRouter, ITelegramResponseStreamer will be
+        // registered in their respective implementation issues (#138, #139, #140)
+
+        return services;
+    }
+}

@@ -665,14 +665,15 @@ The `MarkdownRenderer` class converts Markdown to Spectre.Console output using M
 - ✅ DI registration of `ConsoleUI` and dependencies
 
 ### Krutaka.Telegram (net10.0-windows)
-**Status:** 🟡 In Progress (v0.4.0)  
-**Planned path:** `src/Krutaka.Telegram/` (see `docs/versions/v0.4.0.md` for complete implementation roadmap)  
-**Planned dependencies:** Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI, Telegram.Bot
+**Status:** 🟡 In Progress (v0.4.0) — Scaffold Complete (Issue #137 — 2026-02-15)  
+**Path:** `src/Krutaka.Telegram/` (see `docs/versions/v0.4.0.md` for complete implementation roadmap)  
+**Dependencies:** Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI, Telegram.Bot (22.9.0)
 
 Telegram Bot API integration with security pipeline for remote multi-user access.
 
 | Type | Description | Status |
 |---|---|---|
+| `ServiceExtensions` | DI registration with `AddTelegramBot()` | ✅ Complete |
 | `ITelegramAuthGuard` | Authentication and rate limiting | 🟡 Planned |
 | `ITelegramCommandRouter` | Command parsing and admin gating | 🟡 Planned |
 | `ITelegramResponseStreamer` | AgentEvent → Telegram message streaming | 🟡 Planned |
@@ -682,7 +683,6 @@ Telegram Bot API integration with security pipeline for remote multi-user access
 | `TelegramInputSanitizer` | Input sanitization with `<untrusted_content>` wrapping | 🟡 Planned |
 | `TelegramFileHandler` | File upload/download with security validation | 🟡 Planned |
 | `TelegramHealthMonitor` | Budget threshold monitoring and notifications | 🟡 Planned |
-| `ServiceExtensions` | DI registration for Telegram components | 🟡 Planned |
 
 **Key Features:**
 - **Security pipeline**: Every update passes through ITelegramAuthGuard (allowlist, rate limit, lockout)

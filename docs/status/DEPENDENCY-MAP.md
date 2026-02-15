@@ -25,6 +25,7 @@ All packages are managed centrally via `Directory.Packages.props`.
 | `CliWrap` | 3.6.7 | Krutaka.Tools | Safe async process execution |
 | `Meziantou.Framework.Win32.CredentialManager` | 1.7.17 | Krutaka.Console | DPAPI-backed Windows Credential Manager |
 | `Meziantou.Framework.Win32.Jobs` | 3.4.10 | Krutaka.Tools | Windows Job Object process sandboxing |
+| `Telegram.Bot` | 22.9.0 | Krutaka.Telegram | Telegram Bot API client library |
 | `Serilog` | 4.2.0 | Krutaka.Console | Structured logging framework |
 | `Serilog.Sinks.File` | 6.0.0 | Krutaka.Console | File-based log sink |
 | `Serilog.Sinks.Console` | 6.0.0 | Krutaka.Console | Console log sink |
