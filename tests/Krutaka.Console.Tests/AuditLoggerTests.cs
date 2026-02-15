@@ -625,7 +625,7 @@ public class AuditLoggerTests
     }
 
     [Fact]
-    public void Should_ShowNAForNullParentAgentId_WhenAgentIdIsSet()
+    public void Should_IncludeNullParentAgentId_WhenAgentIdIsSetWithoutParent()
     {
         // Arrange
         var (logger, sink) = CreateLoggerWithSink();
@@ -642,7 +642,54 @@ public class AuditLoggerTests
         // Assert
         var logEvent = sink.Events.Should().ContainSingle().Subject;
         logEvent.Properties.Should().ContainKey("ParentAgentId");
-        logEvent.Properties["ParentAgentId"].ToString().Should().Contain("N/A");
+        // ParentAgentId should be present as a nullable GUID (Serilog represents null as "null" string)
+        var parentAgentIdProperty = logEvent.Properties["ParentAgentId"];
+        parentAgentIdProperty.ToString().Should().Be("null");
+    }
+
+    [Fact]
+    public void Should_PreserveNullableGuidType_ForParentAgentId()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        var parentAgentId = Guid.NewGuid();
+        correlationContext.SetAgentContext(agentId, parentAgentId, "executor");
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("ParentAgentId");
+        // ParentAgentId should contain the GUID value, not be converted to "N/A"
+        logEvent.Properties["ParentAgentId"].ToString().Should().Contain(parentAgentId.ToString());
+    }
+
+    [Fact]
+    public void Should_PreserveNullableStringType_ForAgentRole()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        correlationContext.SetAgentContext(agentId, null, "coordinator");
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("AgentRole");
+        // AgentRole should contain the string value, not be converted to "N/A"
+        logEvent.Properties["AgentRole"].ToString().Should().Contain("coordinator");
     }
 
     private static (ILogger Logger, TestSink Sink) CreateLoggerWithSink()

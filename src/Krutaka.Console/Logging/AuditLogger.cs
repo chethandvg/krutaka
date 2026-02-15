@@ -42,32 +42,7 @@ internal sealed class AuditLogger : IAuditLogger
         // (lowercase booleans, proper string escaping for paths)
         var eventDataJson = JsonSerializer.Serialize(eventData);
 
-        // Conditionally include agent context fields when AgentId is non-null
-        if (auditEvent.AgentId.HasValue)
-        {
-            _logger.Write(
-                LogEventLevel.Information,
-                "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} AgentId={AgentId} ParentAgentId={ParentAgentId} AgentRole={AgentRole} | {EventData}",
-                eventType.Name,
-                auditEvent.SessionId,
-                auditEvent.TurnId,
-                auditEvent.RequestId ?? "N/A",
-                auditEvent.AgentId,
-                auditEvent.ParentAgentId?.ToString() ?? "N/A",
-                auditEvent.AgentRole ?? "N/A",
-                eventDataJson);
-        }
-        else
-        {
-            _logger.Write(
-                LogEventLevel.Information,
-                "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
-                eventType.Name,
-                auditEvent.SessionId,
-                auditEvent.TurnId,
-                auditEvent.RequestId ?? "N/A",
-                eventDataJson);
-        }
+        WriteAuditLog(LogEventLevel.Information, eventType.Name, auditEvent, eventDataJson);
     }
 
     /// <inheritdoc />
@@ -284,19 +259,33 @@ internal sealed class AuditLogger : IAuditLogger
         // Serialize EventData as JSON
         var eventDataJson = JsonSerializer.Serialize(eventData);
 
+        WriteAuditLog(logLevel, eventType.Name, @event, eventDataJson);
+    }
+
+    /// <summary>
+    /// Writes an audit log entry with conditional agent context fields.
+    /// When AgentId is present, includes AgentId, ParentAgentId, and AgentRole in the log.
+    /// When AgentId is null, uses the standard log format without agent fields.
+    /// </summary>
+    /// <param name="logLevel">The log event level.</param>
+    /// <param name="eventTypeName">The event type name.</param>
+    /// <param name="auditEvent">The audit event containing correlation and agent context.</param>
+    /// <param name="eventDataJson">The serialized event data JSON.</param>
+    private void WriteAuditLog(LogEventLevel logLevel, string eventTypeName, AuditEvent auditEvent, string eventDataJson)
+    {
         // Conditionally include agent context fields when AgentId is non-null
-        if (@event.AgentId.HasValue)
+        if (auditEvent.AgentId.HasValue)
         {
             _logger.Write(
                 logLevel,
                 "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} AgentId={AgentId} ParentAgentId={ParentAgentId} AgentRole={AgentRole} | {EventData}",
-                eventType.Name,
-                @event.SessionId,
-                @event.TurnId,
-                @event.RequestId ?? "N/A",
-                @event.AgentId,
-                @event.ParentAgentId?.ToString() ?? "N/A",
-                @event.AgentRole ?? "N/A",
+                eventTypeName,
+                auditEvent.SessionId,
+                auditEvent.TurnId,
+                auditEvent.RequestId ?? "N/A",
+                auditEvent.AgentId,
+                auditEvent.ParentAgentId,
+                auditEvent.AgentRole,
                 eventDataJson);
         }
         else
@@ -304,10 +293,10 @@ internal sealed class AuditLogger : IAuditLogger
             _logger.Write(
                 logLevel,
                 "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
-                eventType.Name,
-                @event.SessionId,
-                @event.TurnId,
-                @event.RequestId ?? "N/A",
+                eventTypeName,
+                auditEvent.SessionId,
+                auditEvent.TurnId,
+                auditEvent.RequestId ?? "N/A",
                 eventDataJson);
         }
     }
