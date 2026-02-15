@@ -306,6 +306,13 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         var sessionManager = serviceProvider.GetService<ISessionManager>();
         sessionManager.Should().NotBeNull();
         sessionManager.Should().BeOfType<SessionManager>();
+        
+        // v0.4.0: Verify per-session components are NOT in global DI (security-critical)
+        var commandApprovalCache = serviceProvider.GetService<ICommandApprovalCache>();
+        commandApprovalCache.Should().BeNull("ICommandApprovalCache is created per-session by SessionFactory to prevent command approval leakage across sessions");
+        
+        var sessionAccessStore = serviceProvider.GetService<ISessionAccessStore>();
+        sessionAccessStore.Should().BeNull("ISessionAccessStore is created per-session by SessionFactory to prevent directory grant leakage across sessions (threat T9)");
     }
 
     [Fact]
