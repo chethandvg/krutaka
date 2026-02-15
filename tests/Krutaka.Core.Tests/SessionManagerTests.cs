@@ -16,7 +16,8 @@ public sealed class SessionManagerTests : IDisposable
 
     public SessionManagerTests()
     {
-        _testProjectPath = Path.Combine(Path.GetTempPath(), $"test-session-manager-{Guid.NewGuid()}");
+        // Use CI-safe test directory (avoids LocalAppData and reduces file lock issues)
+        _testProjectPath = TestDirectoryHelper.GetTestDirectory("session-manager-test");
         Directory.CreateDirectory(_testProjectPath);
 
         var services = new ServiceCollection();
@@ -37,10 +38,7 @@ public sealed class SessionManagerTests : IDisposable
     public void Dispose()
     {
         _serviceProvider.Dispose();
-        if (Directory.Exists(_testProjectPath))
-        {
-            Directory.Delete(_testProjectPath, recursive: true);
-        }
+        TestDirectoryHelper.TryDeleteDirectory(_testProjectPath);
     }
 
     private SessionManager CreateSessionManager(SessionManagerOptions? options = null)
