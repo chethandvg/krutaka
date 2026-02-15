@@ -266,6 +266,9 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         // Arrange
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
 
+        // SessionFactory requires IClaudeClient, so register a mock
+        services.AddSingleton<IClaudeClient>(new MockClaudeClient());
+
         // Act
         services.AddAgentTools(options =>
         {
@@ -276,7 +279,7 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
 
         var serviceProvider = services.BuildServiceProvider();
 
-        // Assert - Verify all services are registered
+        // Assert - Verify shared stateless services are registered
         var toolOptions = serviceProvider.GetService<ToolOptions>();
         toolOptions.Should().NotBeNull();
         toolOptions!.DefaultWorkingDirectory.Should().Be(_testRoot);
@@ -287,11 +290,67 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         securityPolicy.Should().NotBeNull();
         securityPolicy.Should().BeOfType<CommandPolicy>();
 
+        // v0.4.0: IToolRegistry and ITool instances are no longer registered globally
+        // They are created per-session by SessionFactory
         var toolRegistry = serviceProvider.GetService<IToolRegistry>();
+        toolRegistry.Should().BeNull("IToolRegistry is created per-session by SessionFactory, not registered globally");
+
+        var tools = serviceProvider.GetServices<ITool>().ToList();
+        tools.Should().BeEmpty("ITool instances are created per-session by SessionFactory, not registered globally");
+
+        // Verify ISessionFactory and ISessionManager are registered
+        var sessionFactory = serviceProvider.GetService<ISessionFactory>();
+        sessionFactory.Should().NotBeNull();
+        sessionFactory.Should().BeOfType<SessionFactory>();
+
+        var sessionManager = serviceProvider.GetService<ISessionManager>();
+        sessionManager.Should().NotBeNull();
+        sessionManager.Should().BeOfType<SessionManager>();
+    }
+
+    [Fact]
+    public async Task Should_CreatePerSessionToolRegistry_ViaSessionFactory()
+    {
+        // Arrange - Set up DI container with all required services
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        
+        // Add mock Claude client
+        services.AddSingleton<IClaudeClient>(new MockClaudeClient());
+        
+        // Add agent tools
+        services.AddAgentTools(options =>
+        {
+            options.DefaultWorkingDirectory = _testRoot;
+            options.CommandTimeoutSeconds = 60;
+            options.RequireApprovalForWrites = false;
+            options.CeilingDirectory = "/"; // Allow all directories for testing
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var sessionFactory = serviceProvider.GetRequiredService<ISessionFactory>();
+
+        // Act - Create a session (which creates per-session tool registry)
+        var sessionRequest = new SessionRequest(
+            ProjectPath: _testRoot,
+            MaxTokenBudget: 100_000,
+            MaxToolCallBudget: 100);
+        
+        var session = sessionFactory.Create(sessionRequest);
+
+        // Assert - Verify session has per-session tool registry
+        session.Should().NotBeNull();
+        session.Orchestrator.Should().NotBeNull();
+        
+        // Extract tool registry from orchestrator using reflection (same as Program.cs does)
+        var orchestratorType = session.Orchestrator.GetType();
+        var toolRegistryField = orchestratorType.GetField("_toolRegistry", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        toolRegistryField.Should().NotBeNull();
+        
+        var toolRegistry = toolRegistryField!.GetValue(session.Orchestrator) as IToolRegistry;
         toolRegistry.Should().NotBeNull();
         toolRegistry.Should().BeOfType<ToolRegistry>();
 
-        // Verify all tools are registered in the registry
+        // Verify all tools are registered in the per-session registry
         var definitions = toolRegistry!.GetToolDefinitions();
         var json = JsonSerializer.Serialize(definitions);
         var jsonDoc = JsonDocument.Parse(json);
@@ -309,9 +368,29 @@ public sealed class ToolRegistryIntegrationTests : IDisposable
         toolNames.Should().Contain("list_files");
         toolNames.Should().Contain("search_files");
         toolNames.Should().Contain("run_command");
+        
+        // Cleanup
+        await session.DisposeAsync();
+    }
 
-        // Verify tools can be resolved from DI
-        var tools = serviceProvider.GetServices<ITool>().ToList();
-        tools.Should().HaveCount(6);
+    private sealed class MockClaudeClient : IClaudeClient
+    {
+        public async IAsyncEnumerable<AgentEvent> SendMessageAsync(
+            IEnumerable<object> messages,
+            string systemPrompt,
+            object? tools,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask.ConfigureAwait(false);
+            yield break;
+        }
+
+        public Task<int> CountTokensAsync(
+            IEnumerable<object> messages,
+            string systemPrompt,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(0);
+        }
     }
 }
