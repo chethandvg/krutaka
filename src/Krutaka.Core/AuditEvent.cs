@@ -218,3 +218,237 @@ public sealed record CommandClassificationEvent : AuditEvent
     /// </summary>
     public required string Reason { get; init; }
 }
+
+/// <summary>
+/// Outcome of a Telegram authentication check.
+/// </summary>
+public enum AuthOutcome
+{
+    /// <summary>
+    /// User authenticated successfully.
+    /// </summary>
+    Allowed,
+
+    /// <summary>
+    /// User authentication denied.
+    /// </summary>
+    Denied,
+
+    /// <summary>
+    /// User rate-limited.
+    /// </summary>
+    RateLimited,
+
+    /// <summary>
+    /// User locked out.
+    /// </summary>
+    LockedOut
+}
+
+/// <summary>
+/// Type of Telegram session event.
+/// </summary>
+public enum SessionEventType
+{
+    /// <summary>
+    /// Session was created.
+    /// </summary>
+    Created,
+
+    /// <summary>
+    /// Session was suspended.
+    /// </summary>
+    Suspended,
+
+    /// <summary>
+    /// Session was resumed.
+    /// </summary>
+    Resumed,
+
+    /// <summary>
+    /// Session was terminated.
+    /// </summary>
+    Terminated
+}
+
+/// <summary>
+/// Type of Telegram security incident.
+/// </summary>
+public enum IncidentType
+{
+    /// <summary>
+    /// User lockout was triggered.
+    /// </summary>
+    LockoutTriggered,
+
+    /// <summary>
+    /// Unknown user attempted access.
+    /// </summary>
+    UnknownUserAttempt,
+
+    /// <summary>
+    /// Callback data tampering detected.
+    /// </summary>
+    CallbackTampering,
+
+    /// <summary>
+    /// Replay attack attempt detected.
+    /// </summary>
+    ReplayAttempt
+}
+
+/// <summary>
+/// Logged when a Telegram authentication check occurs.
+/// </summary>
+public sealed record TelegramAuthEvent : AuditEvent
+{
+    /// <summary>
+    /// Telegram user identifier.
+    /// </summary>
+    public required long TelegramUserId { get; init; }
+
+    /// <summary>
+    /// Telegram chat identifier.
+    /// </summary>
+    public required long TelegramChatId { get; init; }
+
+    /// <summary>
+    /// Authentication outcome.
+    /// </summary>
+    public required AuthOutcome Outcome { get; init; }
+
+    /// <summary>
+    /// Reason for denial (null if allowed).
+    /// </summary>
+    public string? DeniedReason { get; init; }
+
+    /// <summary>
+    /// Telegram update ID.
+    /// </summary>
+    public required int UpdateId { get; init; }
+}
+
+/// <summary>
+/// Logged when a Telegram message is received.
+/// </summary>
+public sealed record TelegramMessageEvent : AuditEvent
+{
+    /// <summary>
+    /// Telegram user identifier.
+    /// </summary>
+    public required long TelegramUserId { get; init; }
+
+    /// <summary>
+    /// Telegram chat identifier.
+    /// </summary>
+    public required long TelegramChatId { get; init; }
+
+    /// <summary>
+    /// Command name (e.g., "/ask", "/status").
+    /// </summary>
+    public required string Command { get; init; }
+
+    /// <summary>
+    /// Length of the message content.
+    /// </summary>
+    public required int MessageLength { get; init; }
+}
+
+/// <summary>
+/// Logged when a Telegram approval/rejection occurs.
+/// </summary>
+public sealed record TelegramApprovalEvent : AuditEvent
+{
+    /// <summary>
+    /// Telegram user identifier.
+    /// </summary>
+    public required long TelegramUserId { get; init; }
+
+    /// <summary>
+    /// Telegram chat identifier.
+    /// </summary>
+    public required long TelegramChatId { get; init; }
+
+    /// <summary>
+    /// Tool name being approved/rejected.
+    /// </summary>
+    public required string ToolName { get; init; }
+
+    /// <summary>
+    /// Tool use ID from Claude API.
+    /// </summary>
+    public required string ToolUseId { get; init; }
+
+    /// <summary>
+    /// Whether the tool was approved (true) or rejected (false).
+    /// </summary>
+    public required bool Approved { get; init; }
+}
+
+/// <summary>
+/// Logged when a Telegram session lifecycle event occurs.
+/// </summary>
+public sealed record TelegramSessionEvent : AuditEvent
+{
+    /// <summary>
+    /// Telegram chat identifier.
+    /// </summary>
+    public required long TelegramChatId { get; init; }
+
+    /// <summary>
+    /// Session event type.
+    /// </summary>
+    public required SessionEventType EventType { get; init; }
+
+    /// <summary>
+    /// User ID (nullable for backwards compatibility or when user context is unavailable).
+    /// </summary>
+    public string? UserId { get; init; }
+}
+
+/// <summary>
+/// Logged when a Telegram rate limit is applied.
+/// </summary>
+public sealed record TelegramRateLimitEvent : AuditEvent
+{
+    /// <summary>
+    /// Telegram user identifier.
+    /// </summary>
+    public required long TelegramUserId { get; init; }
+
+    /// <summary>
+    /// Current command count within the time window.
+    /// </summary>
+    public required int CommandCount { get; init; }
+
+    /// <summary>
+    /// Rate limit threshold per minute.
+    /// </summary>
+    public required int LimitPerMinute { get; init; }
+
+    /// <summary>
+    /// Time window duration.
+    /// </summary>
+    public required TimeSpan WindowDuration { get; init; }
+}
+
+/// <summary>
+/// Logged when a Telegram security incident occurs.
+/// </summary>
+public sealed record TelegramSecurityIncidentEvent : AuditEvent
+{
+    /// <summary>
+    /// Telegram user identifier (null if not available).
+    /// </summary>
+    public long? TelegramUserId { get; init; }
+
+    /// <summary>
+    /// Incident type.
+    /// </summary>
+    public required IncidentType Type { get; init; }
+
+    /// <summary>
+    /// Incident details.
+    /// </summary>
+    public required string Details { get; init; }
+}
