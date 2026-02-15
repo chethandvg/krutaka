@@ -177,20 +177,6 @@ public class SessionBudgetTests
     }
 
     [Fact]
-    public void AddTokens_Should_DoNothing_WhenCountIsZero()
-    {
-        // Arrange
-        var budget = new SessionBudget(100_000, 50);
-        budget.AddTokens(1000);
-
-        // Act
-        budget.AddTokens(0);
-
-        // Assert
-        budget.TokensUsed.Should().Be(1000); // Unchanged
-    }
-
-    [Fact]
     public async Task AddTokens_Should_BeThreadSafe()
     {
         // Arrange

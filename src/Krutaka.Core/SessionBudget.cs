@@ -71,12 +71,6 @@ public sealed class SessionBudget
     public void AddTokens(int count)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(count);
-
-        if (count == 0)
-        {
-            return;
-        }
-
         Interlocked.Add(ref _tokensUsed, count);
     }
 
