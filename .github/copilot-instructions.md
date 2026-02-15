@@ -43,7 +43,7 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - ALWAYS wrap untrusted content in `<untrusted_content>` tags when sending to Claude
 - ALWAYS wrap Telegram user input in `<untrusted_content source="telegram:user:{userId}">` tags before sending to Claude
 - ALWAYS use `CancellationToken` for cancellable operations
-- ALWAYS ensure per-session state (orchestrator, correlation context, session store, access store, approval cache) is instantiated per-session, NEVER as a singleton
+- ALWAYS ensure per-session state (orchestrator, correlation context, session store, access store, approval cache, tool registry, context compactor) is instantiated per-session, NEVER as a singleton
 - ALWAYS validate Telegram inline keyboard callbacks with HMAC-SHA256 before processing
 - NEVER log sensitive data — use the log redaction filter
 - NEVER store Telegram bot tokens in `appsettings.json` — use `ISecretsProvider` (Windows Credential Manager) or environment variables
