@@ -10,7 +10,7 @@ namespace Krutaka.Console;
 /// Console UI for the Krutaka agent with streaming token display,
 /// tool call indicators, Markdown rendering, and command handling.
 /// </summary>
-internal sealed class ConsoleUI : IDisposable
+internal sealed class ConsoleUI : IConsoleUI
 {
     private readonly MarkdownRenderer _markdownRenderer;
     private readonly ApprovalHandler _approvalHandler;
