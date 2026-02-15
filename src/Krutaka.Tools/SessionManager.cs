@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
 #pragma warning disable CA1848 // Use LoggerMessage delegates for improved performance
+#pragma warning disable CA1873 // Evaluation of logging arguments may be expensive when logging is disabled
 
 namespace Krutaka.Tools;
 
