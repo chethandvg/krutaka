@@ -728,6 +728,12 @@ Bot token is loaded from:
 2. **Fallback:** `KRUTAKA_TELEGRAM_BOT_TOKEN` environment variable
 3. **Never:** Configuration files, logs, or error messages
 
+**Important:** This is a Telegram-specific exception to the general "no environment variable secrets" rule (which applies to the Claude API key). The Telegram bot token is acceptable as an environment variable because:
+- The bot token is **not** inherited by child processes (unlike the Claude API key which would be passed to spawned commands)
+- The TelegramBotService does not spawn child processes
+- Environment variable scrubbing in `EnvironmentScrubber` specifically removes `KRUTAKA_TELEGRAM_BOT_TOKEN` before any child process execution
+- This pattern enables containerized/cloud deployments where `ISecretsProvider` (DPAPI) is unavailable
+
 `AllowedUsers` is required and validated at startup. Empty array = bot disabled (fail-fast).
 
 ### Related Documents

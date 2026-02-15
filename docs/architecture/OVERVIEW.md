@@ -62,8 +62,8 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ISessionAccessStore` | **[v0.2.0]** Session-scoped directory access grants with TTL | IsGrantedAsync, GrantAccessAsync, RevokeAccessAsync, GetActiveGrantsAsync, PruneExpiredAsync |
 | `ICommandRiskClassifier` | **[v0.3.0]** Command risk tier classification | Classify(CommandExecutionRequest) → CommandRiskTier, GetRules() |
 | `ICommandPolicy` | **[v0.3.0]** Command execution policy evaluation | EvaluateAsync(CommandExecutionRequest, CancellationToken) → Task<CommandDecision> |
-| `ISessionFactory` | **[v0.4.0]** Session creation factory | Create(SessionRequest) → ManagedSession |
-| `ISessionManager` | **[v0.4.0]** Session lifecycle management | CreateSessionAsync, GetOrCreateByKeyAsync, ResumeSessionAsync, TerminateSessionAsync, ListActiveSessions, TerminateAllAsync |
+| `ISessionFactory` | **[v0.4.0 – Planned]** Session creation factory | Create(SessionRequest) → ManagedSession |
+| `ISessionManager` | **[v0.4.0 – Planned]** Session lifecycle management | CreateSessionAsync, GetOrCreateByKeyAsync, ResumeSessionAsync, TerminateSessionAsync, ListActiveSessions, TerminateAllAsync |
 
 #### Model Types
 
@@ -86,18 +86,18 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `CommandRiskRule` | Record | **[v0.3.0]** Risk rule: Executable, ArgumentPatterns, Tier, Description |
 | `CommandExecutionRequest` | Record | **[v0.3.0]** Command execution request: Executable, Arguments (defensive copy), WorkingDirectory, Justification |
 | `CommandDecision` | Record | **[v0.3.0]** Command decision: Outcome, Tier, Reason; convenience properties: IsApproved, RequiresApproval, IsDenied; factory methods: Approve, RequireApproval, Deny |
-| `ManagedSession` | Sealed Class | **[v0.4.0]** Per-session container holding Orchestrator, CorrelationContext, Budget |
-| `SessionRequest` | Record | **[v0.4.0]** Session creation parameters: ProjectPath, ExternalKey, budgets |
-| `SessionState` | Enum | **[v0.4.0]** Active, Idle, Suspended, Terminated |
-| `SessionBudget` | Class | **[v0.4.0]** Thread-safe token/tool-call/turn tracking |
-| `SessionManagerOptions` | Record | **[v0.4.0]** MaxActiveSessions, IdleTimeout, SuspendedTtl, per-user limits |
-| `SessionSummary` | Record | **[v0.4.0]** Lightweight session view for listing |
-| `EvictionStrategy` | Enum | **[v0.4.0]** SuspendOldestIdle, RejectNew, TerminateOldest |
-| `TelegramSecurityConfig` | Record | **[v0.4.0]** Telegram config: AllowedUsers, rate limits, lockout, transport mode |
-| `TelegramUserConfig` | Record | **[v0.4.0]** Per-user config: UserId, Role, ProjectPath |
-| `TelegramUserRole` | Enum | **[v0.4.0]** Admin, User |
-| `TelegramTransportMode` | Enum | **[v0.4.0]** LongPolling, Webhook |
-| `HostMode` | Enum | **[v0.4.0]** Console, Telegram, Both |
+| `ManagedSession` | Sealed Class | **[v0.4.0 – Planned]** Per-session container holding Orchestrator, CorrelationContext, Budget |
+| `SessionRequest` | Record | **[v0.4.0 – Planned]** Session creation parameters: ProjectPath, ExternalKey, budgets |
+| `SessionState` | Enum | **[v0.4.0 – Planned]** Active, Idle, Suspended, Terminated |
+| `SessionBudget` | Class | **[v0.4.0 – Planned]** Thread-safe token/tool-call/turn tracking |
+| `SessionManagerOptions` | Record | **[v0.4.0 – Planned]** MaxActiveSessions, IdleTimeout, SuspendedTtl, per-user limits |
+| `SessionSummary` | Record | **[v0.4.0 – Planned]** Lightweight session view for listing |
+| `EvictionStrategy` | Enum | **[v0.4.0 – Planned]** SuspendOldestIdle, RejectNew, TerminateOldest |
+| `TelegramSecurityConfig` | Record | **[v0.4.0 – Planned]** Telegram config: AllowedUsers, rate limits, lockout, transport mode |
+| `TelegramUserConfig` | Record | **[v0.4.0 – Planned]** Per-user config: UserId, Role, ProjectPath |
+| `TelegramUserRole` | Enum | **[v0.4.0 – Planned]** Admin, User |
+| `TelegramTransportMode` | Enum | **[v0.4.0 – Planned]** LongPolling, Webhook |
+| `HostMode` | Enum | **[v0.4.0 – Planned]** Console, Telegram, Both |
 
 
 #### Core Classes
@@ -666,8 +666,8 @@ The `MarkdownRenderer` class converts Markdown to Spectre.Console output using M
 
 ### Krutaka.Telegram (net10.0-windows)
 **Status:** 🟡 In Progress (v0.4.0)  
-**Path:** `src/Krutaka.Telegram/`  
-**Dependencies:** Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI, Telegram.Bot
+**Planned path:** `src/Krutaka.Telegram/` (see `docs/versions/v0.4.0.md` for complete implementation roadmap)  
+**Planned dependencies:** Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI, Telegram.Bot
 
 Telegram Bot API integration with security pipeline for remote multi-user access.
 
