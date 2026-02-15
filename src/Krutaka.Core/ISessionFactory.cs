@@ -11,6 +11,9 @@ public interface ISessionFactory
     /// Creates a new managed session with fully isolated per-session components.
     /// </summary>
     /// <param name="request">The session creation request containing project path, budgets, and external keys.</param>
+    /// <param name="sessionIdOverride">Optional session ID to use instead of generating a new GUID. 
+    /// Use this when resuming a suspended session to preserve the original session ID for external key mapping, 
+    /// audit log continuity, JSONL file linkage, and resource governance.</param>
     /// <returns>A new managed session instance.</returns>
     /// <remarks>
     /// This method instantiates:
@@ -30,6 +33,10 @@ public interface ISessionFactory
     /// - IAccessPolicyEngine
     /// - ICommandRiskClassifier
     /// - ToolOptions
+    /// 
+    /// When resuming a suspended session, pass the original session ID via sessionIdOverride
+    /// to ensure external mappings (e.g., Telegram chatId → sessionId), audit logs, and JSONL
+    /// files remain consistent across suspend/resume cycles.
     /// </remarks>
-    ManagedSession Create(SessionRequest request);
+    ManagedSession Create(SessionRequest request, Guid? sessionIdOverride = null);
 }

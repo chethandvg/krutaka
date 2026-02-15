@@ -43,7 +43,7 @@ public sealed class SessionFactory : ISessionFactory
 
     /// <inheritdoc/>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "The sessionAccessStore and orchestrator are owned by ManagedSession and will be disposed via ManagedSession.DisposeAsync()")]
-    public ManagedSession Create(SessionRequest request)
+    public ManagedSession Create(SessionRequest request, Guid? sessionIdOverride = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -57,8 +57,8 @@ public sealed class SessionFactory : ISessionFactory
                 $"Cannot create session with ProjectPath '{request.ProjectPath}': {string.Join(", ", validationResult.DeniedReasons)}");
         }
 
-        // Generate new session ID
-        var sessionId = Guid.NewGuid();
+        // Use provided session ID override (for resume) or generate new GUID (for new sessions)
+        var sessionId = sessionIdOverride ?? Guid.NewGuid();
 
         // Create per-session CorrelationContext
         var correlationContext = new CorrelationContext(sessionId);

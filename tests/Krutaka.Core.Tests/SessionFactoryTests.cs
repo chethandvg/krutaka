@@ -410,6 +410,136 @@ public sealed class SessionFactoryTests
         session.ExternalKey.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Create_Should_UseProvidedSessionIdOverride()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+        var expectedSessionId = Guid.NewGuid();
+
+        // Act
+        await using var session = factory.Create(request, expectedSessionId);
+
+        // Assert
+        session.SessionId.Should().Be(expectedSessionId);
+        session.CorrelationContext.SessionId.Should().Be(expectedSessionId);
+    }
+
+    [Fact]
+    public async Task Create_Should_GenerateNewGuidWhenSessionIdOverrideIsNull()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+
+        // Act
+        await using var session = factory.Create(request, sessionIdOverride: null);
+
+        // Assert
+        session.SessionId.Should().NotBeEmpty();
+        session.CorrelationContext.SessionId.Should().Be(session.SessionId);
+    }
+
+    [Fact]
+    public async Task Create_Should_GenerateUniqueGuidsForMultipleCallsWithoutOverride()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+
+        // Act
+        await using var session1 = factory.Create(request);
+        await using var session2 = factory.Create(request);
+
+        // Assert
+        session1.SessionId.Should().NotBe(session2.SessionId);
+        session1.SessionId.Should().NotBeEmpty();
+        session2.SessionId.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_Should_PreserveSessionIdInCorrelationContext()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+        var originalSessionId = Guid.NewGuid();
+
+        // Act
+        await using var session = factory.Create(request, originalSessionId);
+
+        // Assert
+        session.CorrelationContext.SessionId.Should().Be(originalSessionId);
+        session.SessionId.Should().Be(originalSessionId);
+        session.CorrelationContext.SessionId.Should().Be(session.SessionId);
+    }
+
+    [Fact]
+    public async Task Create_Should_SupportResumeScenario_WithSameSessionIdForExternalKeyMapping()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var sessionId = Guid.NewGuid();
+        var externalKey = "telegram:chat_12345";
+
+        // Create initial session (simulates first creation)
+        var request1 = new SessionRequest("/tmp/test-sessions/project", ExternalKey: externalKey);
+        await using var initialSession = factory.Create(request1, sessionId);
+
+        // Verify initial session has the expected IDs
+        initialSession.SessionId.Should().Be(sessionId);
+        initialSession.ExternalKey.Should().Be(externalKey);
+
+        // Simulate suspend and resume - create a new session with the same sessionId
+        var request2 = new SessionRequest("/tmp/test-sessions/project", ExternalKey: externalKey);
+        await using var resumedSession = factory.Create(request2, sessionId);
+
+        // Assert - resumed session preserves session ID and external key mapping
+        resumedSession.SessionId.Should().Be(sessionId);
+        resumedSession.SessionId.Should().Be(initialSession.SessionId);
+        resumedSession.ExternalKey.Should().Be(externalKey);
+        resumedSession.CorrelationContext.SessionId.Should().Be(sessionId);
+    }
+
+    [Fact]
+    public async Task Create_Should_IsolatePerSessionComponentsEvenWithSameSessionId()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+        var sessionId = Guid.NewGuid();
+
+        // Act - Create two sessions with the same session ID (simulates resume scenario)
+        await using var session1 = factory.Create(request, sessionId);
+        await using var session2 = factory.Create(request, sessionId);
+
+        // Assert - Session IDs are the same
+        session1.SessionId.Should().Be(sessionId);
+        session2.SessionId.Should().Be(sessionId);
+
+        // Assert - But per-session components are still isolated
+        session1.Orchestrator.Should().NotBe(session2.Orchestrator, "orchestrators should be different instances");
+        session1.CorrelationContext.Should().NotBe(session2.CorrelationContext, "correlation contexts should be different instances");
+        session1.SessionAccessStore.Should().NotBe(session2.SessionAccessStore, "session access stores should be different instances");
+        session1.Budget.Should().NotBe(session2.Budget, "budgets should be different instances");
+    }
+
+    [Fact]
+    public async Task Create_Should_BackwardCompatibleWithExistingCalls()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+
+        // Act - Call without optional parameter (existing code pattern)
+        await using var session = factory.Create(request);
+
+        // Assert - Existing behavior preserved
+        session.SessionId.Should().NotBeEmpty();
+        session.CorrelationContext.SessionId.Should().Be(session.SessionId);
+    }
+
     /// <summary>
     /// Creates a SessionFactory with all required dependencies.
     /// </summary>
