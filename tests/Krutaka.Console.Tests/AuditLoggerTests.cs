@@ -483,6 +483,168 @@ public class AuditLoggerTests
         act.Should().Throw<ArgumentException>();
     }
 
+    [Fact]
+    public void Should_IncludeAgentId_WhenAgentContextIsSet()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        var parentAgentId = Guid.NewGuid();
+        const string role = "coordinator";
+        correlationContext.SetAgentContext(agentId, parentAgentId, role);
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("AgentId");
+        logEvent.Properties["AgentId"].ToString().Should().Contain(agentId.ToString());
+    }
+
+    [Fact]
+    public void Should_IncludeParentAgentId_WhenAgentContextIsSet()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        var parentAgentId = Guid.NewGuid();
+        const string role = "executor";
+        correlationContext.SetAgentContext(agentId, parentAgentId, role);
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("ParentAgentId");
+        logEvent.Properties["ParentAgentId"].ToString().Should().Contain(parentAgentId.ToString());
+    }
+
+    [Fact]
+    public void Should_IncludeAgentRole_WhenAgentContextIsSet()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        const string role = "researcher";
+        correlationContext.SetAgentContext(agentId, null, role);
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("AgentRole");
+        logEvent.Properties["AgentRole"].ToString().Should().Contain(role);
+    }
+
+    [Fact]
+    public void Should_OmitAgentFields_WhenAgentIdIsNull()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+        // AgentId not set (null)
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().NotContainKey("AgentId");
+        logEvent.Properties.Should().NotContainKey("ParentAgentId");
+        logEvent.Properties.Should().NotContainKey("AgentRole");
+    }
+
+    [Fact]
+    public void Should_IncludeAgentFields_InToolExecutionEvent()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        correlationContext.SetAgentContext(agentId, null, "tool-executor");
+
+        // Act
+        auditLogger.LogToolExecution(correlationContext, "read_file", true, false, 150, 2048);
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("AgentId");
+        logEvent.Properties["AgentId"].ToString().Should().Contain(agentId.ToString());
+        logEvent.Properties.Should().ContainKey("AgentRole");
+        logEvent.Properties["AgentRole"].ToString().Should().Contain("tool-executor");
+    }
+
+    [Fact]
+    public void Should_IncludeAgentFields_InCommandClassificationEvent()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        correlationContext.SetAgentContext(agentId, null, "command-executor");
+
+        // Act
+        auditLogger.LogCommandClassification(
+            correlationContext,
+            "git",
+            "status",
+            CommandRiskTier.Safe,
+            autoApproved: true,
+            trustedDirectory: null,
+            "Auto-approved");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("AgentId");
+        logEvent.Properties["AgentId"].ToString().Should().Contain(agentId.ToString());
+        logEvent.Properties.Should().ContainKey("AgentRole");
+        logEvent.Properties["AgentRole"].ToString().Should().Contain("command-executor");
+    }
+
+    [Fact]
+    public void Should_ShowNAForNullParentAgentId_WhenAgentIdIsSet()
+    {
+        // Arrange
+        var (logger, sink) = CreateLoggerWithSink();
+        var auditLogger = new AuditLogger(logger);
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+        correlationContext.IncrementTurn();
+
+        var agentId = Guid.NewGuid();
+        correlationContext.SetAgentContext(agentId, null, "root-agent");
+
+        // Act
+        auditLogger.LogUserInput(correlationContext, "test input");
+
+        // Assert
+        var logEvent = sink.Events.Should().ContainSingle().Subject;
+        logEvent.Properties.Should().ContainKey("ParentAgentId");
+        logEvent.Properties["ParentAgentId"].ToString().Should().Contain("N/A");
+    }
+
     private static (ILogger Logger, TestSink Sink) CreateLoggerWithSink()
     {
         var sink = new TestSink();

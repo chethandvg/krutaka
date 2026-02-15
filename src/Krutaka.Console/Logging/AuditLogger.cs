@@ -42,14 +42,32 @@ internal sealed class AuditLogger : IAuditLogger
         // (lowercase booleans, proper string escaping for paths)
         var eventDataJson = JsonSerializer.Serialize(eventData);
 
-        _logger.Write(
-            LogEventLevel.Information,
-            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
-            eventType.Name,
-            auditEvent.SessionId,
-            auditEvent.TurnId,
-            auditEvent.RequestId ?? "N/A",
-            eventDataJson);
+        // Conditionally include agent context fields when AgentId is non-null
+        if (auditEvent.AgentId.HasValue)
+        {
+            _logger.Write(
+                LogEventLevel.Information,
+                "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} AgentId={AgentId} ParentAgentId={ParentAgentId} AgentRole={AgentRole} | {EventData}",
+                eventType.Name,
+                auditEvent.SessionId,
+                auditEvent.TurnId,
+                auditEvent.RequestId ?? "N/A",
+                auditEvent.AgentId,
+                auditEvent.ParentAgentId?.ToString() ?? "N/A",
+                auditEvent.AgentRole ?? "N/A",
+                eventDataJson);
+        }
+        else
+        {
+            _logger.Write(
+                LogEventLevel.Information,
+                "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
+                eventType.Name,
+                auditEvent.SessionId,
+                auditEvent.TurnId,
+                auditEvent.RequestId ?? "N/A",
+                eventDataJson);
+        }
     }
 
     /// <inheritdoc />
@@ -68,6 +86,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             Content = sanitizedContent,
             ContentLength = content.Length
         };
@@ -86,6 +107,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             Model = model,
             TokenCount = tokenCount,
             ToolCount = toolCount
@@ -105,6 +129,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             StopReason = stopReason,
             InputTokens = inputTokens,
             OutputTokens = outputTokens
@@ -131,6 +158,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             ToolName = toolName,
             Approved = approved,
             AlwaysApprove = alwaysApprove,
@@ -152,6 +182,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             BeforeTokenCount = beforeTokenCount,
             AfterTokenCount = afterTokenCount,
             MessagesRemoved = messagesRemoved
@@ -173,6 +206,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             ViolationType = violationType,
             BlockedValue = blockedValue,
             Context = context
@@ -206,6 +242,9 @@ internal sealed class AuditLogger : IAuditLogger
             SessionId = correlationContext.SessionId,
             TurnId = correlationContext.TurnId,
             RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
             Executable = executable,
             Arguments = sanitizedArguments,
             Tier = tier,
@@ -245,13 +284,31 @@ internal sealed class AuditLogger : IAuditLogger
         // Serialize EventData as JSON
         var eventDataJson = JsonSerializer.Serialize(eventData);
 
-        _logger.Write(
-            logLevel,
-            "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
-            eventType.Name,
-            @event.SessionId,
-            @event.TurnId,
-            @event.RequestId ?? "N/A",
-            eventDataJson);
+        // Conditionally include agent context fields when AgentId is non-null
+        if (@event.AgentId.HasValue)
+        {
+            _logger.Write(
+                logLevel,
+                "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} AgentId={AgentId} ParentAgentId={ParentAgentId} AgentRole={AgentRole} | {EventData}",
+                eventType.Name,
+                @event.SessionId,
+                @event.TurnId,
+                @event.RequestId ?? "N/A",
+                @event.AgentId,
+                @event.ParentAgentId?.ToString() ?? "N/A",
+                @event.AgentRole ?? "N/A",
+                eventDataJson);
+        }
+        else
+        {
+            _logger.Write(
+                logLevel,
+                "Audit: {EventType} | SessionId={SessionId} TurnId={TurnId} RequestId={RequestId} | {EventData}",
+                eventType.Name,
+                @event.SessionId,
+                @event.TurnId,
+                @event.RequestId ?? "N/A",
+                eventDataJson);
+        }
     }
 }

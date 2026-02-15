@@ -25,6 +25,24 @@ public sealed class CorrelationContext
     public string? RequestId { get; private set; }
 
     /// <summary>
+    /// Agent identifier (GUID, per agent instance).
+    /// Null in single-agent mode (v0.4.0). Will be set in v0.9.0 multi-agent coordination.
+    /// </summary>
+    public Guid? AgentId { get; private set; }
+
+    /// <summary>
+    /// Parent agent identifier (GUID, for hierarchical agent relationships).
+    /// Null in single-agent mode or for root agents. Will be set in v0.9.0 multi-agent coordination.
+    /// </summary>
+    public Guid? ParentAgentId { get; private set; }
+
+    /// <summary>
+    /// Agent role identifier (e.g., "coordinator", "researcher", "executor").
+    /// Null in single-agent mode. Will be set in v0.9.0 multi-agent coordination.
+    /// </summary>
+    public string? AgentRole { get; private set; }
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="CorrelationContext"/> class.
     /// </summary>
     /// <param name="sessionId">The session identifier. If not provided, a new GUID is generated.</param>
@@ -61,6 +79,22 @@ public sealed class CorrelationContext
     }
 
     /// <summary>
+    /// Sets the agent context for multi-agent coordination scenarios.
+    /// All three fields must be provided together to ensure consistency.
+    /// </summary>
+    /// <param name="agentId">The agent identifier.</param>
+    /// <param name="parentAgentId">The parent agent identifier (null for root agents).</param>
+    /// <param name="role">The agent role identifier.</param>
+    public void SetAgentContext(Guid agentId, Guid? parentAgentId, string role)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
+
+        AgentId = agentId;
+        ParentAgentId = parentAgentId;
+        AgentRole = role;
+    }
+
+    /// <summary>
     /// Resets the session with a new session ID and resets the turn counter.
     /// Used by the /new command to start a fresh session while reusing
     /// the same DI-registered CorrelationContext instance.
@@ -71,5 +105,8 @@ public sealed class CorrelationContext
         SessionId = newSessionId;
         TurnId = 0;
         RequestId = null;
+        AgentId = null;
+        ParentAgentId = null;
+        AgentRole = null;
     }
 }
