@@ -219,7 +219,7 @@
       "krutaka.memory": {
         "type": "Project",
         "dependencies": {
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Data.Sqlite": "[10.0.1, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )"
         }

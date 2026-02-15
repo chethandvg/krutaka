@@ -184,7 +184,7 @@
       "krutaka.skills": {
         "type": "Project",
         "dependencies": {
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "YamlDotNet": "[16.3.0, )"
         }

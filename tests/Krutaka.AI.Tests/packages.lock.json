@@ -1438,7 +1438,7 @@
         "type": "Project",
         "dependencies": {
           "Anthropic": "[12.4.0, )",
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Extensions.AI": "[10.0.0, )",
           "Microsoft.Extensions.Configuration.Abstractions": "[10.0.2, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
