@@ -1,6 +1,6 @@
 # Krutaka — Security Model
 
-> **Last updated:** 2026-02-14 (v0.3.0 release documentation complete — graduated command execution with tiered risk classification)
+> **Last updated:** 2026-02-15 (v0.4.0 in progress — Telegram integration and multi-session architecture)
 >
 > This document defines the security threat model, controls, and policy rules for Krutaka.
 > It is **mandatory reading** before implementing any code that touches tools, file I/O, process execution, secrets, or prompt construction.
@@ -16,9 +16,12 @@
 | Audit log tampering | Agent tools modifying security audit trail | High | Audit log directory (`~/.krutaka/logs`) added to Layer 1 hard-deny list. Agent tools cannot read, write, or modify audit logs. | ✅ Complete |
 | Prompt injection via file contents | General agentic AI risk | High | Wrap untrusted content in `<untrusted_content>` XML tags. System prompt instructs model to treat tagged content as data only. | Not Started |
 | Supply chain (malicious skills) | OpenClaw ClawHub compromise | High | No remote skill marketplace. Local files only. | Not Started (by design) |
-| Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | Console app. No HTTP listener. No WebSocket. No network surface. Outbound HTTPS to api.anthropic.com only. | Mitigated (by design) |
+| Network exposure | CVE-2026-25253 — Default 0.0.0.0 binding | Critical | **Now requires mitigation** — Telegram Bot API introduces inbound network traffic. See `docs/architecture/TELEGRAM.md`. | 🟡 v0.4.0 |
 | Environment variable leakage | API keys inherited by child processes | High | EnvironmentScrubber removes *_KEY, *_SECRET, *_TOKEN, ANTHROPIC_* before child process start. | ✅ Complete (Issue #9) |
 | Log leakage | API keys or secrets appearing in log output | High | Log redaction filter scrubs sk-ant-* patterns and other secret patterns (properties + message templates). | ✅ Complete (Issue #29) |
+| Telegram authentication bypass | T2 in TELEGRAM.md | High | ITelegramAuthGuard with user allowlist, rate limiting, lockout | 🟡 v0.4.0 |
+| Callback tampering | T5 in TELEGRAM.md | High | HMAC-SHA256 signed callbacks with nonce + timestamp | 🟡 v0.4.0 |
+| Cross-session state leakage | T9 in TELEGRAM.md | Critical | Per-session factory, adversarial isolation tests | 🟡 v0.4.0 |
 
 ## Secrets Management Rules
 
@@ -484,7 +487,7 @@ v0.2.0 introduces a **four-layer access policy engine** that evaluates directory
 
 ### Immutable Security Boundaries
 
-These properties are **guaranteed in v0.1.0 and remain guaranteed in v0.2.0**. They are not configurable.
+These properties are **guaranteed in v0.1.0 and remain guaranteed in v0.2.0, v0.3.0, and v0.4.0**. They are not configurable.
 
 1. **System directory blocking** — `C:\Windows`, `C:\Program Files`, `System32`, etc. are ALWAYS blocked
 2. **Path traversal protection** — `..` segments are resolved before evaluation, never trusted
@@ -496,6 +499,8 @@ These properties are **guaranteed in v0.1.0 and remain guaranteed in v0.2.0**. T
 8. **Sensitive file pattern blocking** — `.env`, `.key`, `.pem`, etc. are ALWAYS blocked
 9. **Agent config self-protection** — `~/.krutaka/` is ALWAYS blocked from agent access
 10. **Graduated command execution** — Commands classified by risk tier (Safe/Moderate/Elevated/Dangerous) via `ICommandPolicy.EvaluateAsync()`. Elevated commands ALWAYS require approval. Dangerous commands ALWAYS blocked. Unknown commands fail-closed to Dangerous.
+
+**v0.4.0 additions:** See "Immutable Security Boundaries (v0.4.0 Additions)" section under "Telegram Security (v0.4.0)" for 8 new boundaries (S1–S8) introduced with Telegram integration.
 
 ### Four-Layer Policy Evaluation
 
@@ -650,3 +655,83 @@ If denied, agent receives descriptive message (not error) to try a different app
 | `AutoGrantPatterns` | string[] | `[]` | Glob patterns for auto-approved directory access (Layer 2) |
 | `MaxConcurrentGrants` | int | `10` | Maximum simultaneous directory access grants per session |
 | `DefaultGrantTtlMinutes` | int? | `null` | Default TTL for session grants (null = session lifetime) |
+
+---
+
+## Telegram Security (v0.4.0)
+
+**Status:** 🟡 In Progress  
+**Reference:** See `docs/architecture/TELEGRAM.md` for complete threat model, authentication pipeline, and mitigation details
+
+v0.4.0 introduces the **first network-accessible attack surface** in Krutaka's history. The Telegram Bot API creates inbound message flow from the internet to the agent.
+
+### Overview
+
+Every incoming Telegram `Update` passes through a security pipeline before reaching the agent:
+
+1. **ITelegramAuthGuard** — User ID allowlist (`HashSet<long>`, O(1) lookup), rate limiting, lockout, anti-replay
+2. **ITelegramCommandRouter** — Command parsing, admin gating, input sanitization
+3. **ITelegramSessionBridge** — Chat-to-session mapping via `ISessionManager`
+4. **ITelegramApprovalHandler** — HMAC-SHA256 signed inline keyboard callbacks
+5. **ITelegramResponseStreamer** — AgentEvent → Telegram with rate limit compliance
+
+Unknown users are **silently dropped** (no error reply sent).
+
+### Session Isolation Guarantees
+
+v0.4.0 ensures complete state isolation between concurrent sessions:
+
+| # | Guarantee | Implementation |
+|---|---|---|
+| 1 | Session A's directory grants don't appear in Session B | Per-session `InMemorySessionAccessStore` |
+| 2 | Session A's command approvals don't apply to Session B | Per-session `ICommandApprovalCache` |
+| 3 | Session A's conversation history not in Session B | Per-session `AgentOrchestrator._conversationHistory` |
+| 4 | Concurrent RunAsync doesn't interleave events | Per-session `_turnLock` SemaphoreSlim |
+| 5 | CorrelationContext tracks correct session | Per-session instance |
+| 6 | Audit log attributes correct session | SessionId in every audit event |
+
+See `docs/architecture/MULTI-SESSION.md` for the complete shared vs per-session component split.
+
+### Immutable Security Boundaries (v0.4.0 Additions)
+
+All v0.1.0–v0.3.0 boundaries remain **unchanged**. New v0.4.0 additions:
+
+| # | Boundary | Enforcement | Verified By |
+|---|---|---|---|
+| S1 | Bot token never in config files | ISecretsProvider (DPAPI) or env var. No BotToken property on config record. | Design + test |
+| S2 | Empty AllowedUsers = bot disabled | Startup validation throws InvalidOperationException | Config test |
+| S3 | Unknown users silently dropped | No error reply sent. AuthGuard returns invalid. | Auth test |
+| S4 | All Telegram text in `<untrusted_content>` | TelegramInputSanitizer applied to every message path | Sanitization test |
+| S5 | Callback data HMAC-SHA256 signed | CallbackDataSigner with RandomNumberGenerator secret | Adversarial test |
+| S6 | Sessions fully isolated | Per-session factory creates independent instances | Adversarial test |
+| S7 | Global token budget enforced | SessionManager tracks cumulative usage, rejects on exhaustion | Budget test |
+| S8 | Kill switch processed first | TelegramBotService checks batch for /killswitch before other commands | Polling test |
+
+### Key Mitigations
+
+| Mitigation | What It Prevents | Status |
+|---|---|---|
+| User ID allowlist (HashSet) | Unauthorized user access (T2) | 🟡 v0.4.0 |
+| Per-user rate limiting (sliding window) | DoS / abuse (T3) | 🟡 v0.4.0 |
+| Lockout with monotonic clock | Account lockout DoS (T4) | 🟡 v0.4.0 |
+| HMAC-SHA256 signed callbacks | Callback tampering (T5), cross-user approval (T6), replay (T7) | 🟡 v0.4.0 |
+| `<untrusted_content>` wrapping | Prompt injection (T8) | 🟡 v0.4.0 |
+| Unicode NFC normalization | Homoglyph attacks (T13) | 🟡 v0.4.0 |
+| Per-session factory | Cross-session state leakage (T9) | 🟡 v0.4.0 |
+| TLS 1.2+ enforcement | Man-in-the-Middle (T14) | 🟡 v0.4.0 |
+| Single-instance file lock | Double-polling corruption (T15) | 🟡 v0.4.0 |
+
+### Configuration
+
+Bot token is loaded from:
+1. **Primary:** `ISecretsProvider` (Windows Credential Manager / DPAPI)
+2. **Fallback:** `KRUTAKA_TELEGRAM_BOT_TOKEN` environment variable
+3. **Never:** Configuration files, logs, or error messages
+
+`AllowedUsers` is required and validated at startup. Empty array = bot disabled (fail-fast).
+
+### Related Documents
+
+- `docs/architecture/TELEGRAM.md` — Complete threat model and security pipeline
+- `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
+- `docs/versions/v0.4.0.md` — Complete v0.4.0 version specification

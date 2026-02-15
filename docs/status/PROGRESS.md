@@ -1579,3 +1579,47 @@ Core security controls implemented and tested:
 ### Acknowledgments
 
 This project represents a complete implementation of a security-hardened AI agent with comprehensive testing, documentation, and CI/CD infrastructure. All architectural decisions were made with security and maintainability as top priorities.
+
+---
+
+## v0.4.0 — Telegram Integration & Multi-Session Architecture (In Progress)
+
+> **Status:** 🟡 **In Progress**  
+> **Reference:** See `docs/versions/v0.4.0.md` for complete architecture design, threat model, and implementation roadmap.
+
+### Overview
+
+v0.4.0 is the **largest architectural change since v0.1.0**. It transforms Krutaka from a single-user, single-session console application into a **multi-session, multi-interface agent platform** with Telegram Bot API as the first remote interface.
+
+Three fundamental changes:
+
+1. **Multi-session architecture** — Replace singleton DI with per-session isolated instances via `ISessionFactory` + `ISessionManager`
+2. **Remote attack surface** — Telegram introduces network exposure for the first time, requiring a dedicated security layer
+3. **Concurrent operation** — Multiple users/chats operating simultaneously with full state isolation
+
+### Architecture Documentation
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-docs | Create v0.4.0 architecture documentation — MULTI-SESSION.md and TELEGRAM.md | Docs | 🟢 Complete | 2026-02-15 |
+
+**Documentation created:**
+- ✅ `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture (manual creation)
+- ✅ `docs/architecture/TELEGRAM.md` — Telegram security architecture (manual creation)
+- ✅ `docs/architecture/OVERVIEW.md` — Updated with v0.4.0 components (this issue)
+- ✅ `docs/architecture/SECURITY.md` — Updated with Telegram threat model (this issue)
+
+**Key updates:**
+- System Architecture diagram now includes SessionManager and Telegram Bot as entry points
+- Added `ISessionFactory` and `ISessionManager` to Core Interfaces
+- Added 13 new model types (ManagedSession, SessionRequest, SessionState, SessionBudget, etc.)
+- Added 6 new Telegram audit event types
+- Updated Project Dependency Graph to include Krutaka.Telegram
+- Added Multi-Session Architecture section explaining shared vs per-session split
+- Updated Storage Layout with `.polling.lock` and multi-session support
+- Updated Threat Model with 3 new Telegram-specific threats
+- Added comprehensive Telegram Security section with 8 new immutable boundaries (S1-S8)
+
+### Next Steps
+
+Implementation of v0.4.0 components will follow the complete issue breakdown in `docs/versions/v0.4.0.md`.
