@@ -527,8 +527,12 @@ public sealed class SessionManagerTests : IDisposable
         var session = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
         var sessionId = session.SessionId;
 
-        // Act - Wait for 2× IdleTimeout + timer interval for suspension
-        await Task.Delay(350);
+        // Act - Wait for IdleTimeout + 2× IdleTimeout + timer intervals
+        // The session needs to:
+        // 1. Transition to Idle after 100ms
+        // 2. Stay Idle for 200ms (2× IdleTimeout) before suspension
+        // Total: ~300ms + timer processing time
+        await Task.Delay(450);
 
         // Assert - Should be suspended
         manager.GetSession(sessionId).Should().BeNull(); // Removed from active sessions
@@ -667,6 +671,161 @@ public sealed class SessionManagerTests : IDisposable
         // Assert - All sessions should be unique
         sessions.Should().HaveCount(10);
         sessions.Select(s => s.SessionId).Distinct().Should().HaveCount(10);
+    }
+
+    #endregion
+
+    #region Regression Tests for Review Comments
+
+    [Fact]
+    public async Task GetOrCreateByKeyAsync_Should_ThrowWhenExternalKeyMismatch()
+    {
+        // Arrange
+        await using var manager = CreateSessionManager();
+        var externalKey = "telegram-123";
+        var wrongRequest = new SessionRequest(_testProjectPath, ExternalKey: "different-key");
+
+        // Act & Assert
+        var act = async () => await manager.GetOrCreateByKeyAsync(externalKey, wrongRequest, CancellationToken.None);
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*does not match the provided externalKey*");
+    }
+
+    [Fact]
+    public async Task GetOrCreateByKeyAsync_Should_CreateRequestWithExternalKey_WhenRequestKeyIsNull()
+    {
+        // Arrange
+        await using var manager = CreateSessionManager();
+        var externalKey = "telegram-456";
+        var requestWithoutKey = new SessionRequest(_testProjectPath, ExternalKey: null);
+
+        // Act
+        var session = await manager.GetOrCreateByKeyAsync(externalKey, requestWithoutKey, CancellationToken.None);
+
+        // Assert
+        session.ExternalKey.Should().Be(externalKey);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_Should_ThrowWhenMaxTokenBudgetIsNegative()
+    {
+        // Arrange
+        await using var manager = CreateSessionManager();
+        var request = new SessionRequest(_testProjectPath, MaxTokenBudget: -1000);
+
+        // Act & Assert
+        var act = async () => await manager.CreateSessionAsync(request, CancellationToken.None);
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Should_ApplyEvictionWhenMaxActiveReached()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 1,
+            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
+
+        await using var manager = CreateSessionManager(options);
+
+        // Create and suspend session1
+        var session1 = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        var session1Id = session1.SessionId;
+        session1.State = SessionState.Idle;
+
+        // Create session2 (evicts session1)
+        var session2 = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Verify session1 is suspended
+        manager.GetSession(session1Id).Should().BeNull();
+
+        // Act - Resume session1 should evict session2
+        var resumedSession = await manager.ResumeSessionAsync(session1Id, _testProjectPath, CancellationToken.None);
+
+        // Assert
+        resumedSession.SessionId.Should().Be(session1Id);
+        manager.GetSession(session2.SessionId).Should().BeNull(); // session2 should be suspended
+    }
+
+    [Fact]
+    public async Task IdleDetection_Should_NotSuspendImmediately_AfterTransitionToIdle()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(IdleTimeout: TimeSpan.FromMilliseconds(100));
+        await using var manager = CreateSessionManager(options);
+
+        var session = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Wait for Active → Idle transition
+        await Task.Delay(200);
+
+        // Assert - Should be Idle but NOT suspended yet
+        session.State.Should().Be(SessionState.Idle);
+        manager.GetSession(session.SessionId).Should().NotBeNull();
+
+        // Wait for grace period (2× IdleTimeout)
+        await Task.Delay(250);
+
+        // Assert - Now should be suspended
+        manager.GetSession(session.SessionId).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ConcurrentResumeSessionAsync_Should_ReturnSameSession()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 1,
+            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
+
+        await using var manager = CreateSessionManager(options);
+
+        // Create and suspend session1
+        var session1 = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        var session1Id = session1.SessionId;
+        session1.State = SessionState.Idle;
+
+        // Create session2 (evicts session1)
+        await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Act - Resume session1 concurrently from 3 threads
+        var tasks = Enumerable.Range(0, 3)
+            .Select(_ => manager.ResumeSessionAsync(session1Id, _testProjectPath, CancellationToken.None))
+            .ToArray();
+
+        var resumedSessions = await Task.WhenAll(tasks);
+
+        // Assert - All should return the same session instance
+        resumedSessions.Should().HaveCount(3);
+        resumedSessions.All(s => s.SessionId == session1Id).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RemoveSessionFromUserTracking_Should_HandleConcurrentUpdates()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(MaxSessionsPerUser: 5);
+        await using var manager = CreateSessionManager(options);
+        var userId = "concurrent-user";
+
+        // Create 3 sessions for the user
+        var session1 = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath, UserId: userId), CancellationToken.None);
+        var session2 = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath, UserId: userId), CancellationToken.None);
+        var session3 = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath, UserId: userId), CancellationToken.None);
+
+        // Act - Terminate sessions concurrently while creating a new one
+        var terminateTasks = new[]
+        {
+            manager.TerminateSessionAsync(session1.SessionId, CancellationToken.None),
+            manager.TerminateSessionAsync(session2.SessionId, CancellationToken.None),
+            manager.CreateSessionAsync(new SessionRequest(_testProjectPath, UserId: userId), CancellationToken.None)
+        };
+
+        await Task.WhenAll(terminateTasks);
+
+        // Assert - Should be able to create another session (verifies user tracking is correct)
+        var newSession = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath, UserId: userId), CancellationToken.None);
+        newSession.Should().NotBeNull();
     }
 
     #endregion

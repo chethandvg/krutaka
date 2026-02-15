@@ -35,13 +35,16 @@ public sealed class SessionManager : ISessionManager
     // Per-key locks for GetOrCreateByKeyAsync atomicity
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks = new();
 
+    // Track when sessions transitioned to Idle state (for grace period enforcement)
+    private readonly ConcurrentDictionary<Guid, DateTimeOffset> _idleSince = new();
+
     // Global creation lock for capacity validation
     private readonly SemaphoreSlim _creationLock = new(1, 1);
 
-    // Global token budget tracking (hourly reset)
+    // Global token budget tracking (clock-hour reset)
     private readonly object _tokenBudgetLock = new();
     private int _globalTokensThisHour;
-    private DateTimeOffset _tokenBudgetResetTime = DateTimeOffset.UtcNow.AddHours(1);
+    private DateTimeOffset _tokenBudgetResetTime = GetNextClockHour(DateTimeOffset.UtcNow);
 
     // Idle detection background timer
     private readonly PeriodicTimer? _idleDetectionTimer;
@@ -82,6 +85,8 @@ public sealed class SessionManager : ISessionManager
     public async Task<ManagedSession> CreateSessionAsync(SessionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentOutOfRangeException.ThrowIfNegative(request.MaxTokenBudget);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(request.MaxToolCallBudget);
 
         // Use creation lock to ensure atomic capacity validation and session creation
         await _creationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -94,7 +99,7 @@ public sealed class SessionManager : ISessionManager
                 if (DateTimeOffset.UtcNow >= _tokenBudgetResetTime)
                 {
                     _globalTokensThisHour = 0;
-                    _tokenBudgetResetTime = DateTimeOffset.UtcNow.AddHours(1);
+                    _tokenBudgetResetTime = GetNextClockHour(DateTimeOffset.UtcNow);
                 }
 
                 // Check if budget would be exceeded (conservatively assume session will use its max budget)
@@ -169,6 +174,22 @@ public sealed class SessionManager : ISessionManager
         ArgumentException.ThrowIfNullOrWhiteSpace(externalKey);
         ArgumentNullException.ThrowIfNull(request);
 
+        // Validate that the request's ExternalKey matches the provided externalKey
+        // If request.ExternalKey is null, we'll create a new request with the correct key
+        // If it's different, throw to prevent mapping errors
+        SessionRequest validatedRequest = request;
+        if (request.ExternalKey is not null && !string.Equals(request.ExternalKey, externalKey, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                $"SessionRequest.ExternalKey '{request.ExternalKey}' does not match the provided externalKey '{externalKey}'.",
+                nameof(request));
+        }
+        else if (request.ExternalKey is null)
+        {
+            // Create a new request with the correct ExternalKey
+            validatedRequest = request with { ExternalKey = externalKey };
+        }
+
         // Get or create per-key lock for atomic get-then-create
         var keyLock = _keyLocks.GetOrAdd(externalKey, _ => new SemaphoreSlim(1, 1));
 
@@ -203,8 +224,8 @@ public sealed class SessionManager : ISessionManager
                     externalKey, sessionId);
             }
 
-            // Create new session (request already has ExternalKey set)
-            var newSession = await CreateSessionAsync(request, cancellationToken).ConfigureAwait(false);
+            // Create new session with validated request
+            var newSession = await CreateSessionAsync(validatedRequest, cancellationToken).ConfigureAwait(false);
             return newSession;
         }
         finally
@@ -221,69 +242,85 @@ public sealed class SessionManager : ISessionManager
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(projectPath);
 
-        // Check if session is already active (idempotent)
-        if (_activeSessions.TryGetValue(sessionId, out var activeSession))
-        {
-            _logger?.LogDebug("Session {SessionId} is already active. Returning existing session.", sessionId);
-            return activeSession;
-        }
-
-        // Retrieve suspended session info
-        if (!_suspendedSessions.TryGetValue(sessionId, out var suspendedInfo))
-        {
-            throw new InvalidOperationException($"Session {sessionId} is not found in suspended sessions.");
-        }
-
-        // Validate ProjectPath matches (security: prevent path tampering)
-        if (!string.Equals(suspendedInfo.ProjectPath, projectPath, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"ProjectPath mismatch for session {sessionId}. " +
-                $"Expected: '{suspendedInfo.ProjectPath}', Provided: '{projectPath}'");
-        }
-
+        // Use creation lock to ensure atomic resume and capacity enforcement
+        await _creationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Create new session request from suspended info
-            var request = new SessionRequest(
-                ProjectPath: suspendedInfo.ProjectPath,
-                ExternalKey: suspendedInfo.ExternalKey,
-                UserId: suspendedInfo.UserId);
-
-            // Create new session instance with the SAME session ID to preserve identity
-            var session = _factory.Create(request, sessionId);
-
-            // Store in active sessions
-            _activeSessions[sessionId] = session;
-
-            // Update external key mapping to point to the resumed session
-            if (suspendedInfo.ExternalKey is not null)
+            // Check if session is already active (idempotent)
+            if (_activeSessions.TryGetValue(sessionId, out var activeSession))
             {
-                _externalKeyMap[suspendedInfo.ExternalKey] = sessionId;
+                _logger?.LogDebug("Session {SessionId} is already active. Returning existing session.", sessionId);
+                return activeSession;
             }
 
-            // Restore user tracking
-            if (suspendedInfo.UserId is not null)
+            // Retrieve suspended session info
+            if (!_suspendedSessions.TryGetValue(sessionId, out var suspendedInfo))
             {
-                AddSessionToUserTracking(suspendedInfo.UserId, sessionId);
-                _sessionToUser[sessionId] = suspendedInfo.UserId;
+                throw new InvalidOperationException($"Session {sessionId} is not found in suspended sessions.");
             }
 
-            // Remove from suspended sessions AFTER successful creation
-            _suspendedSessions.TryRemove(sessionId, out _);
+            // Validate ProjectPath matches (security: prevent path tampering)
+            if (!string.Equals(suspendedInfo.ProjectPath, projectPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"ProjectPath mismatch for session {sessionId}. " +
+                    $"Expected: '{suspendedInfo.ProjectPath}', Provided: '{projectPath}'");
+            }
 
-            _logger?.LogInformation(
-                "Session {SessionId} resumed from suspended state. " +
-                "Caller is responsible for reconstructing conversation history from JSONL.",
-                sessionId);
+            // Check capacity and apply eviction if necessary (same as CreateSessionAsync)
+            var totalActiveSessions = _activeSessions.Count;
+            if (totalActiveSessions >= _options.MaxActiveSessions)
+            {
+                await ApplyEvictionStrategyAsync(cancellationToken).ConfigureAwait(false);
+            }
 
-            return session;
+            try
+            {
+                // Create new session request from suspended info
+                var request = new SessionRequest(
+                    ProjectPath: suspendedInfo.ProjectPath,
+                    ExternalKey: suspendedInfo.ExternalKey,
+                    UserId: suspendedInfo.UserId);
+
+                // Create new session instance with the SAME session ID to preserve identity
+                var session = _factory.Create(request, sessionId);
+
+                // Store in active sessions
+                _activeSessions[sessionId] = session;
+
+                // Update external key mapping to point to the resumed session
+                if (suspendedInfo.ExternalKey is not null)
+                {
+                    _externalKeyMap[suspendedInfo.ExternalKey] = sessionId;
+                }
+
+                // Restore user tracking
+                if (suspendedInfo.UserId is not null)
+                {
+                    AddSessionToUserTracking(suspendedInfo.UserId, sessionId);
+                    _sessionToUser[sessionId] = suspendedInfo.UserId;
+                }
+
+                // Remove from suspended sessions AFTER successful creation
+                _suspendedSessions.TryRemove(sessionId, out _);
+
+                _logger?.LogInformation(
+                    "Session {SessionId} resumed from suspended state. " +
+                    "Caller is responsible for reconstructing conversation history from JSONL.",
+                    sessionId);
+
+                return session;
+            }
+            catch (Exception ex)
+            {
+                // Keep suspended entry on failure (fail-safe)
+                _logger?.LogError(ex, "Failed to resume session {SessionId}. Session remains suspended.", sessionId);
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            // Keep suspended entry on failure (fail-safe)
-            _logger?.LogError(ex, "Failed to resume session {SessionId}. Session remains suspended.", sessionId);
-            throw;
+            _creationLock.Release();
         }
     }
 
@@ -307,6 +344,9 @@ public sealed class SessionManager : ISessionManager
             {
                 RemoveSessionFromUserTracking(userId, sessionId);
             }
+
+            // Clean up idle tracking
+            _idleSince.TryRemove(sessionId, out _);
 
             _logger?.LogInformation("Session {SessionId} terminated.", sessionId);
         }
@@ -363,7 +403,7 @@ public sealed class SessionManager : ISessionManager
                 ProjectPath: suspendedInfo.ProjectPath,
                 ExternalKey: suspendedInfo.ExternalKey,
                 UserId: suspendedInfo.UserId,
-                CreatedAt: suspendedInfo.LastActivity, // Use LastActivity as proxy for CreatedAt
+                CreatedAt: suspendedInfo.CreatedAt,
                 LastActivity: suspendedInfo.LastActivity,
                 TokensUsed: suspendedInfo.TokensUsed,
                 TurnsUsed: suspendedInfo.TurnsUsed));
@@ -549,6 +589,7 @@ public sealed class SessionManager : ISessionManager
             ProjectPath: session.ProjectPath,
             ExternalKey: session.ExternalKey,
             UserId: userId,
+            CreatedAt: session.CreatedAt,
             SuspendedAt: DateTimeOffset.UtcNow,
             LastActivity: session.LastActivity,
             TokensUsed: session.Budget.TokensUsed,
@@ -557,14 +598,14 @@ public sealed class SessionManager : ISessionManager
         // Update session state to Suspended
         session.State = SessionState.Suspended;
 
+        // Remove from active sessions BEFORE disposal so it is no longer observable as active
+        _activeSessions.TryRemove(session.SessionId, out _);
+
         // Dispose orchestrator to free memory (JSONL remains on disk)
         await DisposeSessionAsync(session).ConfigureAwait(false);
 
         // Move to suspended tracking
         _suspendedSessions[session.SessionId] = suspendedInfo;
-
-        // Remove from active sessions
-        _activeSessions.TryRemove(session.SessionId, out _);
 
         _logger?.LogInformation(
             "Session {SessionId} suspended. UserId: {UserId}, LastActivity: {LastActivity}",
@@ -583,7 +624,7 @@ public sealed class SessionManager : ISessionManager
                 var idleTimeout = _options.IdleTimeoutValue;
                 var suspensionGracePeriod = idleTimeout * 2; // 2× IdleTimeout
 
-                // Process active sessions
+                // Process active sessions for transition to Idle
                 var sessionsToTransitionToIdle = new List<ManagedSession>();
                 foreach (var session in _activeSessions.Values)
                 {
@@ -597,23 +638,25 @@ public sealed class SessionManager : ISessionManager
                     }
                 }
 
-                // Transition Active → Idle
+                // Transition Active → Idle and record the transition time
                 foreach (var session in sessionsToTransitionToIdle)
                 {
                     session.State = SessionState.Idle;
+                    _idleSince[session.SessionId] = now; // Track when it became Idle
                     _logger?.LogInformation(
                         "Session {SessionId} transitioned to Idle after {Duration} of inactivity.",
                         session.SessionId, now - session.LastActivity);
                 }
 
                 // Process idle sessions for suspension
+                // Only suspend sessions that have been Idle for the full grace period
                 var sessionsToSuspend = new List<ManagedSession>();
                 foreach (var session in _activeSessions.Values)
                 {
-                    if (session.State == SessionState.Idle)
+                    if (session.State == SessionState.Idle && _idleSince.TryGetValue(session.SessionId, out var idleSinceTime))
                     {
-                        var timeSinceLastActivity = now - session.LastActivity;
-                        if (timeSinceLastActivity >= suspensionGracePeriod)
+                        var timeSinceIdle = now - idleSinceTime;
+                        if (timeSinceIdle >= suspensionGracePeriod)
                         {
                             sessionsToSuspend.Add(session);
                         }
@@ -624,6 +667,7 @@ public sealed class SessionManager : ISessionManager
                 foreach (var session in sessionsToSuspend)
                 {
                     await SuspendSessionAsync(session, cancellationToken).ConfigureAwait(false);
+                    _idleSince.TryRemove(session.SessionId, out _); // Clean up tracking
                 }
 
                 // Clean up expired suspended sessions
@@ -674,23 +718,56 @@ public sealed class SessionManager : ISessionManager
 
     private void RemoveSessionFromUserTracking(string userId, Guid sessionId)
     {
-        if (_userSessions.TryGetValue(userId, out var sessions))
+        while (true)
         {
+            if (!_userSessions.TryGetValue(userId, out var sessions))
+            {
+                // No sessions tracked for this user; nothing to remove.
+                return;
+            }
+
             var updatedSessions = sessions.Remove(sessionId);
+
             if (updatedSessions.IsEmpty)
             {
-                _userSessions.TryRemove(userId, out _);
+                // Attempt to remove the user entry only if it still maps to the
+                // same sessions set we just used to compute updatedSessions.
+                // This prevents losing concurrent additions.
+                if (_userSessions.TryRemove(new KeyValuePair<string, System.Collections.Immutable.ImmutableHashSet<Guid>>(userId, sessions)))
+                {
+                    return;
+                }
+
+                // Another thread modified the entry; retry with the new value.
+                continue;
             }
-            else
+
+            // Attempt to update the sessions set only if it has not changed
+            // since we read it, to avoid losing concurrent updates.
+            if (_userSessions.TryUpdate(userId, updatedSessions, sessions))
             {
-                _userSessions[userId] = updatedSessions;
+                return;
             }
+
+            // Another thread modified the entry; retry with the new value.
         }
     }
 
     private static async ValueTask DisposeSessionAsync(ManagedSession session)
     {
         await session.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Calculates the next clock hour boundary from the given time.
+    /// </summary>
+    /// <param name="time">The current time.</param>
+    /// <returns>The next top-of-hour timestamp (minutes and seconds truncated to zero).</returns>
+    private static DateTimeOffset GetNextClockHour(DateTimeOffset time)
+    {
+        // Truncate minutes and seconds to zero, then add one hour
+        var truncated = new DateTimeOffset(time.Year, time.Month, time.Day, time.Hour, 0, 0, time.Offset);
+        return truncated.AddHours(1);
     }
 
     #endregion
