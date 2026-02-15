@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory with session ID override — 1,385 tests (1,384 passing, 1 skipped))
+> **Last updated:** 2026-02-15 (v0.4.0 SessionManager implementation — 1,319 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1704,6 +1704,48 @@ Three fundamental changes:
   - Backward compatibility with existing calls
   - Validation rejection of Guid.Empty
 - ✅ Ready for `SessionManager.ResumeSessionAsync()` implementation (issue #133)
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #133 | SessionManager implementation — create, idle, suspend, resume, terminate with resource governance | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ `SessionManager` class in `src/Krutaka.Tools/SessionManager.cs` implementing `ISessionManager`
+- ✅ `RecordTokenUsage(int tokens)` method added to `ISessionManager` interface for global token budget tracking
+- ✅ `SuspendedSessionInfo` record in `src/Krutaka.Core/SuspendedSessionInfo.cs` for suspended session metadata
+- ✅ `InternalsVisibleTo` attribute added to `src/Krutaka.Core/AssemblyInfo.cs` for `Krutaka.Tools` access to internal setters
+- ✅ DI registration in `ServiceExtensions.AddAgentTools()` as singleton
+- ✅ Thread-safe concurrent dictionaries for session tracking:
+  - Active sessions: `ConcurrentDictionary<Guid, ManagedSession>`
+  - External key mapping: `ConcurrentDictionary<string, Guid>`
+  - Suspended sessions: `ConcurrentDictionary<Guid, SuspendedSessionInfo>`
+  - Per-user tracking: `ConcurrentDictionary<string, ImmutableHashSet<Guid>>`
+  - Session-to-user mapping: `ConcurrentDictionary<Guid, string>`
+- ✅ Per-key `SemaphoreSlim` locks for atomic `GetOrCreateByKeyAsync` operations
+- ✅ Global `SemaphoreSlim` creation lock for capacity/limit validation
+- ✅ Background `PeriodicTimer` for idle detection with configurable interval
+- ✅ Idle detection with grace period: Active → Idle after `IdleTimeout`, Idle → Suspended after 2× `IdleTimeout`
+- ✅ Suspended session TTL cleanup
+- ✅ Three eviction strategies: `SuspendOldestIdle` (default), `RejectNew`, `TerminateOldest`
+- ✅ Global token budget tracking with hourly reset via `lock`-protected counter
+- ✅ Per-user session limits enforcement
+- ✅ `ResumeSessionAsync` does NOT reconstruct history (no `Krutaka.Memory` dependency) — caller's responsibility
+- ✅ `ResumeSessionAsync` preserves session ID using `ISessionFactory.Create(request, sessionId)` overload
+- ✅ Automatic suspension on capacity limit with `GetOrCreateByKeyAsync` auto-resume
+- ✅ All resources properly disposed via `DisposeAsync` (timer cancellation, session cleanup, lock disposal)
+- ✅ 31 comprehensive tests in `tests/Krutaka.Core.Tests/SessionManagerTests.cs`:
+  - Core lifecycle: Create, Get, Terminate, TerminateAll, ListActiveSessions, Dispose (8 tests)
+  - External key mapping: GetOrCreateByKeyAsync atomicity, auto-resume suspended sessions (5 tests)
+  - Capacity & eviction: MaxActiveSessions, MaxSessionsPerUser, all three strategies (5 tests)
+  - Idle detection & suspension: Active→Idle, grace period, TTL expiry, auto-resume (6 tests)
+  - Resume: validation, idempotency, ProjectPath validation (3 tests)
+  - Token budget: RecordTokenUsage, global budget exhaustion (3 tests)
+  - Concurrency: parallel session creation (1 test)
+- ✅ **Critical verification:** `dotnet restore --locked-mode` succeeds
+- ✅ **Critical verification:** `Krutaka.Tools/packages.lock.json` does NOT contain `krutaka.memory` or SQLite entries
+- ✅ Zero regressions — all 1,289 existing tests pass, total 1,320 tests (1,319 passing, 1 skipped)
+- ✅ Full implementation of resource governance (idle timeout, suspension, eviction, token budget, per-user limits)
+- ✅ Ready for Console and Telegram integration
 
 ### Next Steps
 

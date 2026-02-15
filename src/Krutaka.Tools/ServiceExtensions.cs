@@ -202,6 +202,15 @@ public static class ServiceExtensions
         // Register session factory (singleton) for v0.4.0 multi-session support
         services.AddSingleton<ISessionFactory, SessionFactory>();
 
+        // Register session manager (singleton) for v0.4.0 multi-session lifecycle management
+        services.AddSingleton<ISessionManager>(sp =>
+        {
+            var factory = sp.GetRequiredService<ISessionFactory>();
+            var options = sp.GetService<SessionManagerOptions>() ?? new SessionManagerOptions();
+            var logger = sp.GetService<ILogger<SessionManager>>();
+            return new SessionManager(factory, options, logger);
+        });
+
         return services;
     }
 
