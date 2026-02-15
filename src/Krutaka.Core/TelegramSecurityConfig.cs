@@ -120,7 +120,8 @@ public record TelegramSecurityConfig(
                 "Each Telegram user ID must appear exactly once.");
         }
 
-        return allowedUsers;
+        // Return a defensive copy to prevent external modification
+        return [.. allowedUsers];
     }
 
     private static int ValidatePositive(int value, string paramName)

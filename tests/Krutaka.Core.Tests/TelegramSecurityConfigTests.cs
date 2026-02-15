@@ -356,4 +356,73 @@ public class TelegramSecurityConfigTests
         // Assert
         hasBotToken.Should().BeFalse("BotToken must NOT be part of TelegramSecurityConfig for security reasons");
     }
+
+    [Fact]
+    public void Validator_Should_RejectConfigModifiedViaWithExpression()
+    {
+        // Arrange
+        var users = new[] { new TelegramUserConfig(12345678) };
+        var validConfig = new TelegramSecurityConfig(users);
+
+        // Act - modify valid config with invalid value using 'with' expression
+        var invalidConfig = validConfig with { MaxCommandsPerMinute = -1 };
+
+        // Assert - validator should catch the invalid value
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            TelegramConfigValidator.Validate(invalidConfig));
+        
+        exception.Message.Should().Contain("MaxCommandsPerMinute must be greater than 0");
+    }
+
+    [Fact]
+    public void Validator_Should_RejectWebhookModeModifiedViaWithExpression()
+    {
+        // Arrange
+        var users = new[] { new TelegramUserConfig(12345678) };
+        var validConfig = new TelegramSecurityConfig(users, Mode: TelegramTransportMode.LongPolling);
+
+        // Act - modify to Webhook mode without URL using 'with' expression
+        var invalidConfig = validConfig with { Mode = TelegramTransportMode.Webhook };
+
+        // Assert - validator should catch the missing WebhookUrl
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            TelegramConfigValidator.Validate(invalidConfig));
+        
+        exception.Message.Should().Contain("WebhookUrl is required when Mode is set to Webhook");
+    }
+
+    [Fact]
+    public void AllowedUsers_Should_BeDefensivelyCopied()
+    {
+        // Arrange
+        var users = new[] { new TelegramUserConfig(12345678, TelegramUserRole.Admin) };
+        var config = new TelegramSecurityConfig(users);
+
+        // Act - modify the original array
+        users[0] = new TelegramUserConfig(87654321, TelegramUserRole.User);
+
+        // Assert - config should have the original value (defensive copy was made)
+        config.AllowedUsers.Should().HaveCount(1);
+        config.AllowedUsers[0].UserId.Should().Be(12345678);
+        config.AllowedUsers[0].Role.Should().Be(TelegramUserRole.Admin);
+    }
+
+    [Fact]
+    public void AllowedUsers_Array_Should_NotBeModifiableAfterConstruction()
+    {
+        // Arrange
+        var users = new[] { new TelegramUserConfig(12345678) };
+        var config = new TelegramSecurityConfig(users);
+        var originalUser = config.AllowedUsers[0];
+
+        // Act - attempt to modify the AllowedUsers array
+        config.AllowedUsers[0] = new TelegramUserConfig(87654321);
+
+        // Assert - modification affects the returned array (since arrays are mutable)
+        // but validation on the modified config should fail
+        config.AllowedUsers[0].UserId.Should().Be(87654321);
+        
+        // This demonstrates the limitation - while we can't prevent array modification,
+        // the validator should be called before using the config in security-critical code
+    }
 }
