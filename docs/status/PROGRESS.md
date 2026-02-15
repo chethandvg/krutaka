@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionManager implementation — 1,319 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 Console refactoring complete with fixes — 1,426 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1746,6 +1746,49 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,289 existing tests pass, total 1,320 tests (1,319 passing, 1 skipped)
 - ✅ Full implementation of resource governance (idle timeout, suspension, eviction, token budget, per-user limits)
 - ✅ Ready for Console and Telegram integration
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #160 | Refactor Krutaka.Console/Program.cs to use ISessionManager instead of singleton orchestrator | Refactor | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Removed all orphaned singleton DI registrations from `src/Krutaka.Tools/ServiceExtensions.cs`:
+  - Removed `ICommandApprovalCache` singleton (now created per-session by SessionFactory)
+  - Removed `ISessionAccessStore` singleton (now created per-session by SessionFactory)
+  - Removed `IToolRegistry` and all `ITool` singleton registrations (now created per-session by SessionFactory)
+  - Global `IAccessPolicyEngine` now uses `sessionStore: null` (Layer 1 & 2 only, per-session wrappers created by SessionFactory)
+- ✅ Refactored `src/Krutaka.Console/Program.cs` DI configuration:
+  - Removed `CorrelationContext` singleton registration (accessed via `session.CorrelationContext`)
+  - Removed `ICorrelationContextAccessor` singleton registration (per-session instance in SessionFactory)
+  - Removed `SessionStore` singleton registration (created per-session in main loop)
+  - Removed `ContextCompactor` singleton registration (created per-session by SessionFactory)
+  - Removed `AgentOrchestrator` singleton registration (created per-session by SessionFactory)
+  - Removed `SystemPromptBuilder` singleton registration (created per-session using session's tool registry)
+  - Added `SessionManagerOptions` configuration (MaxActiveSessions: 1, IdleTimeout: Zero for Console)
+- ✅ Refactored main loop to use `ISessionManager`:
+  - **Auto-resume on startup:** Three-step pattern implemented (ResumeSessionAsync + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory)
+  - **`/new` command:** Terminates old session via `sessionManager.TerminateSessionAsync()`, creates new session via `sessionManager.CreateSessionAsync()`
+  - **`/resume` command:** Reloads current session from disk using `SessionStore.ReconstructMessagesAsync()` + `RestoreConversationHistory()`
+  - **`/sessions` command:** Combines `sessionManager.ListActiveSessions()` with `SessionStore.ListSessions()` for complete view
+  - **SystemPromptBuilder:** Created per-session using tool registry extracted from session's orchestrator via reflection
+  - **Shutdown:** Calls `sessionManager.DisposeAsync()` for clean resource release
+- ✅ Updated `tests/Krutaka.Tools.Tests/ToolRegistryIntegrationTests.cs`:
+  - Modified `Should_AddAgentTools_RegisterAllServicesCorrectly` to verify new DI architecture (IToolRegistry not registered globally, ISessionFactory/ISessionManager are registered)
+  - Added `Should_CreatePerSessionToolRegistry_ViaSessionFactory` to verify SessionFactory creates per-session tool registries with all 6 tools
+  - Added 2 DI isolation tests verifying `ICommandApprovalCache` and `ISessionAccessStore` not in global DI (security-critical)
+  - Added 2 configuration preservation tests verifying ToolOptions and SessionFactory respect custom orchestrator limits
+  - Added `MockClaudeClient` helper class for testing
+- ✅ **Post-refactor fixes** (commits 896e424, 526e16e):
+  - **Issue 1 - Disk session resume:** After process restart, persisted sessions aren't in SessionManager's suspended map. Fixed by using SessionFactory.Create() with preserved session ID instead of SessionManager.ResumeSessionAsync()
+  - **Issue 2 - Configuration preservation:** Added ToolTimeoutSeconds, ApprovalTimeoutSeconds, MaxToolResultCharacters to ToolOptions. SessionFactory now reads from ToolOptions. Program.cs reads Agent section configuration. User appsettings overrides now work correctly.
+  - **Issue 3 - Test coverage:** Added 6 new tests total (2 DI isolation + 2 configuration + 2 previous = 6). Full integration tests documented in `docs/testing/CONSOLE-LIFECYCLE-TESTS.md` for future implementation.
+- ✅ **All tests passing:** 1,426 tests (847 Tools, 305 Core, 131 Memory, 116 Console, 17 Skills, 10 AI, 1 skipped)
+- ✅ **Zero regressions:** Build succeeds with zero warnings/errors
+- ✅ **DI architecture validated:** No singleton registrations remain for mutable per-session state
+- ✅ **Multi-session ready:** Console now uses same session architecture that Telegram will use
+- ✅ **Behavioral parity:** User-facing behavior unchanged from v0.3.0 (commands, streaming, approvals all identical)
+- ✅ **Startup resume fixed:** Console successfully resumes sessions from disk after process restart
+- ✅ **Configuration preserved:** User appsettings overrides for timeouts and limits work correctly
 
 ### Next Steps
 

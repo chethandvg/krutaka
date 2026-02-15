@@ -93,19 +93,9 @@ try
     // Add Serilog to host
     builder.Services.AddSerilog();
 
-    // Session ID will be determined after we know the working directory
-    // Initialize with empty value - will be properly set below
-    Guid sessionId = Guid.Empty;
-    bool isResumingSession = false;
-
-    // Register CorrelationContext (scoped per session)
-    builder.Services.AddSingleton(sp =>
-    {
-        return new CorrelationContext(sessionId);
-    });
-
-    // Register ICorrelationContextAccessor for making correlation context available to tools
-    builder.Services.AddSingleton<ICorrelationContextAccessor, CorrelationContextAccessor>();
+    // Note: CorrelationContext is created per-session by SessionFactory (not registered globally)
+    // Note: ICorrelationContextAccessor is created per-session by SessionFactory (not registered globally)
+    // v0.4.0: Per-session components are created by SessionFactory via ISessionManager
 
     // Register IAuditLogger
     builder.Services.AddSingleton<IAuditLogger>(sp =>
@@ -126,29 +116,6 @@ try
         workingDirectory = Environment.CurrentDirectory;
     }
 
-    // Find or create session identifier (now that we have workingDirectory)
-    Guid? existingSessionId = null;
-    try
-    {
-        existingSessionId = SessionStore.FindMostRecentSession(workingDirectory);
-    }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-    {
-        Log.Warning(ex, "Failed to discover existing sessions, will create new session");
-    }
-
-    if (existingSessionId.HasValue)
-    {
-        sessionId = existingSessionId.Value;
-        isResumingSession = true;
-        Log.Information("Found existing session {SessionId}, will auto-resume", sessionId);
-    }
-    else
-    {
-        sessionId = Guid.NewGuid();
-        Log.Information("No previous session found, created new session {SessionId}", sessionId);
-    }
-
     // Register Tools with options
     builder.Services.AddAgentTools(options =>
     {
@@ -157,6 +124,24 @@ try
 
         // Override DefaultWorkingDirectory from Agent section for backward compatibility
         options.DefaultWorkingDirectory = workingDirectory;
+        
+        // Read orchestrator configuration from Agent section (v0.4.0: preserve user configuration)
+        options.ToolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
+        options.ApprovalTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ApprovalTimeoutSeconds", 300);
+        
+        // Read MaxToolResultCharacters with derivation logic if not explicitly set
+        var maxTokens = builder.Configuration.GetValue<int>("Claude:MaxTokens", 8192);
+        var configuredMaxToolResultChars = builder.Configuration.GetValue<int>("Agent:MaxToolResultCharacters", 0);
+        if (configuredMaxToolResultChars > 0)
+        {
+            options.MaxToolResultCharacters = configuredMaxToolResultChars;
+        }
+        else
+        {
+            // Derive from MaxTokens: 1 token ≈ 4 characters, minimum 100,000
+            var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
+            options.MaxToolResultCharacters = (int)derivedMaxToolResultChars;
+        }
     });
 
     // Register Memory services
@@ -168,17 +153,48 @@ try
     // Register Skills (placeholder for now)
     builder.Services.AddSkills();
 
-    // Register SessionStore as factory (using the same session ID as CorrelationContext)
-    builder.Services.AddSingleton(sp =>
+    // Note: SessionStore is created per-session (not registered globally)
+    // Note: SystemPromptBuilder is created per-session using the session's IToolRegistry (not registered globally)
+    // Note: ContextCompactor is created per-session by SessionFactory (not registered globally)
+    // Note: AgentOrchestrator is created per-session by SessionFactory (not registered globally)
+    // v0.4.0: Per-session components are created by SessionFactory via ISessionManager
+
+    // Register SessionManagerOptions for Console single-session mode
+    builder.Services.AddSingleton(new SessionManagerOptions
     {
-        return new SessionStore(workingDirectory, sessionId);
+        MaxActiveSessions = 1, // Console is single-session
+        EvictionStrategy = EvictionStrategy.TerminateOldest,
+        IdleTimeout = TimeSpan.Zero, // No idle timeout for Console
+        GlobalMaxTokensPerHour = 1_000_000, // 1M tokens/hour
+        MaxSessionsPerUser = 1 // Single user in Console mode
     });
 
-    // Register SystemPromptBuilder
+    // Register ApprovalHandler
     builder.Services.AddSingleton(sp =>
     {
-        var toolRegistry = sp.GetRequiredService<IToolRegistry>();
-        
+        var fileOps = sp.GetRequiredService<IFileOperations>();
+        return new ApprovalHandler(workingDirectory, fileOps);
+    });
+
+    // Register ConsoleUI
+    builder.Services.AddSingleton<ConsoleUI>();
+
+    // Build the host
+    var host = builder.Build();
+
+    // ========================================
+    // Main Application Entry Point
+    // ========================================
+
+    Log.Information("Krutaka starting...");
+
+    var ui = host.Services.GetRequiredService<ConsoleUI>();
+    var sessionManager = host.Services.GetRequiredService<ISessionManager>();
+    var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
+
+    // Helper function to create SystemPromptBuilder using session's tool registry
+    static SystemPromptBuilder CreateSystemPromptBuilder(IToolRegistry toolRegistry, string workingDirectory, IServiceProvider serviceProvider)
+    {
         // Try to locate AGENTS.md in multiple locations
         var agentsPromptPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -208,10 +224,10 @@ try
             agentsPromptPath = "prompts/AGENTS.md"; // Let it fail with a clear error
         }
 
-        var skillRegistry = sp.GetService<ISkillRegistry>();
-        var memoryService = sp.GetService<IMemoryService>();
-        var memoryFileService = sp.GetService<MemoryFileService>();
-        var commandRiskClassifier = sp.GetService<ICommandRiskClassifier>();
+        var skillRegistry = serviceProvider.GetService<ISkillRegistry>();
+        var memoryService = serviceProvider.GetService<IMemoryService>();
+        var memoryFileService = serviceProvider.GetService<MemoryFileService>();
+        var commandRiskClassifier = serviceProvider.GetService<ICommandRiskClassifier>();
 
         Func<CancellationToken, Task<string>>? memoryFileReader = null;
         if (memoryFileService != null)
@@ -226,103 +242,103 @@ try
             memoryService,
             memoryFileReader,
             commandRiskClassifier);
-    });
+    }
 
-    // Register ContextCompactor
-    builder.Services.AddSingleton(sp =>
+    // Three-step resume pattern for disk sessions: Create with preserved ID + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory
+    // Check if there's an existing session to auto-resume from disk
+    Guid? existingSessionId = null;
+    try
     {
-        var claudeClient = sp.GetRequiredService<IClaudeClient>();
-        var auditLogger = sp.GetService<IAuditLogger>();
-        var correlationContext = sp.GetService<CorrelationContext>();
-
-        return new ContextCompactor(
-            claudeClient,
-            auditLogger: auditLogger,
-            correlationContext: correlationContext);
-    });
-
-    // Register AgentOrchestrator
-    var toolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
-    var approvalTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ApprovalTimeoutSeconds", 300);
-    var maxTokens = builder.Configuration.GetValue<int>("Claude:MaxTokens", 8192);
-    var configuredMaxToolResultChars = builder.Configuration.GetValue<int>("Agent:MaxToolResultCharacters", 0);
-    // Derive MaxToolResultCharacters from MaxTokens if not explicitly set (0 = derive).
-    // Heuristic: 1 token ≈ 4 characters, so MaxTokens × 4 gives a proportional limit.
-    // Capped at a minimum of 100,000 to ensure usability even with small MaxTokens values.
-    var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
-    var maxToolResultCharacters = configuredMaxToolResultChars > 0
-        ? configuredMaxToolResultChars
-        : (int)derivedMaxToolResultChars;
-
-    builder.Services.AddSingleton(sp =>
+        existingSessionId = SessionStore.FindMostRecentSession(workingDirectory);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
     {
-        var claudeClient = sp.GetRequiredService<IClaudeClient>();
-        var toolRegistry = sp.GetRequiredService<IToolRegistry>();
-        var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
-        var auditLogger = sp.GetRequiredService<IAuditLogger>();
-        var correlationContext = sp.GetRequiredService<CorrelationContext>();
-        var sessionAccessStore = sp.GetService<ISessionAccessStore>(); // Optional in v0.2.0
-        var contextCompactor = sp.GetService<ContextCompactor>();
-        var commandApprovalCache = sp.GetRequiredService<ICommandApprovalCache>(); // v0.3.0
+        Log.Warning(ex, "Failed to discover existing sessions, will create new session");
+    }
 
-        return new AgentOrchestrator(
-            claudeClient,
-            toolRegistry,
-            securityPolicy,
-            toolTimeoutSeconds,
-            approvalTimeoutSeconds,
-            maxToolResultCharacters,
-            sessionAccessStore,
-            auditLogger,
-            correlationContext,
-            contextCompactor,
-            commandApprovalCache);
-    });
+    ManagedSession currentSession;
+    SessionStore currentSessionStore;
+    SystemPromptBuilder systemPromptBuilder;
+    IToolRegistry sessionToolRegistry;
 
-    // Register ApprovalHandler
-    builder.Services.AddSingleton(sp =>
+    if (existingSessionId.HasValue)
     {
-        var fileOps = sp.GetRequiredService<IFileOperations>();
-        return new ApprovalHandler(workingDirectory, fileOps);
-    });
-
-    // Register ConsoleUI
-    builder.Services.AddSingleton<ConsoleUI>();
-
-    // Build the host
-    var host = builder.Build();
-
-    // ========================================
-    // Main Application Entry Point
-    // ========================================
-
-    Log.Information("Krutaka starting...");
-
-    var ui = host.Services.GetRequiredService<ConsoleUI>();
-    var orchestrator = host.Services.GetRequiredService<AgentOrchestrator>();
-    var systemPromptBuilder = host.Services.GetRequiredService<SystemPromptBuilder>();
-    var sessionStore = host.Services.GetRequiredService<SessionStore>();
-    var correlationContext = host.Services.GetRequiredService<CorrelationContext>();
-    var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
-    var correlationContextAccessor = host.Services.GetService<ICorrelationContextAccessor>();
-
-    // Auto-load previous session messages if resuming
-    if (isResumingSession)
-    {
+        // Found a persisted session on disk - create a new session with the same ID to preserve identity
+        // After a process restart, SessionManager won't have this session in its suspended map,
+        // so we use SessionFactory directly to create with the preserved ID
+        Log.Information("Found existing session {SessionId}, creating with preserved ID", existingSessionId.Value);
+        
+        var sessionRequest = new SessionRequest(
+            ProjectPath: workingDirectory,
+            MaxTokenBudget: 200_000,
+            MaxToolCallBudget: 1000);
+        
+        // Use SessionFactory directly to create with preserved session ID
+        var sessionFactory = host.Services.GetRequiredService<ISessionFactory>();
+        currentSession = sessionFactory.Create(sessionRequest, existingSessionId.Value);
+        
+        // Step 2: Load conversation history from JSONL on disk
+#pragma warning disable CA2000 // SessionStore will be disposed in shutdown section
+        currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
+#pragma warning restore CA2000
+        
         try
         {
-            var messages = await sessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
+            var messages = await currentSessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
+            
+            // Step 3: Restore history into the new orchestrator
             if (messages.Count > 0)
             {
-                orchestrator.RestoreConversationHistory(messages);
+                currentSession.Orchestrator.RestoreConversationHistory(messages);
                 AnsiConsole.MarkupLine($"[dim]✓ Resumed session with {messages.Count} messages[/]");
                 Log.Information("Auto-resumed session with {MessageCount} messages", messages.Count);
             }
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
         {
-            Log.Warning(ex, "Failed to auto-resume session, continuing with empty session");
+            Log.Warning(ex, "Failed to auto-resume session history, continuing with empty session");
         }
+    }
+    else
+    {
+        // Create new session
+        Log.Information("No previous session found, creating new session");
+        var sessionRequest = new SessionRequest(
+            ProjectPath: workingDirectory,
+            MaxTokenBudget: 200_000,
+            MaxToolCallBudget: 1000);
+        currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
+#pragma warning disable CA2000 // SessionStore will be disposed in shutdown section
+        currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
+#pragma warning restore CA2000
+        Log.Information("Created new session {SessionId}", currentSession.SessionId);
+    }
+
+    // Create SystemPromptBuilder using the session's tool registry
+    // We need to access the tool registry from the session's orchestrator
+    // Since AgentOrchestrator doesn't expose IToolRegistry, we'll need to use reflection or create it inline
+    // For now, let's extract the tool registry creation logic to a helper
+    sessionToolRegistry = CreateSessionToolRegistry(currentSession);
+    systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
+
+    // Helper to extract tool registry from session (via reflection since it's not exposed)
+    static IToolRegistry CreateSessionToolRegistry(ManagedSession session)
+    {
+        // The SessionFactory creates the tool registry and passes it to the orchestrator
+        // We need to extract it from the orchestrator using reflection
+        var orchestratorType = session.Orchestrator.GetType();
+        var toolRegistryField = orchestratorType.GetField("_toolRegistry", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (toolRegistryField != null)
+        {
+            var registry = toolRegistryField.GetValue(session.Orchestrator) as IToolRegistry;
+            if (registry != null)
+            {
+                return registry;
+            }
+        }
+        
+        // Fallback: this should never happen, but if reflection fails, throw an error
+        throw new InvalidOperationException("Unable to extract tool registry from session. This is a programming error.");
     }
 
     // Display banner
@@ -368,9 +384,11 @@ try
             }
             else if (command == "/SESSIONS")
             {
-                var sessions = SessionStore.ListSessions(workingDirectory, limit: 10);
+                // Combine active sessions from SessionManager with persisted sessions from disk
+                var activeSessions = sessionManager.ListActiveSessions();
+                var persistedSessions = SessionStore.ListSessions(workingDirectory, limit: 10);
 
-                if (sessions.Count == 0)
+                if (persistedSessions.Count == 0 && activeSessions.Count == 0)
                 {
                     AnsiConsole.MarkupLine("[yellow]No previous sessions found for this project.[/]");
                 }
@@ -385,10 +403,10 @@ try
                         .AddColumn("Messages")
                         .AddColumn("Preview");
 
-                    for (int i = 0; i < sessions.Count; i++)
+                    for (int i = 0; i < persistedSessions.Count; i++)
                     {
-                        var session = sessions[i];
-                        var isCurrent = session.SessionId == sessionId ? "[green]►[/] " : "";
+                        var session = persistedSessions[i];
+                        var isCurrent = session.SessionId == currentSession.SessionId ? "[green]►[/] " : "";
                         var shortId = session.SessionId.ToString("N")[..8]; // N format is 32 chars without hyphens
                         var preview = session.FirstUserMessage ?? "(empty)";
 
@@ -410,19 +428,26 @@ try
             }
             else if (command == "/NEW")
             {
-                // Dispose the previous session store to avoid resource leaks
-                sessionStore.Dispose();
+                // Terminate the current session and dispose resources
+                await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
+                currentSessionStore.Dispose();
 
-                // Create new session
-                sessionId = Guid.NewGuid();
-                correlationContext.ResetSession(sessionId);
-#pragma warning disable CA2000 // New SessionStore will be disposed when app exits or on next /new
-                sessionStore = new SessionStore(workingDirectory, sessionId);
+                // Create new session via SessionManager
+                var sessionRequest = new SessionRequest(
+                    ProjectPath: workingDirectory,
+                    MaxTokenBudget: 200_000,
+                    MaxToolCallBudget: 1000);
+                currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
+#pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
+                currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
 #pragma warning restore CA2000
-                orchestrator.ClearConversationHistory();
+                
+                // Recreate SystemPromptBuilder with new session's tool registry
+                sessionToolRegistry = CreateSessionToolRegistry(currentSession);
+                systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
 
                 AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
-                Log.Information("User started new session {SessionId}", sessionId);
+                Log.Information("User started new session {SessionId}", currentSession.SessionId);
                 AnsiConsole.WriteLine();
                 continue;
             }
@@ -430,15 +455,15 @@ try
             {
                 try
                 {
-                    // Reload current session from disk (useful if externally modified)
-                    var messages = await sessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
+                    // Reload current session from disk using three-step pattern
+                    var messages = await currentSessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
                     if (messages.Count == 0)
                     {
                         AnsiConsole.MarkupLine("[yellow]Current session is empty.[/]");
                     }
                     else
                     {
-                        orchestrator.RestoreConversationHistory(messages);
+                        currentSession.Orchestrator.RestoreConversationHistory(messages);
                         AnsiConsole.MarkupLine($"[green]✓ Reloaded {messages.Count} messages from disk[/]");
                         Log.Information("Session reloaded with {MessageCount} messages", messages.Count);
                     }
@@ -466,61 +491,55 @@ try
         try
         {
             // Increment turn ID for new user input
-            correlationContext.IncrementTurn();
-
-            // Set correlation context in accessor for tools to access
-            if (correlationContextAccessor != null)
-            {
-                correlationContextAccessor.Current = correlationContext;
-            }
+            currentSession.CorrelationContext.IncrementTurn();
 
             // Log user input
-            auditLogger.LogUserInput(correlationContext, input);
+            auditLogger.LogUserInput(currentSession.CorrelationContext, input);
 
             // Build system prompt
             var systemPrompt = await systemPromptBuilder.BuildAsync(input, ui.ShutdownToken).ConfigureAwait(false);
 
             // Log session event
-            await sessionStore.AppendAsync(
+            await currentSessionStore.AppendAsync(
                 new SessionEvent("user", "user", input, DateTimeOffset.UtcNow),
                 ui.ShutdownToken).ConfigureAwait(false);
 
             // Run agent orchestrator and display streaming response
             // Wrap events to persist assistant responses and tool events to session store
-            var rawEvents = orchestrator.RunAsync(input, systemPrompt, ui.ShutdownToken);
-            var events = WrapWithSessionPersistence(rawEvents, sessionStore, ui.ShutdownToken);
+            var rawEvents = currentSession.Orchestrator.RunAsync(input, systemPrompt, ui.ShutdownToken);
+            var events = WrapWithSessionPersistence(rawEvents, currentSessionStore, ui.ShutdownToken);
             await ui.DisplayStreamingResponseAsync(events,
                 onApprovalDecision: (toolUseId, approved, alwaysApprove) =>
                 {
                     if (approved)
                     {
-                        orchestrator.ApproveTool(toolUseId, alwaysApprove);
+                        currentSession.Orchestrator.ApproveTool(toolUseId, alwaysApprove);
                     }
                     else
                     {
-                        orchestrator.DenyTool(toolUseId);
+                        currentSession.Orchestrator.DenyTool(toolUseId);
                     }
                 },
                 onDirectoryAccessDecision: (approved, grantedLevel, createSessionGrant) =>
                 {
                     if (approved && grantedLevel.HasValue)
                     {
-                        orchestrator.ApproveDirectoryAccess(grantedLevel.Value, createSessionGrant);
+                        currentSession.Orchestrator.ApproveDirectoryAccess(grantedLevel.Value, createSessionGrant);
                     }
                     else
                     {
-                        orchestrator.DenyDirectoryAccess();
+                        currentSession.Orchestrator.DenyDirectoryAccess();
                     }
                 },
                 onCommandApprovalDecision: (approved, alwaysApprove) =>
                 {
                     if (approved)
                     {
-                        orchestrator.ApproveCommand(alwaysApprove);
+                        currentSession.Orchestrator.ApproveCommand(alwaysApprove);
                     }
                     else
                     {
-                        orchestrator.DenyCommand();
+                        currentSession.Orchestrator.DenyCommand();
                     }
                 },
                 cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
@@ -553,6 +572,12 @@ try
     AnsiConsole.MarkupLine("[dim]Shutting down...[/]");
 
     Log.Information("Krutaka shutting down");
+    
+    // Dispose current session store
+    currentSessionStore.Dispose();
+    
+    // Dispose session manager (terminates all active sessions)
+    await sessionManager.DisposeAsync().ConfigureAwait(false);
     
     using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
     await host.StopAsync(shutdownCts.Token).ConfigureAwait(false);

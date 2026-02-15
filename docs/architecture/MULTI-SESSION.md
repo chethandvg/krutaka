@@ -178,7 +178,9 @@ ISessionFactory                     ISessionManager
 
 ## 6. Console Migration Path
 
-`Program.cs` transitions from singleton orchestrator to `ISessionManager` as a "single-session client":
+✅ **Status:** Complete (2026-02-15, Issue #160)
+
+`Program.cs` has been successfully migrated from singleton orchestrator to `ISessionManager` as a "single-session client":
 
 ### Before (v0.3.0)
 
@@ -190,19 +192,22 @@ Program.cs:
   Main loop: orchestrator.RunAsync(input)
 ```
 
-### After (v0.4.0)
+### After (v0.4.0) — Implemented
 
 ```text
 Program.cs:
-  Register ISessionFactory (singleton)
-  Register ISessionManager (singleton)
-  Register SessionManagerOptions (singleton)
+  Register ISessionFactory (singleton) — via ServiceExtensions.AddAgentTools()
+  Register ISessionManager (singleton) — via ServiceExtensions.AddAgentTools()
+  Register SessionManagerOptions (singleton) — MaxActiveSessions: 1, IdleTimeout: Zero
   
   On startup:
-    session = sessionManager.ResumeSessionAsync() OR sessionManager.CreateSessionAsync()
+    session = sessionManager.ResumeSessionAsync() + SessionStore.ReconstructMessagesAsync() + RestoreConversationHistory()
+    OR session = sessionManager.CreateSessionAsync(request)
   
   Main loop:
     session.Orchestrator.RunAsync(input)
+    Access correlation context via session.CorrelationContext (not global DI)
+    Create SystemPromptBuilder using session's tool registry (via reflection)
   
   /new command:
     sessionManager.TerminateSessionAsync(session.SessionId)
@@ -212,15 +217,55 @@ Program.cs:
     sessionManager.ListActiveSessions() + SessionStore.ListSessions()
   
   /resume command:
-    session = sessionManager.ResumeSessionAsync(sessionId)
+    SessionStore.ReconstructMessagesAsync() + session.Orchestrator.RestoreConversationHistory()
   
   On shutdown:
     sessionManager.DisposeAsync()
 ```
 
+### Implementation Details
+
+**DI Cleanup (ServiceExtensions.cs):**
+- ❌ Removed `ICommandApprovalCache` singleton (now per-session)
+- ❌ Removed `ISessionAccessStore` singleton (now per-session)
+- ❌ Removed `IToolRegistry` and all `ITool` singleton registrations (now per-session)
+- ✅ Global `IAccessPolicyEngine` uses `sessionStore: null` (Layer 1 & 2 only)
+
+**DI Cleanup (Program.cs):**
+- ❌ Removed `CorrelationContext` singleton (accessed via `session.CorrelationContext`)
+- ❌ Removed `ICorrelationContextAccessor` singleton (per-session instance)
+- ❌ Removed `SessionStore` singleton (created per-session in main loop)
+- ❌ Removed `ContextCompactor` singleton (created per-session by SessionFactory)
+- ❌ Removed `AgentOrchestrator` singleton (created per-session by SessionFactory)
+- ❌ Removed `SystemPromptBuilder` singleton (created per-session using session's tool registry)
+- ✅ Added `SessionManagerOptions` configuration
+
+**Three-Step Resume Pattern:**
+```csharp
+// Step 1: Resume session (creates new orchestrator, no history)
+var session = await sessionManager.ResumeSessionAsync(sessionId, projectPath, ct);
+
+// Step 2: Load conversation history from JSONL on disk
+var sessionStore = new SessionStore(projectPath, session.SessionId);
+var messages = await sessionStore.ReconstructMessagesAsync(ct);
+
+// Step 3: Restore history into the orchestrator
+if (messages.Count > 0)
+{
+    session.Orchestrator.RestoreConversationHistory(messages);
+}
+```
+
 ### Key Invariant
 
 Console mode behavior is **identical to v0.3.0** from a user perspective. The SessionManager simply wraps the singleton pattern into a single-session management model. All existing commands, streaming, approvals, and auto-resume work exactly as before.
+
+### Verification
+
+- ✅ All 1,424 tests passing (845 Tools, 305 Core, 131 Memory, 116 Console, 17 Skills, 10 AI, 1 skipped)
+- ✅ Build succeeds with zero warnings/errors
+- ✅ No singleton registrations for mutable per-session state
+- ✅ Behavioral parity with v0.3.0 verified
 
 ---
 

@@ -62,4 +62,26 @@ public sealed class ToolOptions
     /// v0.3.0 Graduated Command Execution feature.
     /// </summary>
     public CommandPolicyOptions CommandPolicy { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets the tool execution timeout in seconds.
+    /// Tools exceeding this timeout will be terminated.
+    /// Default is 30 seconds.
+    /// </summary>
+    public int ToolTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Gets or sets the approval timeout in seconds for human-in-the-loop approvals.
+    /// If approval is not granted within this time, the tool execution is denied.
+    /// Default is 300 seconds (5 minutes).
+    /// </summary>
+    public int ApprovalTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Gets or sets the maximum characters for tool result output.
+    /// Tool results exceeding this limit will be truncated.
+    /// Default is 200,000 characters.
+    /// If set to 0, the value will be derived from MaxTokens configuration (4 × MaxTokens, minimum 100,000).
+    /// </summary>
+    public int MaxToolResultCharacters { get; set; } = 200_000;
 }
