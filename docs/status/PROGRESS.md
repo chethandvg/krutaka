@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-14 (v0.3.0 Release documentation complete — 1,273 tests passing)
+> **Last updated:** 2026-02-15 (v0.4.0 Core Abstractions complete — 1,332 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1619,6 +1619,23 @@ Three fundamental changes:
 - Updated Storage Layout with `.polling.lock` and multi-session support
 - Updated Threat Model with 3 new Telegram-specific threats
 - Added comprehensive Telegram Security section with 8 new immutable boundaries (S1-S8)
+
+### Core Abstractions
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-1 | Core abstractions — ISessionFactory, ISessionManager, ManagedSession, SessionRequest, SessionState, SessionBudget, SessionManagerOptions | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ 9 new types in `src/Krutaka.Core/` (all interfaces, records, enums, and classes)
+- ✅ 43 new unit tests in `tests/Krutaka.Core.Tests/` (validation, thread-safety, equality, lifecycle)
+- ✅ Zero regressions — all 1,289 existing tests pass (1 skipped), total 1,332 tests passing
+- ✅ XML documentation on all public members
+- ✅ Thread-safe SessionBudget using Interlocked operations
+- ✅ Record validation using property initializers with validation helpers
+- ✅ ManagedSession.DisposeAsync() calls AgentOrchestrator.Dispose() synchronously (as per MULTI-SESSION.md)
+- ✅ Input validation for all constructor parameters (non-negative budgets, non-negative timeouts)
+- ✅ State property with internal setter to prevent external mutation
 
 ### Next Steps
 
