@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory complete — 1,378 tests (1,377 passing, 1 skipped))
+> **Last updated:** 2026-02-15 (v0.4.0 SessionFactory with session ID override — 1,385 tests (1,384 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1684,6 +1684,27 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,358 existing tests pass, total 1,378 tests (1,377 passing, 1 skipped)
 - ✅ Per-session isolation fully verified: no state leakage between sessions
 - ✅ **Critical review fix:** Per-session `LayeredAccessPolicyEngine` created for each session, wired to session's own `InMemorySessionAccessStore`, ensuring directory grants approved during session are visible to tools and command policy (fixes interactive grant flow)
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #135 | Logical Session IDs Across Resume/Restore (ISessionFactory Overload) | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Added optional `Guid? sessionIdOverride` parameter to `ISessionFactory.Create()` method
+- ✅ Updated `SessionFactory.Create()` to use provided session ID when resuming (override ?? Guid.NewGuid())
+- ✅ Comprehensive XML documentation explaining when/why to use override (resume, external key stability, audit continuity)
+- ✅ Backward compatible — existing Create() calls without override continue to work
+- ✅ 7 new tests in `tests/Krutaka.Core.Tests/SessionFactoryTests.cs`:
+  - Using provided session ID override
+  - Generating new GUID when override is null
+  - Preserving session ID in CorrelationContext
+  - Resume scenario with external key mapping preservation
+  - Per-session component isolation even with same session ID
+  - Backward compatibility with existing calls
+- ✅ Zero regressions — all 1,378 existing tests pass, total 1,385 tests (1,384 passing, 1 skipped)
+- ✅ Code review passed with 0 comments
+- ✅ CodeQL security scan passed with 0 alerts
+- ✅ Ready for `SessionManager.ResumeSessionAsync()` implementation (issue #133)
 
 ### Next Steps
 
