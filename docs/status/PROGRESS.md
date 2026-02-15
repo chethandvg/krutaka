@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionManager complete — 1,395 tests (1,394 passing, 1 skipped))
+> **Last updated:** 2026-02-15 (v0.4.0 SessionManager complete with review fixes — 1,399 tests (1,398 passing, 1 skipped))
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1692,18 +1692,20 @@ Three fundamental changes:
 - ✅ Concurrent session storage using `ConcurrentDictionary<Guid, ManagedSession>` for thread-safe access
 - ✅ External key mapping via `ConcurrentDictionary<string, Guid>` for Telegram chatId → session lookups
 - ✅ Suspended session tracking via `ConcurrentDictionary<Guid, SuspendedSessionInfo>` (orchestrator disposed, JSONL preserved)
-- ✅ Per-user session tracking via `ConcurrentDictionary<string, HashSet<Guid>>` for per-user limits enforcement
+- ✅ Per-user session tracking via `ConcurrentDictionary<string, ConcurrentBag<Guid>>` for thread-safe per-user limits enforcement
 - ✅ Session-to-user mapping via `ConcurrentDictionary<Guid, string>` for cleanup on termination
 - ✅ Global token budget tracking with hourly reset (lock-protected counter)
 - ✅ Idle detection timer using `PeriodicTimer` running background task
+- ✅ `SemaphoreSlim _creationLock` to prevent race conditions during session creation
 - ✅ `CreateSessionAsync` implementation:
+  - Protected by `_creationLock` to prevent race conditions in validation and creation
   - Validates global token budget, throws if exhausted
   - Validates per-user session limits (`MaxSessionsPerUser`), throws if exceeded
   - Applies eviction strategy when `MaxActiveSessions` reached
   - Creates session via `ISessionFactory.Create()`
   - Stores in active sessions dictionary with GUID uniqueness check
   - Maps external key if provided
-  - Tracks user sessions for per-user limit enforcement
+  - Tracks user sessions using thread-safe `ConcurrentBag<Guid>`
 - ✅ `GetSession` returns existing session or null
 - ✅ `GetOrCreateByKeyAsync` idempotent session creation:
   - Returns existing session if external key found
@@ -1721,9 +1723,9 @@ Three fundamental changes:
 - ✅ `TerminateSessionAsync` implementation:
   - Removes from active sessions
   - Removes external key mapping
-  - Removes from user session tracking
+  - Removes from user session tracking (thread-safe via `RemoveSessionFromUserTracking()`)
   - Calls `ManagedSession.DisposeAsync()`
-  - Removes from suspended sessions if found
+  - Removes from suspended sessions if found (with user tracking cleanup)
 - ✅ `TerminateAllAsync` disposes all sessions, clears all dictionaries
 - ✅ `ListActiveSessions` returns `SessionSummary` list for both active and suspended sessions
 - ✅ `DisposeAsync` implementation:
@@ -1731,27 +1733,36 @@ Three fundamental changes:
   - Disposes `PeriodicTimer`
   - Awaits idle detection task completion
   - Calls `TerminateAllAsync()` to dispose all sessions
-  - Disposes `CancellationTokenSource`
-- ✅ Background idle detection task:
+  - Disposes `CancellationTokenSource` and `SemaphoreSlim`
+- ✅ Background idle detection task with grace period:
   - Runs on `PeriodicTimer` with configured `IdleTimeout`
   - Transitions `Active` sessions to `Idle` state after timeout
-  - Suspends `Idle` sessions (disposes orchestrator, preserves JSONL)
+  - Suspends `Idle` sessions after 2x `IdleTimeout` (grace period for user activity)
   - Removes expired suspended sessions after `SuspendedTtl`
+- ✅ Suspension implementation:
+  - Captures `UserId` from `_sessionToUser` mapping before disposal
+  - Stores `UserId` in `SuspendedSessionInfo` for proper limit tracking
+  - Suspended sessions count against user limits (prevents abuse)
+  - Disposes orchestrator (frees memory, preserves JSONL)
 - ✅ Eviction strategies:
   - `SuspendOldestIdle`: Suspends session with oldest `LastActivity` (prefers idle, falls back to active)
   - `RejectNew`: Throws exception when capacity reached
   - `TerminateOldest`: Terminates oldest session entirely
 - ✅ `ManagedSession.TransitionToIdle()` method added (public) for state management from SessionManager
-- ✅ `RecordTokenUsage()` method for global token budget tracking
+- ✅ `RecordTokenUsage()` method for global token budget tracking (added to `ISessionManager` interface)
+- ✅ Helper methods for thread safety:
+  - `CountSessionsForUser()` counts sessions from `_sessionToUser` mapping (includes active + suspended)
+  - `RemoveSessionFromUserTracking()` safely rebuilds `ConcurrentBag` without removed session
 - ✅ DI registration in `ServiceExtensions.AddAgentTools()` as singleton
-- ✅ 17 comprehensive tests in `tests/Krutaka.Tools.Tests/SessionManagerTests.cs`:
+- ✅ 21 comprehensive tests in `tests/Krutaka.Tools.Tests/SessionManagerTests.cs`:
   - CreateSessionAsync creates and stores session
   - GetSession returns existing session or null
   - GetOrCreateByKeyAsync idempotent creation (same key returns same session)
   - GetOrCreateByKeyAsync different keys create different sessions
   - MaxActiveSessions enforcement with RejectNew strategy
-  - Eviction with SuspendOldestIdle strategy
+  - Eviction with SuspendOldestIdle strategy (proper eviction test, not idle timer)
   - MaxSessionsPerUser enforcement
+  - User session cleanup after termination (verifies limit freed)
   - TerminateSessionAsync disposes and removes from dictionaries
   - TerminateSessionAsync removes external key mapping
   - TerminateAllAsync disposes all sessions
@@ -1760,11 +1771,15 @@ Three fundamental changes:
   - DisposeAsync cancels idle detection timer
   - RecordTokenUsage tracks global tokens
   - Global token budget exhaustion throws exception
-- ✅ Zero regressions — all 1,378 existing tests pass, total **1,395 tests (1,394 passing, 1 skipped)**
-- ✅ Thread-safe concurrent access verified via parallel test
-- ✅ Proper resource cleanup on dispose (timer, sessions, dictionaries)
-- ✅ Idle/suspension lifecycle fully implemented and tested
-- ✅ Per-user limits and global token budget enforcement verified
+  - ResumeSessionAsync error handling (session not found, path validation)
+  - ResumeSessionAsync idempotency (returns active session)
+  - ResumeSessionAsync with conversation history reconstruction
+- ✅ Zero regressions — all 1,378 existing tests pass, total **1,399 tests (1,398 passing, 1 skipped)**
+- ✅ Thread-safe concurrent access verified via parallel test and semaphore protection
+- ✅ Proper resource cleanup on dispose (timer, semaphore, sessions, dictionaries)
+- ✅ Idle/suspension lifecycle fully implemented with grace period
+- ✅ Per-user limits count both active and suspended sessions
+- ✅ All code review issues addressed in commit 708d68d
 
 ### Next Steps
 
