@@ -16,6 +16,38 @@ public class SessionBudgetTests
     }
 
     [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenMaxTokensIsZero()
+    {
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new SessionBudget(0, 50));
+        exception.ParamName.Should().Be("maxTokens");
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenMaxTokensIsNegative()
+    {
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new SessionBudget(-1, 50));
+        exception.ParamName.Should().Be("maxTokens");
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenMaxToolCallsIsZero()
+    {
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new SessionBudget(100_000, 0));
+        exception.ParamName.Should().Be("maxToolCalls");
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenMaxToolCallsIsNegative()
+    {
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => new SessionBudget(100_000, -1));
+        exception.ParamName.Should().Be("maxToolCalls");
+    }
+
+    [Fact]
     public void InitialState_Should_HaveZeroUsage()
     {
         // Act
@@ -131,6 +163,31 @@ public class SessionBudgetTests
 
         // Assert
         budget.TokensUsed.Should().Be(3500);
+    }
+
+    [Fact]
+    public void AddTokens_Should_ThrowArgumentOutOfRangeException_WhenCountIsNegative()
+    {
+        // Arrange
+        var budget = new SessionBudget(100_000, 50);
+
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => budget.AddTokens(-100));
+        exception.ParamName.Should().Be("count");
+    }
+
+    [Fact]
+    public void AddTokens_Should_DoNothing_WhenCountIsZero()
+    {
+        // Arrange
+        var budget = new SessionBudget(100_000, 50);
+        budget.AddTokens(1000);
+
+        // Act
+        budget.AddTokens(0);
+
+        // Assert
+        budget.TokensUsed.Should().Be(1000); // Unchanged
     }
 
     [Fact]

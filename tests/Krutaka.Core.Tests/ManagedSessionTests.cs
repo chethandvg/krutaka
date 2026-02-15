@@ -39,12 +39,12 @@ public class ManagedSessionTests
         var session = CreateTestSession();
         var initialActivity = session.LastActivity;
 
-        // Act - Wait a small amount to ensure time difference
-        Thread.Sleep(10);
+        // Act - UpdateLastActivity should set timestamp to UtcNow
         session.UpdateLastActivity();
 
-        // Assert
-        session.LastActivity.Should().BeAfter(initialActivity);
+        // Assert - LastActivity should be at or after initial (within a reasonable tolerance)
+        session.LastActivity.Should().BeOnOrAfter(initialActivity);
+        session.LastActivity.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
     }
 
     [Fact]

@@ -33,9 +33,9 @@ public sealed class ManagedSession : IAsyncDisposable
     public DateTimeOffset LastActivity { get; private set; }
 
     /// <summary>
-    /// Gets or sets the current session state.
+    /// Gets the current session state.
     /// </summary>
-    public SessionState State { get; set; }
+    public SessionState State { get; internal set; }
 
     /// <summary>
     /// Gets the per-session agent orchestrator responsible for the agentic loop.
@@ -100,11 +100,11 @@ public sealed class ManagedSession : IAsyncDisposable
     /// Disposes the session, releasing all resources and transitioning to Terminated state.
     /// Calls Orchestrator.Dispose() synchronously since AgentOrchestrator implements IDisposable (not IAsyncDisposable).
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         if (_disposed)
         {
-            return;
+            return default;
         }
 
         State = SessionState.Terminated;
@@ -115,7 +115,6 @@ public sealed class ManagedSession : IAsyncDisposable
 
         _disposed = true;
 
-        // Placeholder for any future async cleanup
-        await Task.CompletedTask.ConfigureAwait(false);
+        return default;
     }
 }

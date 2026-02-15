@@ -1630,12 +1630,12 @@ Three fundamental changes:
 - ✅ 9 new types in `src/Krutaka.Core/` (all interfaces, records, enums, and classes)
 - ✅ 43 new unit tests in `tests/Krutaka.Core.Tests/` (validation, thread-safety, equality, lifecycle)
 - ✅ Zero regressions — all 1,289 existing tests pass (1 skipped), total 1,332 tests passing
-- ✅ Code review passed with zero comments
-- ✅ CodeQL security scan passed with zero alerts
 - ✅ XML documentation on all public members
 - ✅ Thread-safe SessionBudget using Interlocked operations
 - ✅ Record validation using property initializers with validation helpers
 - ✅ ManagedSession.DisposeAsync() calls AgentOrchestrator.Dispose() synchronously (as per MULTI-SESSION.md)
+- ✅ Input validation for all constructor parameters (non-negative budgets, non-negative timeouts)
+- ✅ State property with internal setter to prevent external mutation
 
 ### Next Steps
 

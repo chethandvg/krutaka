@@ -43,10 +43,14 @@ public sealed class SessionBudget
     /// <summary>
     /// Initializes a new instance of the <see cref="SessionBudget"/> class.
     /// </summary>
-    /// <param name="maxTokens">Maximum tokens allowed for the session.</param>
-    /// <param name="maxToolCalls">Maximum tool calls allowed for the session.</param>
+    /// <param name="maxTokens">Maximum tokens allowed for the session. Must be greater than zero.</param>
+    /// <param name="maxToolCalls">Maximum tool calls allowed for the session. Must be greater than zero.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when maxTokens or maxToolCalls is less than or equal to zero.</exception>
     public SessionBudget(int maxTokens, int maxToolCalls)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxTokens);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxToolCalls);
+
         MaxTokens = maxTokens;
         MaxToolCalls = maxToolCalls;
     }
@@ -62,9 +66,17 @@ public sealed class SessionBudget
     /// <summary>
     /// Adds the specified number of tokens to the usage counter using atomic operations.
     /// </summary>
-    /// <param name="count">Number of tokens to add.</param>
+    /// <param name="count">Number of tokens to add. Must be non-negative.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when count is negative.</exception>
     public void AddTokens(int count)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+
+        if (count == 0)
+        {
+            return;
+        }
+
         Interlocked.Add(ref _tokensUsed, count);
     }
 

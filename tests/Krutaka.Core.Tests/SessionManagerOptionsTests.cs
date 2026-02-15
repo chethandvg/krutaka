@@ -81,4 +81,42 @@ public class SessionManagerOptionsTests
         // Assert
         options.SuspendedTtlValue.Should().Be(TimeSpan.FromHours(24));
     }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenIdleTimeoutIsNegative()
+    {
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SessionManagerOptions(IdleTimeout: TimeSpan.FromMinutes(-1)));
+        exception.ParamName.Should().Be(nameof(SessionManagerOptions.IdleTimeout));
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenSuspendedTtlIsNegative()
+    {
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new SessionManagerOptions(SuspendedTtl: TimeSpan.FromHours(-1)));
+        exception.ParamName.Should().Be(nameof(SessionManagerOptions.SuspendedTtl));
+    }
+
+    [Fact]
+    public void Constructor_Should_AcceptZeroIdleTimeout()
+    {
+        // Act
+        var options = new SessionManagerOptions(IdleTimeout: TimeSpan.Zero);
+
+        // Assert
+        options.IdleTimeoutValue.Should().Be(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public void Constructor_Should_AcceptZeroSuspendedTtl()
+    {
+        // Act
+        var options = new SessionManagerOptions(SuspendedTtl: TimeSpan.Zero);
+
+        // Assert
+        options.SuspendedTtlValue.Should().Be(TimeSpan.Zero);
+    }
 }

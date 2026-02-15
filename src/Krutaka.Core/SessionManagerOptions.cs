@@ -30,6 +30,18 @@ public record SessionManagerOptions(
     public int MaxSessionsPerUser { get; init; } = ValidateMaxSessionsPerUser(MaxSessionsPerUser);
 
     /// <summary>
+    /// Gets the validated idle timeout. Stored as validated value for eager validation.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when IdleTimeout is negative during construction.</exception>
+    public TimeSpan? IdleTimeout { get; init; } = ValidateTimeSpan(IdleTimeout, nameof(IdleTimeout));
+
+    /// <summary>
+    /// Gets the validated suspended session TTL. Stored as validated value for eager validation.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when SuspendedTtl is negative during construction.</exception>
+    public TimeSpan? SuspendedTtl { get; init; } = ValidateTimeSpan(SuspendedTtl, nameof(SuspendedTtl));
+
+    /// <summary>
     /// Gets the idle timeout duration. Defaults to 15 minutes if not specified.
     /// </summary>
     public TimeSpan IdleTimeoutValue => IdleTimeout ?? TimeSpan.FromMinutes(15);
@@ -49,5 +61,15 @@ public record SessionManagerOptions(
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxSessionsPerUser);
         return maxSessionsPerUser;
+    }
+
+    private static TimeSpan? ValidateTimeSpan(TimeSpan? value, string paramName)
+    {
+        if (value.HasValue)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value.Value, TimeSpan.Zero, paramName);
+        }
+
+        return value;
     }
 }
