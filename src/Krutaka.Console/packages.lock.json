@@ -536,6 +536,7 @@
         "dependencies": {
           "CliWrap": "[3.6.7, )",
           "Krutaka.Core": "[0.3.0, )",
+          "Krutaka.Memory": "[0.3.0, )",
           "Meziantou.Framework.Win32.Jobs": "[3.4.10, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )",

@@ -557,7 +557,7 @@
         "type": "Project",
         "dependencies": {
           "Anthropic": "[12.4.0, )",
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Extensions.AI": "[10.0.0, )",
           "Microsoft.Extensions.Configuration.Abstractions": "[10.0.2, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
@@ -568,11 +568,11 @@
       "krutaka.console": {
         "type": "Project",
         "dependencies": {
-          "Krutaka.AI": "[1.0.0, )",
-          "Krutaka.Core": "[1.0.0, )",
-          "Krutaka.Memory": "[1.0.0, )",
-          "Krutaka.Skills": "[1.0.0, )",
-          "Krutaka.Tools": "[1.0.0, )",
+          "Krutaka.AI": "[0.3.0, )",
+          "Krutaka.Core": "[0.3.0, )",
+          "Krutaka.Memory": "[0.3.0, )",
+          "Krutaka.Skills": "[0.3.0, )",
+          "Krutaka.Tools": "[0.3.0, )",
           "Markdig": "[0.40.0, )",
           "Meziantou.Framework.Win32.CredentialManager": "[1.7.17, )",
           "Microsoft.Extensions.Configuration": "[10.0.2, )",
@@ -591,7 +591,7 @@
       "krutaka.memory": {
         "type": "Project",
         "dependencies": {
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Data.Sqlite": "[10.0.1, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )"
         }
@@ -599,7 +599,7 @@
       "krutaka.skills": {
         "type": "Project",
         "dependencies": {
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "YamlDotNet": "[16.3.0, )"
         }
@@ -608,7 +608,8 @@
         "type": "Project",
         "dependencies": {
           "CliWrap": "[3.6.7, )",
-          "Krutaka.Core": "[1.0.0, )",
+          "Krutaka.Core": "[0.3.0, )",
+          "Krutaka.Memory": "[0.3.0, )",
           "Meziantou.Framework.Win32.Jobs": "[3.4.10, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )",
