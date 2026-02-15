@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 Core Abstractions complete — 1,332 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 CorrelationContext agent identity fields complete — 1,357 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1636,6 +1636,21 @@ Three fundamental changes:
 - ✅ ManagedSession.DisposeAsync() calls AgentOrchestrator.Dispose() synchronously (as per MULTI-SESSION.md)
 - ✅ Input validation for all constructor parameters (non-negative budgets, non-negative timeouts)
 - ✅ State property with internal setter to prevent external mutation
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-4 | CorrelationContext agent identity fields (AgentId, ParentAgentId, AgentRole) | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ 3 new nullable properties in `CorrelationContext`: `AgentId`, `ParentAgentId`, `AgentRole` (all default null)
+- ✅ `SetAgentContext(Guid agentId, Guid? parentAgentId, string role)` method with role validation
+- ✅ `ResetSession()` updated to clear agent context fields
+- ✅ 3 new properties in `AuditEvent` base class for agent context propagation
+- ✅ `AuditLogger` updated to conditionally include agent fields when `AgentId` is non-null
+- ✅ 16 new tests (9 in CorrelationContext, 7 in AuditLogger)
+- ✅ Zero regressions — all 1,332 existing tests pass, total 1,358 tests (1,357 passing, 1 skipped)
+- ✅ Full backward compatibility — audit log format unchanged when `AgentId` is null
+- ✅ No IAuditLogger interface signature changes
 
 ### Next Steps
 
