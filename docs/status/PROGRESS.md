@@ -1690,20 +1690,19 @@ Three fundamental changes:
 | #135 | Logical Session IDs Across Resume/Restore (ISessionFactory Overload) | Architecture | 🟢 Complete | 2026-02-15 |
 
 **Implementation details:**
-- ✅ Added optional `Guid? sessionIdOverride` parameter to `ISessionFactory.Create()` method
-- ✅ Updated `SessionFactory.Create()` to use provided session ID when resuming (override ?? Guid.NewGuid())
-- ✅ Comprehensive XML documentation explaining when/why to use override (resume, external key stability, audit continuity)
-- ✅ Backward compatible — existing Create() calls without override continue to work
-- ✅ 7 new tests in `tests/Krutaka.Core.Tests/SessionFactoryTests.cs`:
-  - Using provided session ID override
-  - Generating new GUID when override is null
+- ✅ Added overload `Create(SessionRequest, Guid)` to `ISessionFactory` for binary compatibility
+- ✅ Updated `SessionFactory` with two public methods: `Create(request)` and `Create(request, sessionId)`
+- ✅ Validates session ID is not `Guid.Empty` to prevent ID collisions
+- ✅ Comprehensive XML documentation explaining when/why to use overload (resume, external key stability, audit continuity)
+- ✅ Backward compatible — existing `Create(request)` calls continue to work unchanged
+- ✅ Tests updated in `tests/Krutaka.Core.Tests/SessionFactoryTests.cs`:
+  - Using provided session ID with overload
+  - Generating new GUID with parameterless overload
   - Preserving session ID in CorrelationContext
   - Resume scenario with external key mapping preservation
   - Per-session component isolation even with same session ID
   - Backward compatibility with existing calls
-- ✅ Zero regressions — all 1,378 existing tests pass, total 1,385 tests (1,384 passing, 1 skipped)
-- ✅ Code review passed with 0 comments
-- ✅ CodeQL security scan passed with 0 alerts
+  - Validation rejection of Guid.Empty
 - ✅ Ready for `SessionManager.ResumeSessionAsync()` implementation (issue #133)
 
 ### Next Steps

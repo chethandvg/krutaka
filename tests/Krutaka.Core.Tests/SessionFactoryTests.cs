@@ -427,21 +427,6 @@ public sealed class SessionFactoryTests
     }
 
     [Fact]
-    public async Task Create_Should_GenerateNewGuidWhenSessionIdOverrideIsNull()
-    {
-        // Arrange
-        var factory = CreateSessionFactory();
-        var request = new SessionRequest("/tmp/test-sessions/project");
-
-        // Act
-        await using var session = factory.Create(request, sessionIdOverride: null);
-
-        // Assert
-        session.SessionId.Should().NotBeEmpty();
-        session.CorrelationContext.SessionId.Should().Be(session.SessionId);
-    }
-
-    [Fact]
     public async Task Create_Should_GenerateUniqueGuidsForMultipleCallsWithoutOverride()
     {
         // Arrange
@@ -538,6 +523,20 @@ public sealed class SessionFactoryTests
         // Assert - Existing behavior preserved
         session.SessionId.Should().NotBeEmpty();
         session.CorrelationContext.SessionId.Should().Be(session.SessionId);
+    }
+
+    [Fact]
+    public void Create_Should_ThrowArgumentException_WhenSessionIdOverrideIsGuidEmpty()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        var request = new SessionRequest("/tmp/test-sessions/project");
+
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentException>(() => factory.Create(request, Guid.Empty));
+        exception.ParamName.Should().Be("sessionId");
+        exception.Message.Should().Contain("Session ID cannot be Guid.Empty");
+        exception.Message.Should().Contain("A valid non-empty GUID is required for session identity");
     }
 
     /// <summary>
