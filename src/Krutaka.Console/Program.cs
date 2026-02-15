@@ -124,6 +124,24 @@ try
 
         // Override DefaultWorkingDirectory from Agent section for backward compatibility
         options.DefaultWorkingDirectory = workingDirectory;
+        
+        // Read orchestrator configuration from Agent section (v0.4.0: preserve user configuration)
+        options.ToolTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ToolTimeoutSeconds", 30);
+        options.ApprovalTimeoutSeconds = builder.Configuration.GetValue<int>("Agent:ApprovalTimeoutSeconds", 300);
+        
+        // Read MaxToolResultCharacters with derivation logic if not explicitly set
+        var maxTokens = builder.Configuration.GetValue<int>("Claude:MaxTokens", 8192);
+        var configuredMaxToolResultChars = builder.Configuration.GetValue<int>("Agent:MaxToolResultCharacters", 0);
+        if (configuredMaxToolResultChars > 0)
+        {
+            options.MaxToolResultCharacters = configuredMaxToolResultChars;
+        }
+        else
+        {
+            // Derive from MaxTokens: 1 token ≈ 4 characters, minimum 100,000
+            var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
+            options.MaxToolResultCharacters = (int)derivedMaxToolResultChars;
+        }
     });
 
     // Register Memory services
@@ -226,8 +244,8 @@ try
             commandRiskClassifier);
     }
 
-    // Three-step resume pattern: ResumeSessionAsync + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory
-    // Check if there's an existing session to auto-resume
+    // Three-step resume pattern for disk sessions: Create with preserved ID + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory
+    // Check if there's an existing session to auto-resume from disk
     Guid? existingSessionId = null;
     try
     {
@@ -245,9 +263,19 @@ try
 
     if (existingSessionId.HasValue)
     {
-        // Step 1: Resume the session (creates new orchestrator, no history)
-        Log.Information("Found existing session {SessionId}, will auto-resume", existingSessionId.Value);
-        currentSession = await sessionManager.ResumeSessionAsync(existingSessionId.Value, workingDirectory, ui.ShutdownToken).ConfigureAwait(false);
+        // Found a persisted session on disk - create a new session with the same ID to preserve identity
+        // After a process restart, SessionManager won't have this session in its suspended map,
+        // so we use SessionFactory directly to create with the preserved ID
+        Log.Information("Found existing session {SessionId}, creating with preserved ID", existingSessionId.Value);
+        
+        var sessionRequest = new SessionRequest(
+            ProjectPath: workingDirectory,
+            MaxTokenBudget: 200_000,
+            MaxToolCallBudget: 1000);
+        
+        // Use SessionFactory directly to create with preserved session ID
+        var sessionFactory = host.Services.GetRequiredService<ISessionFactory>();
+        currentSession = sessionFactory.Create(sessionRequest, existingSessionId.Value);
         
         // Step 2: Load conversation history from JSONL on disk
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section
@@ -268,7 +296,7 @@ try
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
         {
-            Log.Warning(ex, "Failed to auto-resume session, continuing with empty session");
+            Log.Warning(ex, "Failed to auto-resume session history, continuing with empty session");
         }
     }
     else
