@@ -68,9 +68,8 @@ public static class ServiceExtensions
         // Register options as singleton
         services.AddSingleton(options);
 
-        // Register command approval cache (singleton - v0.3.0)
-        // This is shared between AgentOrchestrator and RunCommandTool to track approved commands during retry
-        services.AddSingleton<ICommandApprovalCache, CommandApprovalCache>();
+        // Note: ICommandApprovalCache is created per-session by SessionFactory (not registered globally)
+        // v0.4.0: Per-session components are created by SessionFactory, not by global DI
 
         // Register file operations service (singleton - will be resolved with IAuditLogger if available)
         services.AddSingleton<IFileOperations>(sp =>
@@ -94,24 +93,21 @@ public static class ServiceExtensions
             return new CommandPolicy(fileOperations, auditLogger, additionalExecutables);
         });
 
-        // Register session access store (singleton - application-wide lifetime)
-        // Note: Although conceptually "per-session", the application doesn't create service scopes,
-        // so this is functionally singleton. The store persists for the application lifetime.
-        services.AddSingleton<ISessionAccessStore>(sp =>
-        {
-            return new InMemorySessionAccessStore(options.MaxConcurrentGrants);
-        });
+        // Note: ISessionAccessStore is created per-session by SessionFactory (not registered globally)
+        // v0.4.0: Per-session components are created by SessionFactory, not by global DI
 
         // Register access policy engine (singleton - v0.2.0 dynamic directory scoping)
+        // Note: This is the global shared policy engine. SessionFactory creates per-session instances
+        // that wrap per-session ISessionAccessStore for session-specific directory grants.
         services.AddSingleton<IAccessPolicyEngine>(sp =>
         {
             var fileOperations = sp.GetRequiredService<IFileOperations>();
-            var sessionStore = sp.GetService<ISessionAccessStore>();
+            // Global policy engine without session store (Layer 1 & 2 only: hard deny + auto-grant)
             return new LayeredAccessPolicyEngine(
                 fileOperations,
                 options.CeilingDirectory,
                 options.AutoGrantPatterns,
-                sessionStore);
+                sessionStore: null); // No session store for global policy engine
         });
 
         // Register command risk classifier (singleton - v0.3.0 graduated command execution)
@@ -130,74 +126,9 @@ public static class ServiceExtensions
             return new GraduatedCommandPolicy(classifier, securityPolicy, policyEngine, auditLogger, options.CommandPolicy);
         });
 
-        // Register tool registry (singleton - holds registered tools)
-        var registry = new ToolRegistry();
-
-        // Get default working directory from options (v0.2.0 - used as fallback when policy engine is null)
-        var defaultWorkingDir = options.DefaultWorkingDirectory;
-
-        // Register and add all tool implementations using factories to resolve dependencies
-        // v0.2.0: Tools now receive IAccessPolicyEngine for dynamic directory scoping
-        // Read-only tools (auto-approve)
-        services.AddSingleton<ITool>(sp =>
-        {
-            var fileOperations = sp.GetRequiredService<IFileOperations>();
-            var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new ReadFileTool(defaultWorkingDir, fileOperations, policyEngine);
-        });
-
-        services.AddSingleton<ITool>(sp =>
-        {
-            var fileOperations = sp.GetRequiredService<IFileOperations>();
-            var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new ListFilesTool(defaultWorkingDir, fileOperations, policyEngine);
-        });
-
-        services.AddSingleton<ITool>(sp =>
-        {
-            var fileOperations = sp.GetRequiredService<IFileOperations>();
-            var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new SearchFilesTool(defaultWorkingDir, fileOperations, policyEngine);
-        });
-
-        // Write tools (require approval)
-        services.AddSingleton<ITool>(sp =>
-        {
-            var fileOperations = sp.GetRequiredService<IFileOperations>();
-            var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new WriteFileTool(defaultWorkingDir, fileOperations, policyEngine);
-        });
-
-        services.AddSingleton<ITool>(sp =>
-        {
-            var fileOperations = sp.GetRequiredService<IFileOperations>();
-            var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            return new EditFileTool(defaultWorkingDir, fileOperations, policyEngine);
-        });
-
-        // Command execution tool (v0.3.0: approval now determined by ICommandPolicy)
-        services.AddSingleton<ITool>(sp =>
-        {
-            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
-            var policyEngine = sp.GetService<IAccessPolicyEngine>();
-            var commandPolicy = sp.GetRequiredService<ICommandPolicy>();
-            var approvalCache = sp.GetRequiredService<ICommandApprovalCache>();
-            var correlationContextAccessor = sp.GetService<ICorrelationContextAccessor>();
-            return new RunCommandTool(defaultWorkingDir, securityPolicy, options.CommandTimeoutSeconds, policyEngine, commandPolicy, approvalCache, correlationContextAccessor);
-        });
-
-        // Register the tool registry with a factory that resolves and registers all tools
-        // Tools are added to the registry when IToolRegistry is first resolved from the DI container
-        services.AddSingleton<IToolRegistry>(sp =>
-        {
-            var tools = sp.GetServices<ITool>();
-            foreach (var tool in tools)
-            {
-                registry.Register(tool);
-            }
-
-            return registry;
-        });
+        // Note: IToolRegistry and ITool instances are created per-session by SessionFactory (not registered globally)
+        // v0.4.0: Per-session tool registries with tools scoped to ProjectPath are created by SessionFactory.CreateSessionToolRegistry()
+        // SystemPromptBuilder will use the tool registry from the active session, not from global DI.
 
         // Register session factory (singleton) for v0.4.0 multi-session support
         services.AddSingleton<ISessionFactory, SessionFactory>();
