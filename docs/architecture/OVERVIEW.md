@@ -731,12 +731,13 @@ All audit events include three correlation IDs for request tracing:
 | `ToolExecutionEvent` | Tool execution completes | ToolName, Approved, AlwaysApprove, DurationMs, ResultLength, Error |
 | `CompactionEvent` | Context compaction occurs | BeforeTokenCount, AfterTokenCount, MessagesRemoved |
 | `SecurityViolationEvent` | Security policy violation | ViolationType, BlockedValue, Context |
-| `TelegramAuthEvent` | **[v0.4.0]** Telegram auth check | TelegramUserId, ChatId, Outcome, UpdateId |
-| `TelegramMessageEvent` | **[v0.4.0]** Telegram message received | Command, MessageLength, SessionId |
-| `TelegramApprovalEvent` | **[v0.4.0]** Telegram approval decision | ToolName, Approved, SessionId |
-| `TelegramSessionEvent` | **[v0.4.0]** Session lifecycle change | SessionId, EventType |
-| `TelegramRateLimitEvent` | **[v0.4.0]** Rate limit triggered | CommandCount, LimitPerMinute |
-| `TelegramSecurityIncidentEvent` | **[v0.4.0]** Security incident | IncidentType, Details |
+| `CommandClassificationEvent` | **[v0.3.0]** Command classification | Executable, Arguments, Tier, AutoApproved, TrustedDirectory, Reason |
+| `TelegramAuthEvent` | **[v0.4.0]** Telegram auth check | TelegramUserId, TelegramChatId, Outcome (enum), DeniedReason, UpdateId |
+| `TelegramMessageEvent` | **[v0.4.0]** Telegram message received | TelegramUserId, TelegramChatId, Command, MessageLength (NOT content) |
+| `TelegramApprovalEvent` | **[v0.4.0]** Telegram approval decision | TelegramUserId, TelegramChatId, ToolName, ToolUseId, Approved |
+| `TelegramSessionEvent` | **[v0.4.0]** Session lifecycle change | TelegramChatId, SessionId, EventType (enum), UserId |
+| `TelegramRateLimitEvent` | **[v0.4.0]** Rate limit triggered | TelegramUserId, CommandCount, LimitPerMinute, WindowDuration |
+| `TelegramSecurityIncidentEvent` | **[v0.4.0]** Security incident | TelegramUserId (nullable), Type (enum), Details |
 
 #### Log Configuration
 
@@ -758,9 +759,9 @@ Audit logging is integrated at the following points:
 
 #### Testing
 
-- **AuditLogger**: 13 unit tests covering all event types and serialization
+- **AuditLogger**: 40 unit tests covering all event types (including 14 Telegram-specific tests)
 - **CorrelationContext**: 9 unit tests covering session/turn/request tracking
-- All 22 tests passing
+- All 49 audit-related tests passing
 
 ## Project Dependency Graph
 

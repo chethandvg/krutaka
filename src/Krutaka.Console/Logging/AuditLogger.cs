@@ -262,6 +262,195 @@ internal sealed class AuditLogger : IAuditLogger
         WriteAuditLog(logLevel, eventType.Name, @event, eventDataJson);
     }
 
+    /// <inheritdoc />
+    public void LogTelegramAuth(CorrelationContext correlationContext, TelegramAuthEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var @event = new TelegramAuthEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
+            TelegramUserId = evt.TelegramUserId,
+            TelegramChatId = evt.TelegramChatId,
+            Outcome = evt.Outcome,
+            DeniedReason = evt.DeniedReason,
+            UpdateId = evt.UpdateId
+        };
+
+        // Build EventData dictionary with string enum serialization
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        WriteAuditLog(LogEventLevel.Information, eventType.Name, @event, eventDataJson);
+    }
+
+    /// <inheritdoc />
+    public void LogTelegramMessage(CorrelationContext correlationContext, TelegramMessageEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var @event = new TelegramMessageEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
+            TelegramUserId = evt.TelegramUserId,
+            TelegramChatId = evt.TelegramChatId,
+            Command = evt.Command,
+            MessageLength = evt.MessageLength
+        };
+
+        Log(@event);
+    }
+
+    /// <inheritdoc />
+    public void LogTelegramApproval(CorrelationContext correlationContext, TelegramApprovalEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var @event = new TelegramApprovalEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
+            TelegramUserId = evt.TelegramUserId,
+            TelegramChatId = evt.TelegramChatId,
+            ToolName = evt.ToolName,
+            ToolUseId = evt.ToolUseId,
+            Approved = evt.Approved
+        };
+
+        Log(@event);
+    }
+
+    /// <inheritdoc />
+    public void LogTelegramSession(CorrelationContext correlationContext, TelegramSessionEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var @event = new TelegramSessionEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
+            TelegramChatId = evt.TelegramChatId,
+            EventType = evt.EventType,
+            UserId = evt.UserId
+        };
+
+        // Build EventData dictionary with string enum serialization
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        WriteAuditLog(LogEventLevel.Information, eventType.Name, @event, eventDataJson);
+    }
+
+    /// <inheritdoc />
+    public void LogTelegramRateLimit(CorrelationContext correlationContext, TelegramRateLimitEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var @event = new TelegramRateLimitEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
+            TelegramUserId = evt.TelegramUserId,
+            CommandCount = evt.CommandCount,
+            LimitPerMinute = evt.LimitPerMinute,
+            WindowDuration = evt.WindowDuration
+        };
+
+        Log(@event);
+    }
+
+    /// <inheritdoc />
+    public void LogTelegramSecurityIncident(CorrelationContext correlationContext, TelegramSecurityIncidentEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(correlationContext);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        var @event = new TelegramSecurityIncidentEvent
+        {
+            SessionId = correlationContext.SessionId,
+            TurnId = correlationContext.TurnId,
+            RequestId = correlationContext.RequestId,
+            AgentId = correlationContext.AgentId,
+            ParentAgentId = correlationContext.ParentAgentId,
+            AgentRole = correlationContext.AgentRole,
+            TelegramUserId = evt.TelegramUserId,
+            Type = evt.Type,
+            Details = evt.Details
+        };
+
+        // Log security incidents at Warning level
+        var eventType = @event.GetType();
+        var baseProperties = typeof(AuditEvent).GetProperties().Select(p => p.Name).ToHashSet();
+        var eventData = eventType.GetProperties()
+            .Where(p => !baseProperties.Contains(p.Name))
+            .ToDictionary(
+                p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..],
+                p =>
+                {
+                    var value = p.GetValue(@event);
+                    // Convert enums to string names instead of numeric values
+                    return value is Enum enumValue ? enumValue.ToString() : value;
+                });
+
+        // Serialize EventData as JSON
+        var eventDataJson = JsonSerializer.Serialize(eventData);
+
+        WriteAuditLog(LogEventLevel.Warning, eventType.Name, @event, eventDataJson);
+    }
+
     /// <summary>
     /// Writes an audit log entry with conditional agent context fields.
     /// When AgentId is present, includes AgentId, ParentAgentId, and AgentRole in the log.

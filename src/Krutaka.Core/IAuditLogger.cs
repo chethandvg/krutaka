@@ -94,4 +94,52 @@ public interface IAuditLogger
         bool autoApproved,
         string? trustedDirectory,
         string reason);
+
+    /// <summary>
+    /// Logs a Telegram authentication event.
+    /// Default implementation does nothing (for backwards compatibility with existing test mocks).
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="evt">The Telegram authentication event.</param>
+    void LogTelegramAuth(CorrelationContext correlationContext, TelegramAuthEvent evt) { }
+
+    /// <summary>
+    /// Logs a Telegram message event.
+    /// Default implementation does nothing (for backwards compatibility with existing test mocks).
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="evt">The Telegram message event.</param>
+    void LogTelegramMessage(CorrelationContext correlationContext, TelegramMessageEvent evt) { }
+
+    /// <summary>
+    /// Logs a Telegram approval event.
+    /// Default implementation does nothing (for backwards compatibility with existing test mocks).
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="evt">The Telegram approval event.</param>
+    void LogTelegramApproval(CorrelationContext correlationContext, TelegramApprovalEvent evt) { }
+
+    /// <summary>
+    /// Logs a Telegram session lifecycle event.
+    /// Default implementation does nothing (for backwards compatibility with existing test mocks).
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="evt">The Telegram session event.</param>
+    void LogTelegramSession(CorrelationContext correlationContext, TelegramSessionEvent evt) { }
+
+    /// <summary>
+    /// Logs a Telegram rate limit event.
+    /// Default implementation does nothing (for backwards compatibility with existing test mocks).
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="evt">The Telegram rate limit event.</param>
+    void LogTelegramRateLimit(CorrelationContext correlationContext, TelegramRateLimitEvent evt) { }
+
+    /// <summary>
+    /// Logs a Telegram security incident event.
+    /// Default implementation does nothing (for backwards compatibility with existing test mocks).
+    /// </summary>
+    /// <param name="correlationContext">The correlation context for this event.</param>
+    /// <param name="evt">The Telegram security incident event.</param>
+    void LogTelegramSecurityIncident(CorrelationContext correlationContext, TelegramSecurityIncidentEvent evt) { }
 }
