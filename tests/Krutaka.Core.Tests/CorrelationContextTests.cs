@@ -158,4 +158,128 @@ public class CorrelationContextTests
         context.SessionId.Should().Be(newSessionId);
         context.TurnId.Should().Be(1);
     }
+
+    [Fact]
+    public void Should_InitializeAgentIdToNull()
+    {
+        // Act
+        var context = new CorrelationContext();
+
+        // Assert
+        context.AgentId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_InitializeParentAgentIdToNull()
+    {
+        // Act
+        var context = new CorrelationContext();
+
+        // Assert
+        context.ParentAgentId.Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_InitializeAgentRoleToNull()
+    {
+        // Act
+        var context = new CorrelationContext();
+
+        // Assert
+        context.AgentRole.Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_SetAgentContext_WithAllFields()
+    {
+        // Arrange
+        var context = new CorrelationContext();
+        var agentId = Guid.NewGuid();
+        var parentAgentId = Guid.NewGuid();
+        const string role = "coordinator";
+
+        // Act
+        context.SetAgentContext(agentId, parentAgentId, role);
+
+        // Assert
+        context.AgentId.Should().Be(agentId);
+        context.ParentAgentId.Should().Be(parentAgentId);
+        context.AgentRole.Should().Be(role);
+    }
+
+    [Fact]
+    public void Should_SetAgentContext_WithNullParentAgentId()
+    {
+        // Arrange
+        var context = new CorrelationContext();
+        var agentId = Guid.NewGuid();
+        const string role = "root-agent";
+
+        // Act
+        context.SetAgentContext(agentId, null, role);
+
+        // Assert
+        context.AgentId.Should().Be(agentId);
+        context.ParentAgentId.Should().BeNull();
+        context.AgentRole.Should().Be(role);
+    }
+
+    [Fact]
+    public void Should_ThrowArgumentException_WhenRoleIsNull()
+    {
+        // Arrange
+        var context = new CorrelationContext();
+        var agentId = Guid.NewGuid();
+
+        // Act & Assert
+        var act = () => context.SetAgentContext(agentId, null, null!);
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Should_ThrowArgumentException_WhenRoleIsEmpty()
+    {
+        // Arrange
+        var context = new CorrelationContext();
+        var agentId = Guid.NewGuid();
+
+        // Act & Assert
+        var act = () => context.SetAgentContext(agentId, null, "");
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Should_ThrowArgumentException_WhenRoleIsWhitespace()
+    {
+        // Arrange
+        var context = new CorrelationContext();
+        var agentId = Guid.NewGuid();
+
+        // Act & Assert
+        var act = () => context.SetAgentContext(agentId, null, "   ");
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Should_ResetSession_AndClearAgentContext()
+    {
+        // Arrange
+        var context = new CorrelationContext(Guid.NewGuid());
+        context.SetAgentContext(Guid.NewGuid(), Guid.NewGuid(), "coordinator");
+        context.IncrementTurn();
+        context.SetRequestId("req_123");
+
+        var newSessionId = Guid.NewGuid();
+
+        // Act
+        context.ResetSession(newSessionId);
+
+        // Assert
+        context.SessionId.Should().Be(newSessionId);
+        context.TurnId.Should().Be(0);
+        context.RequestId.Should().BeNull();
+        context.AgentId.Should().BeNull();
+        context.ParentAgentId.Should().BeNull();
+        context.AgentRole.Should().BeNull();
+    }
 }

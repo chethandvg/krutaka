@@ -22,6 +22,24 @@ public abstract record AuditEvent
     public string? RequestId { get; init; }
 
     /// <summary>
+    /// Agent identifier (GUID, per agent instance).
+    /// Null in single-agent mode (v0.4.0). Will be set in v0.9.0 multi-agent coordination.
+    /// </summary>
+    public Guid? AgentId { get; init; }
+
+    /// <summary>
+    /// Parent agent identifier (GUID, for hierarchical agent relationships).
+    /// Null in single-agent mode or for root agents. Will be set in v0.9.0 multi-agent coordination.
+    /// </summary>
+    public Guid? ParentAgentId { get; init; }
+
+    /// <summary>
+    /// Agent role identifier (e.g., "coordinator", "researcher", "executor").
+    /// Null in single-agent mode. Will be set in v0.9.0 multi-agent coordination.
+    /// </summary>
+    public string? AgentRole { get; init; }
+
+    /// <summary>
     /// Timestamp when the event occurred.
     /// </summary>
     public DateTimeOffset Timestamp { get; init; } = DateTimeOffset.UtcNow;
