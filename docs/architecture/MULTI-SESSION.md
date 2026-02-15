@@ -178,7 +178,11 @@ ISessionFactory                     ISessionManager
 
 ## 6. Console Migration Path
 
-`Program.cs` transitions from singleton orchestrator to `ISessionManager` as a "single-session client":
+`Program.cs` transitions from singleton orchestrator to `ISessionManager` as a "single-session client".
+
+### Implementation Status
+
+**✅ Complete** (Issue #156, 2026-02-15)
 
 ### Before (v0.3.0)
 
@@ -192,31 +196,95 @@ Program.cs:
 
 ### After (v0.4.0)
 
-```text
+```csharp
 Program.cs:
-  Register ISessionFactory (singleton)
-  Register ISessionManager (singleton)
-  Register SessionManagerOptions (singleton)
+  // DI Registration
+  Register ISessionFactory (singleton, via ServiceExtensions)
+  Register ISessionManager (singleton, via ServiceExtensions)
+  Register SessionManagerOptions (singleton, Console-specific settings)
   
-  On startup:
-    session = sessionManager.ResumeSessionAsync() OR sessionManager.CreateSessionAsync()
+  // Startup: Three-Step Resume Pattern
+  Guid? existingSessionId = SessionStore.FindMostRecentSession(workingDirectory);
+  if (existingSessionId.HasValue)
+  {
+    // Step 1: Resume session (creates new orchestrator, NO history)
+    currentSession = await sessionManager.ResumeSessionAsync(
+      existingSessionId.Value, workingDirectory, cancellationToken);
+    
+    // Step 2: Load conversation history from JSONL on disk
+    sessionStore = new SessionStore(workingDirectory, existingSessionId.Value);
+    var messages = await sessionStore.ReconstructMessagesAsync(cancellationToken);
+    
+    // Step 3: Restore history into the new orchestrator
+    if (messages.Count > 0)
+      currentSession.Orchestrator.RestoreConversationHistory(messages);
+  }
+  else
+  {
+    // Create new session
+    var request = new SessionRequest(workingDirectory, null, null);
+    currentSession = await sessionManager.CreateSessionAsync(request, cancellationToken);
+    sessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
+  }
   
-  Main loop:
-    session.Orchestrator.RunAsync(input)
+  // Main loop: Use session's orchestrator and correlation context
+  currentSession.CorrelationContext.IncrementTurn();
+  var systemPrompt = await systemPromptBuilder.BuildAsync(input, cancellationToken);
+  var events = currentSession.Orchestrator.RunAsync(input, systemPrompt, cancellationToken);
   
-  /new command:
-    sessionManager.TerminateSessionAsync(session.SessionId)
-    session = sessionManager.CreateSessionAsync(request)
+  // /new command
+  await sessionManager.TerminateSessionAsync(currentSession.SessionId, cancellationToken);
+  sessionStore.Dispose();
+  var request = new SessionRequest(workingDirectory, null, null);
+  currentSession = await sessionManager.CreateSessionAsync(request, cancellationToken);
+  sessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
   
-  /sessions command:
-    sessionManager.ListActiveSessions() + SessionStore.ListSessions()
+  // /sessions command: Combine active + persisted
+  var activeSessions = sessionManager.ListActiveSessions();
+  var persistedSessions = SessionStore.ListSessions(workingDirectory, limit: 10);
+  // Merge and display (active sessions marked with green arrow)
   
-  /resume command:
-    session = sessionManager.ResumeSessionAsync(sessionId)
+  // /resume command: Three-step reload from disk
+  sessionStore.Dispose();
+  sessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
+  var messages = await sessionStore.ReconstructMessagesAsync(cancellationToken);
+  if (messages.Count > 0)
+    currentSession.Orchestrator.RestoreConversationHistory(messages);
   
-  On shutdown:
-    sessionManager.DisposeAsync()
+  // Shutdown
+  sessionStore.Dispose();
+  await sessionManager.DisposeAsync();
 ```
+
+### SessionManagerOptions for Console
+
+Console runs as a **single-session client**, so it uses simplified options:
+
+```csharp
+new SessionManagerOptions
+{
+    MaxActiveSessions = 1,        // Only one session at a time
+    MaxSessionsPerUser = 1,       // Console doesn't use user tracking
+    GlobalMaxTokensPerHour = int.MaxValue,  // No global limit
+    IdleTimeout = TimeSpan.Zero,  // No idle detection
+    SuspendedTtl = TimeSpan.FromDays(30),
+    EvictionStrategy = EvictionStrategy.RejectNew
+}
+```
+
+### Critical: Three-Step Resume Pattern
+
+`SessionManager.ResumeSessionAsync()` does **NOT** reconstruct conversation history. This is by design — `SessionManager` lives in `Krutaka.Tools` and cannot reference `Krutaka.Memory` (dependency inversion).
+
+**The caller (Console `Program.cs`) must:**
+1. Call `ResumeSessionAsync` to create a new orchestrator instance
+2. Call `SessionStore.ReconstructMessagesAsync` to load JSONL from disk
+3. Call `Orchestrator.RestoreConversationHistory` to populate the orchestrator
+
+This pattern ensures:
+- `Krutaka.Tools` remains dependency-free of `Krutaka.Memory`
+- Session resumption is explicit and controlled by the caller
+- History reconstruction handles orphaned tool_use repair (`RepairOrphanedToolUseBlocks`)
 
 ### Key Invariant
 

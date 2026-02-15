@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 SessionManager implementation — 1,319 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 Console refactored to use ISessionManager — 1,423 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1746,6 +1746,30 @@ Three fundamental changes:
 - ✅ Zero regressions — all 1,289 existing tests pass, total 1,320 tests (1,319 passing, 1 skipped)
 - ✅ Full implementation of resource governance (idle timeout, suspension, eviction, token budget, per-user limits)
 - ✅ Ready for Console and Telegram integration
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #156 | Refactor Krutaka.Console/Program.cs to use ISessionManager instead of singleton orchestrator | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Removed singleton registrations for `AgentOrchestrator`, `CorrelationContext`, and `SessionStore` from DI
+- ✅ Added `SessionManagerOptions` registration with Console-appropriate defaults (MaxActiveSessions: 1, no idle timeout)
+- ✅ Implemented three-step resume pattern on startup:
+  1. `SessionManager.ResumeSessionAsync()` to create new orchestrator
+  2. `SessionStore.ReconstructMessagesAsync()` to load conversation history from JSONL
+  3. `Orchestrator.RestoreConversationHistory()` to populate the new orchestrator
+- ✅ Updated `/new` command: `TerminateSessionAsync` + `CreateSessionAsync` (replaces manual `ClearConversationHistory`)
+- ✅ Updated `/sessions` command: Combines `ListActiveSessions()` + `SessionStore.ListSessions()` for both active and persisted sessions
+- ✅ Updated `/resume` command: Three-step resume pattern with error handling for missing JSONL files
+- ✅ Main loop uses `ManagedSession.Orchestrator` and `ManagedSession.CorrelationContext` instead of singleton instances
+- ✅ Graceful shutdown calls `sessionManager.DisposeAsync()` instead of manual cleanup
+- ✅ Added `CreateSystemPromptBuilder()` helper function to create SystemPromptBuilder with singleton tool registry (acceptable for single-session Console)
+- ✅ Auto-resume fallback: Creates new session if resume fails (no crash on missing/corrupted JSONL)
+- ✅ Zero regressions — all 1,423 existing tests pass (1 skipped)
+- ✅ Build succeeds with zero warnings (CA2000 warnings suppressed with justification for SessionStore lifecycle management)
+- ✅ Console behavior identical to v0.3.0 from user perspective
+- ✅ Shared services remain as singletons: `IClaudeClient`, `ISecurityPolicy`, `IAuditLogger`, `IAccessPolicyEngine`, `ICommandRiskClassifier`, `ToolOptions`
+- ✅ Per-session state properly isolated: Each session gets own `AgentOrchestrator`, `CorrelationContext`, `SessionStore`, `ISessionAccessStore`, `ICommandApprovalCache`, `IToolRegistry`
 
 ### Next Steps
 
