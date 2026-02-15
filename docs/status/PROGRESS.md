@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 Console refactoring complete with fixes — 1,426 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 Telegram configuration model complete — 1,465 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1789,6 +1789,45 @@ Three fundamental changes:
 - ✅ **Behavioral parity:** User-facing behavior unchanged from v0.3.0 (commands, streaming, approvals all identical)
 - ✅ **Startup resume fixed:** Console successfully resumes sessions from disk after process restart
 - ✅ **Configuration preserved:** User appsettings overrides for timeouts and limits work correctly
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| #137 | TelegramSecurityConfig and configuration model with startup validation | Architecture | 🟢 Complete | 2026-02-15 |
+
+**Implementation details:**
+- ✅ Created 5 new types in `src/Krutaka.Core/`:
+  - `TelegramTransportMode` enum (LongPolling, Webhook)
+  - `TelegramUserRole` enum (Admin, User)
+  - `TelegramUserConfig` record (UserId, Role, ProjectPath)
+  - `TelegramSecurityConfig` record with fail-fast validation
+  - `TelegramConfigValidator` static validation class
+- ✅ **Critical security verification:** NO BotToken property in configuration (validated by test)
+- ✅ All configuration validated at startup (fail-fast pattern):
+  - AllowedUsers null/empty → exception
+  - All numeric limits (MaxCommandsPerMinute, MaxTokensPerHour, etc.) ≤ 0 → exception
+  - LockoutDuration ≤ TimeSpan.Zero → exception
+  - Webhook mode without URL → exception
+  - Duplicate UserId in AllowedUsers → exception
+- ✅ Default values match specification:
+  - MaxCommandsPerMinute: 10
+  - MaxTokensPerHour: 100,000
+  - MaxFailedAuthAttempts: 3
+  - LockoutDuration: 1 hour
+  - MaxInputMessageLength: 4,000
+  - PollingTimeoutSeconds: 30
+  - PanicCommand: "/killswitch"
+  - RequireConfirmationForElevated: true
+- ✅ 39 comprehensive tests in `tests/Krutaka.Core.Tests/` (5 new test files):
+  - TelegramSecurityConfigTests (26 tests): defaults, validation rules, custom values, webhook mode, duplicate users, no BotToken property
+  - TelegramUserConfigTests (4 tests): constructors, record equality, with expressions
+  - TelegramTransportModeTests (3 tests): enum values and count
+  - TelegramUserRoleTests (3 tests): enum values and count
+  - TelegramConfigValidatorTests (3 tests): validate, TryValidate, null handling
+- ✅ XML documentation on all public members
+- ✅ Code analysis warnings suppressed with justification (CA1819 for arrays, CA1054/CA1056 for webhook URL)
+- ✅ Zero regressions — all 1,426 existing tests pass, total 1,465 tests (1,464 passing, 1 skipped)
+- ✅ Configuration model matches `docs/versions/v0.4.0.md` and `docs/architecture/TELEGRAM.md` specifications
+- ✅ Ready for Telegram bot service integration
 
 ### Next Steps
 
