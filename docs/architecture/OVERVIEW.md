@@ -1,13 +1,15 @@
 # Krutaka — Architecture Overview
 
-> **Last updated:** 2026-02-14 (v0.3.0 release documentation complete)
+> **Last updated:** 2026-02-15 (v0.4.0 in progress — multi-session and Telegram integration)
 
 ## System Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Host["Krutaka Console App (.NET 10, Windows)"]
+  subgraph Host["Krutaka Host (.NET 10, Windows)"]
     UI["Console UI\n(Spectre.Console)"]
+    Telegram["Telegram Bot\n(Telegram.Bot)"]
+    SessionMgr["Session Manager\n(Multi-Session)"]
     Orchestrator["Agent Orchestrator\n(Agentic Loop)"]
     Tools["Tool Runtime\n(FS / Shell / Memory)"]
     Memory["Memory & Sessions\n(SQLite FTS5 + JSONL)"]
@@ -19,7 +21,9 @@ flowchart LR
 
   Claude["Claude API\n(Messages + Streaming + Tools)"]
 
-  UI --> Orchestrator
+  UI --> SessionMgr
+  Telegram --> SessionMgr
+  SessionMgr --> Orchestrator
   Orchestrator --> Tools
   Orchestrator --> Memory
   Orchestrator --> PromptBuilder
@@ -58,6 +62,8 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `ISessionAccessStore` | **[v0.2.0]** Session-scoped directory access grants with TTL | IsGrantedAsync, GrantAccessAsync, RevokeAccessAsync, GetActiveGrantsAsync, PruneExpiredAsync |
 | `ICommandRiskClassifier` | **[v0.3.0]** Command risk tier classification | Classify(CommandExecutionRequest) → CommandRiskTier, GetRules() |
 | `ICommandPolicy` | **[v0.3.0]** Command execution policy evaluation | EvaluateAsync(CommandExecutionRequest, CancellationToken) → Task<CommandDecision> |
+| `ISessionFactory` | **[v0.4.0 – Planned]** Session creation factory | Create(SessionRequest) → ManagedSession |
+| `ISessionManager` | **[v0.4.0 – Planned]** Session lifecycle management | CreateSessionAsync, GetOrCreateByKeyAsync, ResumeSessionAsync, TerminateSessionAsync, ListActiveSessions, TerminateAllAsync |
 
 #### Model Types
 
@@ -80,6 +86,18 @@ The shared contract layer. Defines all interfaces that other projects implement,
 | `CommandRiskRule` | Record | **[v0.3.0]** Risk rule: Executable, ArgumentPatterns, Tier, Description |
 | `CommandExecutionRequest` | Record | **[v0.3.0]** Command execution request: Executable, Arguments (defensive copy), WorkingDirectory, Justification |
 | `CommandDecision` | Record | **[v0.3.0]** Command decision: Outcome, Tier, Reason; convenience properties: IsApproved, RequiresApproval, IsDenied; factory methods: Approve, RequireApproval, Deny |
+| `ManagedSession` | Sealed Class | **[v0.4.0 – Planned]** Per-session container holding Orchestrator, CorrelationContext, Budget |
+| `SessionRequest` | Record | **[v0.4.0 – Planned]** Session creation parameters: ProjectPath, ExternalKey, budgets |
+| `SessionState` | Enum | **[v0.4.0 – Planned]** Active, Idle, Suspended, Terminated |
+| `SessionBudget` | Class | **[v0.4.0 – Planned]** Thread-safe token/tool-call/turn tracking |
+| `SessionManagerOptions` | Record | **[v0.4.0 – Planned]** MaxActiveSessions, IdleTimeout, SuspendedTtl, per-user limits |
+| `SessionSummary` | Record | **[v0.4.0 – Planned]** Lightweight session view for listing |
+| `EvictionStrategy` | Enum | **[v0.4.0 – Planned]** SuspendOldestIdle, RejectNew, TerminateOldest |
+| `TelegramSecurityConfig` | Record | **[v0.4.0 – Planned]** Telegram config: AllowedUsers, rate limits, lockout, transport mode |
+| `TelegramUserConfig` | Record | **[v0.4.0 – Planned]** Per-user config: UserId, Role, ProjectPath |
+| `TelegramUserRole` | Enum | **[v0.4.0 – Planned]** Admin, User |
+| `TelegramTransportMode` | Enum | **[v0.4.0 – Planned]** LongPolling, Webhook |
+| `HostMode` | Enum | **[v0.4.0 – Planned]** Console, Telegram, Both |
 
 
 #### Core Classes
@@ -646,6 +664,39 @@ The `MarkdownRenderer` class converts Markdown to Spectre.Console output using M
 - ✅ Human-in-the-loop approval: orchestrator blocks on `TaskCompletionSource<bool>` until `ApproveTool()` or `DenyTool()` is called
 - ✅ DI registration of `ConsoleUI` and dependencies
 
+### Krutaka.Telegram (net10.0-windows)
+**Status:** 🟡 In Progress (v0.4.0)  
+**Planned path:** `src/Krutaka.Telegram/` (see `docs/versions/v0.4.0.md` for complete implementation roadmap)  
+**Planned dependencies:** Krutaka.Core, Krutaka.Tools, Krutaka.Memory, Krutaka.AI, Telegram.Bot
+
+Telegram Bot API integration with security pipeline for remote multi-user access.
+
+| Type | Description | Status |
+|---|---|---|
+| `ITelegramAuthGuard` | Authentication and rate limiting | 🟡 Planned |
+| `ITelegramCommandRouter` | Command parsing and admin gating | 🟡 Planned |
+| `ITelegramResponseStreamer` | AgentEvent → Telegram message streaming | 🟡 Planned |
+| `ITelegramApprovalHandler` | HMAC-signed inline keyboard approvals | 🟡 Planned |
+| `ITelegramSessionBridge` | Chat-to-session mapping | 🟡 Planned |
+| `TelegramBotService` | Long polling and webhook transport | 🟡 Planned |
+| `TelegramInputSanitizer` | Input sanitization with `<untrusted_content>` wrapping | 🟡 Planned |
+| `TelegramFileHandler` | File upload/download with security validation | 🟡 Planned |
+| `TelegramHealthMonitor` | Budget threshold monitoring and notifications | 🟡 Planned |
+| `ServiceExtensions` | DI registration for Telegram components | 🟡 Planned |
+
+**Key Features:**
+- **Security pipeline**: Every update passes through ITelegramAuthGuard (allowlist, rate limit, lockout)
+- **Multi-session support**: Uses ISessionManager for per-chat isolated sessions
+- **Dual-mode transport**: Long polling (primary) and webhook (production) support
+- **HMAC-signed callbacks**: Inline keyboard approval buttons use HMAC-SHA256 with nonce
+- **Input sanitization**: All user text wrapped in `<untrusted_content source="telegram:user:{userId}">`
+- **Streaming responses**: AgentEvent stream buffered and rate-limited to ≤30 edits/min
+- **File exchange**: Upload/download with extension allowlist and size limits
+- **Health monitoring**: Push notifications for budget thresholds and session state
+
+**Security Architecture:**
+See `docs/architecture/TELEGRAM.md` for complete threat model and mitigation details.
+
 ### Observability and Audit Logging
 
 **Status:** ✅ Complete (Issue #24 — 2026-02-11)  
@@ -680,6 +731,12 @@ All audit events include three correlation IDs for request tracing:
 | `ToolExecutionEvent` | Tool execution completes | ToolName, Approved, AlwaysApprove, DurationMs, ResultLength, Error |
 | `CompactionEvent` | Context compaction occurs | BeforeTokenCount, AfterTokenCount, MessagesRemoved |
 | `SecurityViolationEvent` | Security policy violation | ViolationType, BlockedValue, Context |
+| `TelegramAuthEvent` | **[v0.4.0]** Telegram auth check | TelegramUserId, ChatId, Outcome, UpdateId |
+| `TelegramMessageEvent` | **[v0.4.0]** Telegram message received | Command, MessageLength, SessionId |
+| `TelegramApprovalEvent` | **[v0.4.0]** Telegram approval decision | ToolName, Approved, SessionId |
+| `TelegramSessionEvent` | **[v0.4.0]** Session lifecycle change | SessionId, EventType |
+| `TelegramRateLimitEvent` | **[v0.4.0]** Rate limit triggered | CommandCount, LimitPerMinute |
+| `TelegramSecurityIncidentEvent` | **[v0.4.0]** Security incident | IncidentType, Details |
 
 #### Log Configuration
 
@@ -714,13 +771,17 @@ graph TD
   Console --> Tools["Krutaka.Tools"]
   Console --> Memory["Krutaka.Memory"]
   Console --> Skills["Krutaka.Skills"]
+  Telegram["Krutaka.Telegram"] --> Core
+  Telegram --> AI
+  Telegram --> Tools
+  Telegram --> Memory
   AI --> Core
   Tools --> Core
   Memory --> Core
   Skills --> Core
 ```
 
-**Rule:** Core has no project references. AI, Tools, Memory, Skills reference only Core. Console references all.
+**Rule:** Core has no project references. AI, Tools, Memory, Skills reference only Core. Console and Telegram (composition roots) reference all.
 
 ## Data Flow: Agent Turn
 
@@ -753,10 +814,49 @@ sequenceDiagram
   UI->>User: Rendered Markdown response
 ```
 
+## Multi-Session Architecture
+
+**Status:** 🟡 v0.4.0 In Progress  
+**Reference:** See `docs/architecture/MULTI-SESSION.md` for complete design
+
+v0.4.0 introduces a fundamental architectural shift from singleton-based DI to per-session isolated instances. This enables concurrent multi-user operation via Telegram while maintaining full backward compatibility with Console mode.
+
+### Shared vs Per-Session Split
+
+| Component | Scope | Rationale |
+|---|---|---|
+| **Shared (Singleton)** | `IClaudeClient`, `ISecurityPolicy`, `IAuditLogger`, `IAccessPolicyEngine`, `ICommandRiskClassifier`, `ToolOptions` | Stateless, thread-safe, or immutable configuration |
+| **Per-Session** | `AgentOrchestrator`, `CorrelationContext`, `SessionStore`, `ISessionAccessStore`, `ICommandApprovalCache`, `ContextCompactor`, `IToolRegistry` | Mutable session-specific state (conversation history, grants, approvals) |
+
+### Session Lifecycle
+
+1. **Created** → `ISessionFactory.Create(SessionRequest)` instantiates all per-session components
+2. **Active** → Normal operation, `LastActivity` updated on each message
+3. **Idle** → No messages for `IdleTimeout` (default 15 min)
+4. **Suspended** → Orchestrator disposed, JSONL persisted, can be resumed
+5. **Terminated** → Resources fully released, JSONL optionally deleted
+
+### Resource Governance
+
+- `MaxActiveSessions` (default 10) — hard cap on concurrent sessions
+- `MaxSessionsPerUser` (default 3) — per-user limit (Telegram)
+- `GlobalMaxTokensPerHour` (default 1M) — cross-session budget tracking
+- Eviction strategies: `SuspendOldestIdle`, `RejectNew`, `TerminateOldest`
+
+### Console Migration
+
+Console mode uses `ISessionManager` as a "single-session client". On startup:
+1. Attempt `ResumeSessionAsync()` to restore last session
+2. If no session exists, `CreateSessionAsync()`
+3. All commands (`/new`, `/sessions`, `/resume`) delegate to `ISessionManager`
+
+User experience remains identical to v0.3.0.
+
 ## Storage Layout
 
 ```
 ~/.krutaka/
+├── .polling.lock                       # **[v0.4.0]** Single-instance polling lock (PID-based)
 ├── config.json                         # Global settings
 ├── MEMORY.md                           # Curated persistent memory
 ├── memory.db                           # SQLite (FTS5 + future vectors)
@@ -764,7 +864,7 @@ sequenceDiagram
 │   ├── 2026-02-10.md                   # Daily interaction log
 │   └── audit-2026-02-10.json           # Structured audit log (Serilog)
 ├── sessions/
-│   └── C-Users-chethandvg-project/     # Path-encoded project directory
+│   └── C-Users-chethandvg-project/     # Path-encoded project directory (multiple concurrent sessions may exist)
 │       ├── {guid}.jsonl                # Session events
 │       └── {guid}.meta.json            # Session metadata
 └── skills/                             # User-installed skills
