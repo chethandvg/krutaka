@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 Console refactoring complete — 1,424 tests passing, 1 skipped)
+> **Last updated:** 2026-02-15 (v0.4.0 Console refactoring complete with fixes — 1,426 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1775,12 +1775,20 @@ Three fundamental changes:
 - ✅ Updated `tests/Krutaka.Tools.Tests/ToolRegistryIntegrationTests.cs`:
   - Modified `Should_AddAgentTools_RegisterAllServicesCorrectly` to verify new DI architecture (IToolRegistry not registered globally, ISessionFactory/ISessionManager are registered)
   - Added `Should_CreatePerSessionToolRegistry_ViaSessionFactory` to verify SessionFactory creates per-session tool registries with all 6 tools
+  - Added 2 DI isolation tests verifying `ICommandApprovalCache` and `ISessionAccessStore` not in global DI (security-critical)
+  - Added 2 configuration preservation tests verifying ToolOptions and SessionFactory respect custom orchestrator limits
   - Added `MockClaudeClient` helper class for testing
-- ✅ **All tests passing:** 1,424 tests (845 Tools, 305 Core, 131 Memory, 116 Console, 17 Skills, 10 AI, 1 skipped)
+- ✅ **Post-refactor fixes** (commits 896e424, 526e16e):
+  - **Issue 1 - Disk session resume:** After process restart, persisted sessions aren't in SessionManager's suspended map. Fixed by using SessionFactory.Create() with preserved session ID instead of SessionManager.ResumeSessionAsync()
+  - **Issue 2 - Configuration preservation:** Added ToolTimeoutSeconds, ApprovalTimeoutSeconds, MaxToolResultCharacters to ToolOptions. SessionFactory now reads from ToolOptions. Program.cs reads Agent section configuration. User appsettings overrides now work correctly.
+  - **Issue 3 - Test coverage:** Added 6 new tests total (2 DI isolation + 2 configuration + 2 previous = 6). Full integration tests documented in `docs/testing/CONSOLE-LIFECYCLE-TESTS.md` for future implementation.
+- ✅ **All tests passing:** 1,426 tests (847 Tools, 305 Core, 131 Memory, 116 Console, 17 Skills, 10 AI, 1 skipped)
 - ✅ **Zero regressions:** Build succeeds with zero warnings/errors
 - ✅ **DI architecture validated:** No singleton registrations remain for mutable per-session state
 - ✅ **Multi-session ready:** Console now uses same session architecture that Telegram will use
 - ✅ **Behavioral parity:** User-facing behavior unchanged from v0.3.0 (commands, streaming, approvals all identical)
+- ✅ **Startup resume fixed:** Console successfully resumes sessions from disk after process restart
+- ✅ **Configuration preserved:** User appsettings overrides for timeouts and limits work correctly
 
 ### Next Steps
 
