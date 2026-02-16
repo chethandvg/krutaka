@@ -129,22 +129,22 @@ public class TelegramApprovalHandlerTests
     {
         // Arrange
         var payload = new CallbackPayload(
-            ApprovalId: "test123456",
+            ApprovalId: "test1",
             Hmac: null);
 
         // Act
         var signed = _signer.Sign(payload);
 
         // Assert
-        signed.Length.Should().BeLessThan(64, "callback data must be under Telegram's 64-byte limit");
+        signed.Length.Should().BeLessOrEqualTo(64, "callback data must fit within Telegram's 64-byte limit");
     }
 
     [Fact]
     public void CallbackDataSigner_Should_HandleLongApprovalIds()
     {
-        // Arrange - Use a 12-character approval ID (typical for base64-encoded 9 bytes)
+        // Arrange - Use a 5-character approval ID (typical for base64-encoded 4 bytes)
         var payload = new CallbackPayload(
-            ApprovalId: "AbCdEfGhIjKl",
+            ApprovalId: "AbCdE",
             Hmac: null);
 
         // Act
@@ -152,9 +152,9 @@ public class TelegramApprovalHandlerTests
         var verified = _signer.Verify(signed);
 
         // Assert
-        signed.Length.Should().BeLessThan(64, "callback data must be under Telegram's 64-byte limit");
+        signed.Length.Should().BeLessOrEqualTo(64, "callback data must fit within Telegram's 64-byte limit");
         verified.Should().NotBeNull();
-        verified!.ApprovalId.Should().Be("AbCdEfGhIjKl");
+        verified!.ApprovalId.Should().Be("AbCdE");
     }
 
     [Fact]
@@ -203,16 +203,29 @@ public class TelegramApprovalHandlerTests
     {
         // Arrange
         var payload = new CallbackPayload(
-            ApprovalId: "AbCdEfGhIjKl",
+            ApprovalId: "AbCdE",
             Hmac: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"); // 44-char Base64 HMAC
 
         // Act
-        var json = System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
-        {
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
-        });
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
 
         // Assert
-        json.Length.Should().BeLessThan(64, "serialized callback payload must fit within Telegram's 64-byte limit");
+        json.Length.Should().BeLessOrEqualTo(64, "serialized callback payload must fit within Telegram's 64-byte limit");
+    }
+
+    [Fact]
+    public void CallbackPayload_Should_UseShortFieldNames()
+    {
+        // Arrange
+        var payload = new CallbackPayload("AbCdE", "test");
+        
+        // Act
+        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        
+        // Assert
+        json.Should().Contain("\"i\":", "should use short field name 'i' for ApprovalId");
+        json.Should().Contain("\"s\":", "should use short field name 's' for Hmac");
+        json.Should().NotContain("approvalId", "should not use full field name");
+        json.Should().NotContain("hmac", "should not use full field name");
     }
 }

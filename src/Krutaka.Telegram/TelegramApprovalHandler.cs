@@ -174,11 +174,11 @@ public sealed partial class TelegramApprovalHandler : ITelegramApprovalHandler, 
     }
 
     /// <summary>
-    /// Generates a short approval ID (12 chars) for callback data.
+    /// Generates a short approval ID (5-6 chars) for callback data.
     /// </summary>
     private static string GenerateApprovalId()
     {
-        var bytes = RandomNumberGenerator.GetBytes(9); // 9 bytes = 12 base64 chars
+        var bytes = RandomNumberGenerator.GetBytes(4); // 4 bytes = 5-6 base64 chars
         return Convert.ToBase64String(bytes).TrimEnd('='); // Remove padding
     }
 }
