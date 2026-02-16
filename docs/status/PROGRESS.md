@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-16 (v0.4.0 ITelegramCommandRouter complete — 1,560 tests passing, 1 skipped)
+> **Last updated:** 2026-02-16 (v0.4.0 ITelegramCommandRouter complete with review fixes — 1,564 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1994,7 +1994,7 @@ Three fundamental changes:
   - Bot mention stripping (`/ask@krutaka_bot` → Ask)
   - Argument extraction (`/task description` → arguments="description")
   - Edge cases (empty, whitespace, multiline arguments)
-- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramCommandRouterTests.cs` — 19 tests:
+- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramCommandRouterTests.cs` — 20 tests (1 added for bare /ask):
   - Ask command with sanitized input
   - Plain text routed as Ask command
   - Task command with sanitized input
@@ -2005,24 +2005,31 @@ Three fundamental changes:
   - Sessions, SwitchSession commands
   - Unknown command returns unrouted
   - Empty message returns unrouted
+  - Bare /ask command has null SanitizedInput (added)
   - Null parameter validation (2 tests)
-- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramInputSanitizerTests.cs` — 10 tests:
+- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramInputSanitizerTests.cs` — 13 tests (4 added for security):
   - Message text wrapped in untrusted_content tags
-  - Bot mention stripping preserves surrounding spaces
+  - XML escaping prevents tag breakout (added)
+  - User mentions preserved (@alice, @bob) (added)
+  - Email addresses preserved (alice@example.com) (added)
   - Source attribution format verified (`telegram:user:{userId}`)
   - Empty/null text returns empty string
   - File caption wrapping
+  - File caption XML escaping (added)
   - File caption null/empty/whitespace returns null
 - ✅ **Security checkpoints verified:**
   - ✅ Every user text field wrapped in `<untrusted_content>` tags
-  - ✅ Bot mention syntax stripped before processing
+  - ✅ XML escaping added for defense-in-depth (SecurityElement.Escape)
+  - ✅ User content preserved (@mentions, emails) - bot mentions only stripped from command portion
   - ✅ Admin-only commands properly gated by `AuthResult.UserRole`
   - ✅ No sensitive data in logs or error messages
+  - ✅ Bare /ask command correctly has null SanitizedInput
 - ✅ **Code analysis compliance:** CA1307 (StringComparison.Ordinal), CA1308 (ToUpperInvariant) satisfied
 - ✅ **XML documentation** on all public members
-- ✅ **All tests passing:** 1,560 tests total (1,559 passing, 1 skipped)
-  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 77 (49 NEW), Core: 348, Tools: 847 + 1 skipped
+- ✅ **All tests passing:** 1,564 tests total (1,563 passing, 1 skipped)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 81 (53 NEW, 4 added in review fixes), Core: 348, Tools: 847 + 1 skipped
 - ✅ **Zero regressions:** All 1,517 existing tests from previous v0.4.0 issues still pass
+- ✅ **Review comments addressed:** All 5 security and correctness issues fixed (XML escaping, user mention preservation, bare command handling, performance)
 - ✅ Ready for Telegram response streaming and approval flow integration (issues #140, #141)
 
 ### Next Steps
