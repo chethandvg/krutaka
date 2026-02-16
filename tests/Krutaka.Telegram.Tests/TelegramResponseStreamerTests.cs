@@ -239,7 +239,7 @@ public class TelegramResponseStreamerTests
     }
 
     [Fact]
-    public async Task StreamResponseAsync_Should_CompleteWhenCancellationTokenIsAlreadyCancelled()
+    public async Task StreamResponseAsync_Should_ThrowWhenCancellationTokenIsAlreadyCancelled()
     {
         // Arrange
         var chatId = 12345L;
@@ -247,9 +247,9 @@ public class TelegramResponseStreamerTests
         await cts.CancelAsync();
         var events = CreateSingleEventStream(new TextDelta("Test"));
 
-        // Act & Assert - Should complete without throwing since the async enumerable hasn't started iterating yet
-        // when the token is already cancelled
-        await _streamer.StreamResponseAsync(chatId, events, null, cts.Token);
+        // Act & Assert - Should throw immediately when cancellation token is already cancelled
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _streamer.StreamResponseAsync(chatId, events, null, cts.Token));
     }
 
     [Fact]

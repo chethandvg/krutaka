@@ -19,7 +19,6 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
     private const int EditRateLimitWindowMs = 60_000; // 1 minute
 
     // TextDelta buffering configuration
-    private const int BufferFlushIntervalMs = 500; // 500ms
     private const int BufferFlushThresholdChars = 200; // chars
 
     // Telegram message length limit
@@ -49,11 +48,12 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(events);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var textBuffer = new StringBuilder();
+        var fullAccumulatedText = new StringBuilder();
         int? currentMessageId = null;
-        int? currentToolMessageId = null;
-        var lastFlushTime = DateTimeOffset.UtcNow;
+        var toolStatusMessages = new Dictionary<string, int>();
         using (var editTracker = new RateLimitTracker(MaxEditsPerMinute, EditRateLimitWindowMs))
         {
             try
@@ -65,18 +65,16 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
                         case TextDelta delta:
                             textBuffer.Append(delta.Text);
 
-                            // Flush buffer if threshold exceeded or timeout elapsed
-                            var timeSinceFlush = (DateTimeOffset.UtcNow - lastFlushTime).TotalMilliseconds;
-                            if (textBuffer.Length >= BufferFlushThresholdChars || timeSinceFlush >= BufferFlushIntervalMs)
+                            // Flush buffer if threshold exceeded
+                            if (textBuffer.Length >= BufferFlushThresholdChars)
                             {
                                 currentMessageId = await FlushTextBufferAsync(
                                     chatId,
                                     textBuffer,
+                                    fullAccumulatedText,
                                     currentMessageId,
                                     editTracker,
                                     cancellationToken).ConfigureAwait(false);
-
-                                lastFlushTime = DateTimeOffset.UtcNow;
                             }
 
                             break;
@@ -90,17 +88,17 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
                                 parseMode: ParseMode.MarkdownV2,
                                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
-                            currentToolMessageId = toolMessage.MessageId;
+                            toolStatusMessages[tool.ToolUseId] = toolMessage.MessageId;
                             break;
 
                         case ToolCallCompleted tool:
                             // Edit the tool status message to show completion
-                            if (currentToolMessageId.HasValue)
+                            if (toolStatusMessages.TryGetValue(tool.ToolUseId, out var completedMessageId))
                             {
                                 var toolCompleteText = $"✅ `{EscapeMarkdownV2(tool.ToolName)}` complete";
                                 await EditMessageSafeAsync(
                                     chatId,
-                                    currentToolMessageId.Value,
+                                    completedMessageId,
                                     toolCompleteText,
                                     editTracker,
                                     cancellationToken).ConfigureAwait(false);
@@ -110,7 +108,7 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
 
                         case ToolCallFailed tool:
                             // Edit the tool status message to show failure
-                            if (currentToolMessageId.HasValue)
+                            if (toolStatusMessages.TryGetValue(tool.ToolUseId, out var failedMessageId))
                             {
                                 var errorSnippet = tool.Error.Length > 100
                                     ? tool.Error[..100] + "..."
@@ -119,7 +117,7 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
 
                                 await EditMessageSafeAsync(
                                     chatId,
-                                    currentToolMessageId.Value,
+                                    failedMessageId,
                                     toolFailedText,
                                     editTracker,
                                     cancellationToken).ConfigureAwait(false);
@@ -134,6 +132,7 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
                                 await FlushTextBufferAsync(
                                     chatId,
                                     textBuffer,
+                                    fullAccumulatedText,
                                     currentMessageId,
                                     editTracker,
                                     cancellationToken).ConfigureAwait(false);
@@ -173,6 +172,7 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
                     await FlushTextBufferAsync(
                         chatId,
                         textBuffer,
+                        fullAccumulatedText,
                         currentMessageId,
                         editTracker,
                         cancellationToken).ConfigureAwait(false);
@@ -188,9 +188,13 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         }
     }
 
+    /// <summary>
+    /// Flushes the text buffer to Telegram, editing the existing message with the full accumulated text.
+    /// </summary>
     private async Task<int?> FlushTextBufferAsync(
         long chatId,
         StringBuilder buffer,
+        StringBuilder fullAccumulatedText,
         int? messageId,
         RateLimitTracker editTracker,
         CancellationToken cancellationToken)
@@ -203,11 +207,14 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         var text = buffer.ToString();
         buffer.Clear();
 
-        var formatted = TelegramMarkdownV2Formatter.Format(text);
+        // Append to full accumulated text
+        fullAccumulatedText.Append(text);
+
+        var formatted = TelegramMarkdownV2Formatter.Format(fullAccumulatedText.ToString()) ?? string.Empty;
 
         if (messageId.HasValue)
         {
-            // Edit existing message
+            // Edit existing message with full accumulated text
             await EditMessageSafeAsync(chatId, messageId.Value, formatted, editTracker, cancellationToken).ConfigureAwait(false);
             return messageId;
         }
@@ -259,7 +266,7 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         string content,
         CancellationToken cancellationToken)
     {
-        var formatted = TelegramMarkdownV2Formatter.Format(content);
+        var formatted = TelegramMarkdownV2Formatter.Format(content) ?? content;
 
         if (formatted.Length <= TelegramMaxMessageLength)
         {
@@ -287,6 +294,9 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         }
     }
 
+    /// <summary>
+    /// Splits text into chunks, tracking code fences to avoid breaking markdown.
+    /// </summary>
     private static List<string> SplitIntoChunks(string text, int maxLength)
     {
         var chunks = new List<string>();
@@ -299,31 +309,71 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
 
         var currentChunk = new StringBuilder();
         var lines = text.Split('\n');
+        var inCodeBlock = false;
+        string? codeFenceOpener = null;
 
         foreach (var line in lines)
         {
+            // Detect code fence toggles (``` or ~~~)
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            {
+                if (!inCodeBlock)
+                {
+                    codeFenceOpener = line;
+                }
+                else
+                {
+                    codeFenceOpener = null;
+                }
+
+                inCodeBlock = !inCodeBlock;
+            }
+
             // If a single line exceeds maxLength, we need to split it
             if (line.Length > maxLength)
             {
-                // Flush current chunk first
+                // Flush current chunk first, closing code fence if needed
                 if (currentChunk.Length > 0)
                 {
+                    if (inCodeBlock)
+                    {
+                        currentChunk.Append("\n```");
+                    }
+
                     chunks.Add(currentChunk.ToString());
                     currentChunk.Clear();
+
+                    // Reopen code fence in next chunk
+                    if (inCodeBlock && codeFenceOpener != null)
+                    {
+                        currentChunk.Append(codeFenceOpener).Append('\n');
+                    }
                 }
 
                 // Split the long line
-                var lineChunks = SplitLongLine(line, maxLength);
-                chunks.AddRange(lineChunks);
+                chunks.AddRange(SplitLongLine(line, maxLength));
                 continue;
             }
 
             // Check if adding this line would exceed the limit
             if (currentChunk.Length + line.Length + 1 > maxLength)
             {
+                // Close code fence if we're inside one
+                if (inCodeBlock)
+                {
+                    currentChunk.Append("\n```");
+                }
+
                 // Flush current chunk
                 chunks.Add(currentChunk.ToString());
                 currentChunk.Clear();
+
+                // Reopen code fence in next chunk
+                if (inCodeBlock && codeFenceOpener != null)
+                {
+                    currentChunk.Append(codeFenceOpener).Append('\n');
+                }
             }
 
             if (currentChunk.Length > 0)
