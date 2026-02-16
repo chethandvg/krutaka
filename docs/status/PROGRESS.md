@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-16 (v0.4.0 ITelegramAuthGuard complete — 1,516 tests passing, 1 skipped)
+> **Last updated:** 2026-02-16 (v0.4.0 ITelegramCommandRouter complete with review fixes — 1,564 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1956,6 +1956,81 @@ Three fundamental changes:
   - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 28 (NEW), Core: 348, Tools: 847 + 1 skipped
 - ✅ **Zero regressions:** All 1,289 existing tests from v0.3.0 still pass
 - ✅ Ready for Telegram command routing and response streaming integration
+
+### ITelegramCommandRouter — Command Parsing, Routing, Dispatch, and Basic Input Sanitizer (v0.4.0 Issue #139)
+
+**Status:** 🟢 Complete  
+**Date:** 2026-02-16
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-#139 | ITelegramCommandRouter implementation with command parsing, routing, admin gating, and basic input sanitization | Architecture | 🟢 Complete | 2026-02-16 |
+
+**Implementation details:**
+- ✅ Created `src/Krutaka.Telegram/TelegramCommand.cs` — enum with 13 command types (Ask, Task, Status, Abort, KillSwitch, Sessions, SwitchSession, Help, Config, Audit, Budget, New, Unknown)
+- ✅ Created `src/Krutaka.Telegram/CommandRouteResult.cs` — record with Command, Arguments, SanitizedInput, IsAdminOnly, Routed
+- ✅ Created `src/Krutaka.Telegram/ITelegramCommandRouter.cs` — interface with `RouteAsync(Update, AuthResult, CancellationToken)` method
+- ✅ Created `src/Krutaka.Telegram/TelegramCommandParser.cs` — static class with command parsing logic:
+  - Plain text (no `/` prefix) → `TelegramCommand.Ask`
+  - Case-insensitive command matching (using `ToUpperInvariant()` per CA1308 compliance)
+  - Bot mention stripping (`/ask@botname` → `/ask`)
+  - Argument extraction after command
+  - Multiline argument support
+- ✅ Created `src/Krutaka.Telegram/TelegramInputSanitizer.cs` — static class with **basic implementation** (hardening in issue #144):
+  - `SanitizeMessageText(text, userId)` — wraps in `<untrusted_content source="telegram:user:{userId}">` tags
+  - `SanitizeFileCaption(caption, userId)` — wraps captions with same pattern, returns null for empty
+  - Bot mention stripping before wrapping
+  - Note: Full hardening (Unicode NFC normalization, entity stripping, control character removal, homoglyph defense) deferred to issue #144
+- ✅ Created `src/Krutaka.Telegram/TelegramCommandRouter.cs` — implementation with:
+  - **Admin-only command gating:** `/config`, `/audit`, `/killswitch` require `AuthResult.UserRole == Admin`
+  - **Input sanitization:** All user-provided text wrapped via `TelegramInputSanitizer.SanitizeMessageText()`
+  - **Selective sanitization:** Commands without user input (`/status`, `/help`, etc.) have `SanitizedInput = null`
+  - **Unknown command handling:** Returns `Routed = false` for unrecognized commands
+  - **Null validation:** Throws `ArgumentNullException` for null `Update` or `AuthResult`
+- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramCommandParserTests.cs` — 20 tests:
+  - All 12 command types parsed correctly
+  - Plain text → Ask
+  - Case insensitivity (`/ASK` → Ask)
+  - Bot mention stripping (`/ask@krutaka_bot` → Ask)
+  - Argument extraction (`/task description` → arguments="description")
+  - Edge cases (empty, whitespace, multiline arguments)
+- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramCommandRouterTests.cs` — 20 tests (1 added for bare /ask):
+  - Ask command with sanitized input
+  - Plain text routed as Ask command
+  - Task command with sanitized input
+  - Status, Abort, Help, Budget, New commands without sanitization
+  - KillSwitch as admin-only, denied for non-admin
+  - Config as admin-only, denied for non-admin
+  - Audit with sanitized arguments, admin-only, denied for non-admin
+  - Sessions, SwitchSession commands
+  - Unknown command returns unrouted
+  - Empty message returns unrouted
+  - Bare /ask command has null SanitizedInput (added)
+  - Null parameter validation (2 tests)
+- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramInputSanitizerTests.cs` — 13 tests (4 added for security):
+  - Message text wrapped in untrusted_content tags
+  - XML escaping prevents tag breakout (added)
+  - User mentions preserved (@alice, @bob) (added)
+  - Email addresses preserved (alice@example.com) (added)
+  - Source attribution format verified (`telegram:user:{userId}`)
+  - Empty/null text returns empty string
+  - File caption wrapping
+  - File caption XML escaping (added)
+  - File caption null/empty/whitespace returns null
+- ✅ **Security checkpoints verified:**
+  - ✅ Every user text field wrapped in `<untrusted_content>` tags
+  - ✅ XML escaping added for defense-in-depth (SecurityElement.Escape)
+  - ✅ User content preserved (@mentions, emails) - bot mentions only stripped from command portion
+  - ✅ Admin-only commands properly gated by `AuthResult.UserRole`
+  - ✅ No sensitive data in logs or error messages
+  - ✅ Bare /ask command correctly has null SanitizedInput
+- ✅ **Code analysis compliance:** CA1307 (StringComparison.Ordinal), CA1308 (ToUpperInvariant) satisfied
+- ✅ **XML documentation** on all public members
+- ✅ **All tests passing:** 1,564 tests total (1,563 passing, 1 skipped)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 81 (53 NEW, 4 added in review fixes), Core: 348, Tools: 847 + 1 skipped
+- ✅ **Zero regressions:** All 1,517 existing tests from previous v0.4.0 issues still pass
+- ✅ **Review comments addressed:** All 5 security and correctness issues fixed (XML escaping, user mention preservation, bare command handling, performance)
+- ✅ Ready for Telegram response streaming and approval flow integration (issues #140, #141)
 
 ### Next Steps
 
