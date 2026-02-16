@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Krutaka.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -53,6 +54,14 @@ public static class ServiceExtensions
         // Register ITelegramCommandRouter as singleton (implemented in issue #139)
         // Note: Stateless router that can be safely shared across all sessions  
         services.AddSingleton<ITelegramCommandRouter, TelegramCommandRouter>();
+
+        // Generate HMAC secret for callback signing (once per application lifetime)
+        var hmacSecret = RandomNumberGenerator.GetBytes(32);
+        services.AddSingleton(new CallbackDataSigner(hmacSecret));
+
+        // Register ITelegramApprovalHandler as singleton
+        // Note: Stateless handler (nonce tracking is thread-safe) that can be safely shared across all sessions
+        services.AddSingleton<ITelegramApprovalHandler, TelegramApprovalHandler>();
 
         return services;
     }
