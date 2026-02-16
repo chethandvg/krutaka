@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-15 (v0.4.0 Telegram audit events complete — 1,483 tests passing, 1 skipped)
+> **Last updated:** 2026-02-16 (v0.4.0 ITelegramAuthGuard complete — 1,315 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1900,6 +1900,64 @@ Three fundamental changes:
 - ✅ **Build succeeds:** Zero warnings, zero errors
 - ✅ **Ready for Telegram bot implementation:** Placeholder for ITelegramAuthGuard, ITelegramCommandRouter, ITelegramResponseStreamer (to be implemented in later issues)
 
+### ITelegramAuthGuard — Authentication, Rate Limiting, Lockout, Anti-Replay (v0.4.0 Issue #138)
+
+**Status:** 🟢 Complete  
+**Date:** 2026-02-16
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-#138 | ITelegramAuthGuard implementation with authentication, rate limiting, lockout, and anti-replay | Security | 🟢 Complete | 2026-02-16 |
+
+**Implementation details:**
+- ✅ Created `src/Krutaka.Telegram/AuthResult.cs` — immutable record with validation result, user role, denial reason
+  - Factory methods: `AuthResult.Valid()` and `AuthResult.Invalid()` for clean construction
+- ✅ Created `src/Krutaka.Telegram/ITelegramAuthGuard.cs` — interface with single method `ValidateAsync(Update, CancellationToken)`
+- ✅ Created `src/Krutaka.Telegram/TelegramAuthGuard.cs` — full implementation with:
+  - **User allowlist:** `HashSet<long>` for O(1) lookup + `Dictionary<long, TelegramUserConfig>` for role lookup
+  - **Sliding window rate limiter:** `ConcurrentDictionary<long, SlidingWindowCounter>` per-user, automatically removes expired entries
+  - **Lockout tracking:** `ConcurrentDictionary<long, LockoutState>` per-user, monotonic clock (Environment.TickCount64)
+  - **Anti-replay:** Global `_lastProcessedUpdateId` tracking using atomic Interlocked operations
+  - **Input validation:** Rejects messages exceeding `MaxInputMessageLength`
+  - **Silent drop:** Unknown users receive NO reply, only audit log entry
+  - **Audit logging:** Every validation logs `TelegramAuthEvent`, rate limits log `TelegramRateLimitEvent`, incidents log `TelegramSecurityIncidentEvent`
+  - **Automatic lockout expiration:** Clears lockout state when `LockoutDurationValue` expires
+- ✅ Created `src/Krutaka.Telegram/SlidingWindowCounter.cs` — thread-safe sliding window with lock-based synchronization
+  - Tracks command timestamps in milliseconds (Environment.TickCount64)
+  - Automatically removes expired timestamps on each check
+- ✅ Created `src/Krutaka.Telegram/LockoutState.cs` — thread-safe lockout state with Interlocked atomic operations
+  - Uses monotonic clock (Environment.TickCount64) in milliseconds, immune to wall clock manipulation
+  - Atomic increment of failed attempts, atomic lockout trigger/clear
+- ✅ Updated `src/Krutaka.Telegram/ServiceExtensions.cs` — registered `ITelegramAuthGuard` as singleton
+  - Singleton is correct: rate limiting and lockout state must be shared across all sessions for the same user
+- ✅ Created `tests/Krutaka.Telegram.Tests/TelegramAuthGuardTests.cs` — 27 comprehensive tests:
+  - Valid user in allowlist → success with correct UserRole (Admin or User)
+  - Unknown user → denied with `UnknownUserAttempt` security incident
+  - Rate limit: exceed MaxCommandsPerMinute → denied with `RateLimitEvent`
+  - Rate limit: sliding window expiration → requests succeed again after 1 minute
+  - Lockout: MaxFailedAuthAttempts rate limit failures → lockout triggered with `LockoutTriggered` incident
+  - Lockout: LockoutDuration expiration → requests succeed again (with both lockout AND rate limit window expired)
+  - Anti-replay: duplicate `update_id` → denied with `ReplayAttempt` incident
+  - Anti-replay: older `update_id` → denied
+  - Anti-replay: newer `update_id` → accepted
+  - Input validation: message exceeding MaxInputMessageLength → denied
+  - Input validation: message at exact MaxInputMessageLength → accepted
+  - Null message handling → treats null as empty string, accepts
+  - Update with no user (From is null) → denied with userId=0
+  - Concurrent auth checks: 10 parallel tasks, same user → all complete without exception (some may be rate-limited)
+  - Concurrent auth checks: 10 parallel tasks, different users → all succeed
+  - Constructor null parameter validation (3 tests for config, auditLogger, correlationAccessor)
+  - ValidateAsync null update validation
+- ✅ **Thread-safety verified:** Concurrent request tests confirm no race conditions in ConcurrentDictionary, Interlocked, and lock-based operations
+- ✅ **Monotonic clock confirmed:** Uses `Environment.TickCount64` (milliseconds) for all timing, immune to system clock changes
+- ✅ **Silent drop verified:** Unknown user test confirms no exception thrown, only audit log entry
+- ✅ **XML documentation** on all public members
+- ✅ **All tests passing:** 1,316 tests total (1,315 passing, 1 skipped)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 27 (NEW), Core: 348, Tools: 847 + 1 skipped
+- ✅ **Zero regressions:** All 1,289 existing tests from v0.3.0 still pass
+- ✅ Ready for Telegram command routing and response streaming integration
+
 ### Next Steps
 
 Implementation of v0.4.0 components will follow the complete issue breakdown in `docs/versions/v0.4.0.md`.
+
