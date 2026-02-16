@@ -50,8 +50,9 @@ public static class ServiceExtensions
         // Note: Stateless streamer that can be safely shared across all sessions
         services.AddSingleton<ITelegramResponseStreamer, TelegramResponseStreamer>();
 
-        // Placeholder registrations for interfaces to be implemented in later issues
-        // Note: ITelegramCommandRouter will be registered in its respective implementation issue (#139)
+        // Register ITelegramCommandRouter as singleton (implemented in issue #139)
+        // Note: Stateless router that can be safely shared across all sessions  
+        services.AddSingleton<ITelegramCommandRouter, TelegramCommandRouter>();
 
         return services;
     }

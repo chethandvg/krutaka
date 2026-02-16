@@ -9,7 +9,7 @@ namespace Krutaka.Telegram;
 /// <summary>
 /// Streams agent events to Telegram messages with token buffering, rate limiting, and message chunking.
 /// </summary>
-public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
+public sealed partial class TelegramResponseStreamer : ITelegramResponseStreamer
 {
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<TelegramResponseStreamer> _logger;
@@ -54,137 +54,138 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         var fullAccumulatedText = new StringBuilder();
         int? currentMessageId = null;
         var toolStatusMessages = new Dictionary<string, int>();
-        using (var editTracker = new RateLimitTracker(MaxEditsPerMinute, EditRateLimitWindowMs))
+        
+        // Get or create per-chat rate limiter (shared across all concurrent calls for this chat)
+        var editTracker = _perChatRateLimiters.GetOrAdd(chatId, _ => new RateLimitTracker(MaxEditsPerMinute, EditRateLimitWindowMs));
+
+        try
         {
-            try
+            await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
             {
-                await foreach (var evt in events.WithCancellation(cancellationToken).ConfigureAwait(false))
+                switch (evt)
                 {
-                    switch (evt)
-                    {
-                        case TextDelta delta:
-                            textBuffer.Append(delta.Text);
+                    case TextDelta delta:
+                        textBuffer.Append(delta.Text);
 
-                            // Flush buffer if threshold exceeded
-                            if (textBuffer.Length >= BufferFlushThresholdChars)
-                            {
-                                currentMessageId = await FlushTextBufferAsync(
-                                    chatId,
-                                    textBuffer,
-                                    fullAccumulatedText,
-                                    currentMessageId,
-                                    editTracker,
-                                    cancellationToken).ConfigureAwait(false);
-                            }
-
-                            break;
-
-                        case ToolCallStarted tool:
-                            // Send a new message for tool call status
-                            var toolStartText = $"⚙️ Running `{EscapeMarkdownV2(tool.ToolName)}`\\.\\.\\.";
-                            var toolMessage = await _botClient.SendMessage(
+                        // Flush buffer if threshold exceeded
+                        if (textBuffer.Length >= BufferFlushThresholdChars)
+                        {
+                            currentMessageId = await FlushTextBufferAsync(
                                 chatId,
-                                toolStartText,
-                                parseMode: ParseMode.MarkdownV2,
-                                cancellationToken: cancellationToken).ConfigureAwait(false);
+                                textBuffer,
+                                fullAccumulatedText,
+                                currentMessageId,
+                                editTracker,
+                                cancellationToken).ConfigureAwait(false);
+                        }
 
-                            toolStatusMessages[tool.ToolUseId] = toolMessage.MessageId;
-                            break;
+                        break;
 
-                        case ToolCallCompleted tool:
-                            // Edit the tool status message to show completion
-                            if (toolStatusMessages.TryGetValue(tool.ToolUseId, out var completedMessageId))
-                            {
-                                var toolCompleteText = $"✅ `{EscapeMarkdownV2(tool.ToolName)}` complete";
-                                await EditMessageSafeAsync(
-                                    chatId,
-                                    completedMessageId,
-                                    toolCompleteText,
-                                    editTracker,
-                                    cancellationToken).ConfigureAwait(false);
-                            }
+                    case ToolCallStarted tool:
+                        // Send a new message for tool call status
+                        var toolStartText = $"⚙️ Running `{EscapeMarkdownV2(tool.ToolName)}`\\.\\.\\.";
+                        var toolMessage = await _botClient.SendMessage(
+                            chatId,
+                            toolStartText,
+                            parseMode: ParseMode.MarkdownV2,
+                            cancellationToken: cancellationToken).ConfigureAwait(false);
 
-                            break;
+                        toolStatusMessages[tool.ToolUseId] = toolMessage.MessageId;
+                        break;
 
-                        case ToolCallFailed tool:
-                            // Edit the tool status message to show failure
-                            if (toolStatusMessages.TryGetValue(tool.ToolUseId, out var failedMessageId))
-                            {
-                                var errorSnippet = tool.Error.Length > 100
-                                    ? tool.Error[..100] + "..."
-                                    : tool.Error;
-                                var toolFailedText = $"❌ `{EscapeMarkdownV2(tool.ToolName)}` failed: {EscapeMarkdownV2(errorSnippet)}";
+                    case ToolCallCompleted tool:
+                        // Edit the tool status message to show completion
+                        if (toolStatusMessages.TryGetValue(tool.ToolUseId, out var completedMessageId))
+                        {
+                            var toolCompleteText = $"✅ `{EscapeMarkdownV2(tool.ToolName)}` complete";
+                            await EditMessageSafeAsync(
+                                chatId,
+                                completedMessageId,
+                                toolCompleteText,
+                                editTracker,
+                                cancellationToken).ConfigureAwait(false);
+                        }
 
-                                await EditMessageSafeAsync(
-                                    chatId,
-                                    failedMessageId,
-                                    toolFailedText,
-                                    editTracker,
-                                    cancellationToken).ConfigureAwait(false);
-                            }
+                        break;
 
-                            break;
+                    case ToolCallFailed tool:
+                        // Edit the tool status message to show failure
+                        if (toolStatusMessages.TryGetValue(tool.ToolUseId, out var failedMessageId))
+                        {
+                            var errorSnippet = tool.Error.Length > 100
+                                ? tool.Error[..100] + "..."
+                                : tool.Error;
+                            var toolFailedText = $"❌ `{EscapeMarkdownV2(tool.ToolName)}` failed: {EscapeMarkdownV2(errorSnippet)}";
 
-                        case FinalResponse final:
-                            // Flush any remaining text buffer first
-                            if (textBuffer.Length > 0)
-                            {
-                                await FlushTextBufferAsync(
-                                    chatId,
-                                    textBuffer,
-                                    fullAccumulatedText,
-                                    currentMessageId,
-                                    editTracker,
-                                    cancellationToken).ConfigureAwait(false);
-                            }
+                            await EditMessageSafeAsync(
+                                chatId,
+                                failedMessageId,
+                                toolFailedText,
+                                editTracker,
+                                cancellationToken).ConfigureAwait(false);
+                        }
 
-                            // Send the final response (may not be in buffer if no TextDeltas were emitted)
-                            if (!string.IsNullOrWhiteSpace(final.Content))
-                            {
-                                await SendChunkedMessageAsync(
-                                    chatId,
-                                    final.Content,
-                                    cancellationToken).ConfigureAwait(false);
-                            }
+                        break;
 
-                            break;
+                    case FinalResponse final:
+                        // Flush any remaining text buffer first
+                        if (textBuffer.Length > 0)
+                        {
+                            await FlushTextBufferAsync(
+                                chatId,
+                                textBuffer,
+                                fullAccumulatedText,
+                                currentMessageId,
+                                editTracker,
+                                cancellationToken).ConfigureAwait(false);
+                        }
 
-                        case HumanApprovalRequired:
-                        case DirectoryAccessRequested:
-                        case CommandApprovalRequested:
-                            // Delegate interactive events to the caller via callback
-                            if (onInteractiveEvent != null)
-                            {
-                                await onInteractiveEvent(evt).ConfigureAwait(false);
-                            }
+                        // Send the final response (may not be in buffer if no TextDeltas were emitted)
+                        if (!string.IsNullOrWhiteSpace(final.Content))
+                        {
+                            await SendChunkedMessageAsync(
+                                chatId,
+                                final.Content,
+                                cancellationToken).ConfigureAwait(false);
+                        }
 
-                            break;
+                        break;
 
-                        case RequestIdCaptured:
-                            // Silently consumed - used internally by CorrelationContext
-                            break;
-                    }
-                }
+                    case HumanApprovalRequired:
+                    case DirectoryAccessRequested:
+                    case CommandApprovalRequested:
+                        // Delegate interactive events to the caller via callback
+                        if (onInteractiveEvent != null)
+                        {
+                            await onInteractiveEvent(evt).ConfigureAwait(false);
+                        }
 
-                // Final flush if there's any remaining buffered text
-                if (textBuffer.Length > 0)
-                {
-                    await FlushTextBufferAsync(
-                        chatId,
-                        textBuffer,
-                        fullAccumulatedText,
-                        currentMessageId,
-                        editTracker,
-                        cancellationToken).ConfigureAwait(false);
+                        break;
+
+                    case RequestIdCaptured:
+                        // Silently consumed - used internally by CorrelationContext
+                        break;
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+
+            // Final flush if there's any remaining buffered text
+            if (textBuffer.Length > 0)
             {
-#pragma warning disable CA1848 // Use the LoggerMessage delegates
-                _logger.LogError(ex, "Error streaming response to chat {ChatId}", chatId);
-#pragma warning restore CA1848 // Use the LoggerMessage delegates
-                throw;
+                await FlushTextBufferAsync(
+                    chatId,
+                    textBuffer,
+                    fullAccumulatedText,
+                    currentMessageId,
+                    editTracker,
+                    cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+#pragma warning disable CA1848 // Use the LoggerMessage delegates
+            _logger.LogError(ex, "Error streaming response to chat {ChatId}", chatId);
+#pragma warning restore CA1848 // Use the LoggerMessage delegates
+            throw;
         }
     }
 
@@ -294,131 +295,6 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
         }
     }
 
-    /// <summary>
-    /// Splits text into chunks, tracking code fences to avoid breaking markdown.
-    /// </summary>
-    private static List<string> SplitIntoChunks(string text, int maxLength)
-    {
-        var chunks = new List<string>();
-
-        if (text.Length <= maxLength)
-        {
-            chunks.Add(text);
-            return chunks;
-        }
-
-        var currentChunk = new StringBuilder();
-        var lines = text.Split('\n');
-        var inCodeBlock = false;
-        string? codeFenceOpener = null;
-
-        foreach (var line in lines)
-        {
-            // Detect code fence toggles (``` or ~~~)
-            var trimmed = line.TrimStart();
-            if (trimmed.StartsWith("```", StringComparison.Ordinal))
-            {
-                if (!inCodeBlock)
-                {
-                    codeFenceOpener = line;
-                }
-                else
-                {
-                    codeFenceOpener = null;
-                }
-
-                inCodeBlock = !inCodeBlock;
-            }
-
-            // If a single line exceeds maxLength, we need to split it
-            if (line.Length > maxLength)
-            {
-                // Flush current chunk first, closing code fence if needed
-                if (currentChunk.Length > 0)
-                {
-                    if (inCodeBlock)
-                    {
-                        currentChunk.Append("\n```");
-                    }
-
-                    chunks.Add(currentChunk.ToString());
-                    currentChunk.Clear();
-
-                    // Reopen code fence in next chunk
-                    if (inCodeBlock && codeFenceOpener != null)
-                    {
-                        currentChunk.Append(codeFenceOpener).Append('\n');
-                    }
-                }
-
-                // Split the long line
-                chunks.AddRange(SplitLongLine(line, maxLength));
-                continue;
-            }
-
-            // Check if adding this line would exceed the limit
-            if (currentChunk.Length + line.Length + 1 > maxLength)
-            {
-                // Close code fence if we're inside one
-                if (inCodeBlock)
-                {
-                    currentChunk.Append("\n```");
-                }
-
-                // Flush current chunk
-                chunks.Add(currentChunk.ToString());
-                currentChunk.Clear();
-
-                // Reopen code fence in next chunk
-                if (inCodeBlock && codeFenceOpener != null)
-                {
-                    currentChunk.Append(codeFenceOpener).Append('\n');
-                }
-            }
-
-            if (currentChunk.Length > 0)
-            {
-                currentChunk.Append('\n');
-            }
-
-            currentChunk.Append(line);
-        }
-
-        // Add final chunk
-        if (currentChunk.Length > 0)
-        {
-            chunks.Add(currentChunk.ToString());
-        }
-
-        return chunks;
-    }
-
-    private static List<string> SplitLongLine(string line, int maxLength)
-    {
-        var chunks = new List<string>();
-        var remaining = line;
-
-        while (remaining.Length > maxLength)
-        {
-            // Try to split at a space near maxLength
-            var splitIndex = remaining.LastIndexOf(' ', maxLength);
-            if (splitIndex <= 0)
-            {
-                splitIndex = maxLength;
-            }
-
-            chunks.Add(remaining[..splitIndex]);
-            remaining = remaining[splitIndex..].TrimStart();
-        }
-
-        if (remaining.Length > 0)
-        {
-            chunks.Add(remaining);
-        }
-
-        return chunks;
-    }
-
     private static string EscapeMarkdownV2(string text)
     {
         // Use a simple escape for tool names and short strings
@@ -439,72 +315,5 @@ public sealed class TelegramResponseStreamer : ITelegramResponseStreamer
                    .Replace("}", "\\}", StringComparison.Ordinal)
                    .Replace(".", "\\.", StringComparison.Ordinal)
                    .Replace("!", "\\!", StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Tracks edit operations to enforce Telegram's rate limit of ~30 edits/minute/chat.
-    /// </summary>
-    private sealed class RateLimitTracker : IDisposable
-    {
-        private readonly int _maxEdits;
-        private readonly int _windowMs;
-        private readonly Queue<DateTimeOffset> _editTimestamps = new();
-        private readonly SemaphoreSlim _semaphore = new(1, 1);
-        private bool _disposed;
-
-        public RateLimitTracker(int maxEdits, int windowMs)
-        {
-            _maxEdits = maxEdits;
-            _windowMs = windowMs;
-        }
-
-        public void RecordEdit()
-        {
-            _editTimestamps.Enqueue(DateTimeOffset.UtcNow);
-        }
-
-        public async Task WaitIfNeededAsync(CancellationToken cancellationToken)
-        {
-            await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                // Remove old timestamps outside the window
-                var cutoff = DateTimeOffset.UtcNow.AddMilliseconds(-_windowMs);
-                while (_editTimestamps.Count > 0 && _editTimestamps.Peek() < cutoff)
-                {
-                    _editTimestamps.Dequeue();
-                }
-
-                // If we're at the limit, wait until the oldest edit expires
-                if (_editTimestamps.Count >= _maxEdits)
-                {
-                    var oldestEdit = _editTimestamps.Peek();
-                    var waitTime = oldestEdit.AddMilliseconds(_windowMs) - DateTimeOffset.UtcNow;
-
-                    if (waitTime > TimeSpan.Zero)
-                    {
-                        await Task.Delay(waitTime, cancellationToken).ConfigureAwait(false);
-
-                        // Remove the expired edit
-                        _editTimestamps.Dequeue();
-                    }
-                }
-            }
-            finally
-            {
-                _semaphore.Release();
-            }
-        }
-
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _semaphore.Dispose();
-            _disposed = true;
-        }
     }
 }
