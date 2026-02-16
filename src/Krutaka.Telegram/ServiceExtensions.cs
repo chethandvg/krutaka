@@ -46,9 +46,13 @@ public static class ServiceExtensions
         // across all sessions, which is correct for Telegram auth guard
         services.AddSingleton<ITelegramAuthGuard, TelegramAuthGuard>();
 
-        // Placeholder registrations for interfaces to be implemented in later issues
-        // Note: ITelegramCommandRouter, ITelegramResponseStreamer will be
-        // registered in their respective implementation issues (#139, #140)
+        // Register ITelegramResponseStreamer as singleton
+        // Note: Stateless streamer that can be safely shared across all sessions
+        services.AddSingleton<ITelegramResponseStreamer, TelegramResponseStreamer>();
+
+        // Register ITelegramCommandRouter as singleton (implemented in issue #139)
+        // Note: Stateless router that can be safely shared across all sessions  
+        services.AddSingleton<ITelegramCommandRouter, TelegramCommandRouter>();
 
         return services;
     }

@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-16 (v0.4.0 ITelegramCommandRouter complete with review fixes — 1,564 tests passing, 1 skipped)
+> **Last updated:** 2026-02-16 (v0.4.0 ITelegramResponseStreamer complete — 1,597 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2031,6 +2031,77 @@ Three fundamental changes:
 - ✅ **Zero regressions:** All 1,517 existing tests from previous v0.4.0 issues still pass
 - ✅ **Review comments addressed:** All 5 security and correctness issues fixed (XML escaping, user mention preservation, bare command handling, performance)
 - ✅ Ready for Telegram response streaming and approval flow integration (issues #140, #141)
+
+### ITelegramResponseStreamer — Map AgentEvent Stream to Telegram Message Edits (v0.4.0 Issue #140)
+
+**Summary:** Implement Telegram response streamer mapping `IAsyncEnumerable<AgentEvent>` to Telegram message edits with token buffering, rate limiting, message chunking, MarkdownV2 formatting, and tool call status indicators.
+
+**Status:** 🟢 Complete (2026-02-16)
+
+| ID | Component | Status | Date |
+|---|---|---|---|
+| v0.4.0-#140 | ITelegramResponseStreamer implementation with buffering, rate limiting, chunking, and MarkdownV2 formatting | Complete | 2026-02-16 |
+
+**Deliverables:**
+- ✅ `ITelegramResponseStreamer.cs` — interface with `StreamResponseAsync` method
+- ✅ `TelegramResponseStreamer.cs` — implementation with:
+  - TextDelta buffering: 200 char threshold (event-driven flush, no timer)
+  - Rate limiting: 30 edits/min/chat (per-chat, shared across calls, monotonic clock)
+  - Tool call status: ⚙️ Running, ✅ complete, ❌ failed messages
+  - Message chunking: 4096 char limit with smart line-based splitting
+  - Interactive event delegation via callback
+  - RequestIdCaptured silent consumption
+  - FinalResponse with MarkdownV2 formatting
+- ✅ `TelegramMarkdownV2Formatter.cs` — static helper with:
+  - Escape 17 special characters: `_ * [ ] ( ) ~ > # + - = | { } . !`
+  - Preserve code blocks (triple backtick) without escaping
+  - Preserve inline code (single backtick) without escaping
+  - Graceful fallback for formatting errors
+- ✅ Registered in `ServiceExtensions.cs` as singleton (stateless streamer)
+
+**Tests:**
+- ✅ **TelegramMarkdownV2FormatterTests**: 18 tests covering:
+  - Individual character escaping (_,  *, [, ], etc.)
+  - All 17 special characters in one test
+  - Code block preservation (triple backtick)
+  - Inline code preservation (single backtick)
+  - Mixed code blocks and plain text
+  - Empty/null handling
+  - Unmatched code blocks (graceful degradation)
+  - Real-world complex Markdown
+- ✅ **TelegramResponseStreamerTests**: 15 tests covering:
+  - TextDelta processing
+  - ToolCallStarted/Completed/Failed events
+  - FinalResponse event
+  - Empty FinalResponse (no message sent)
+  - Interactive event callbacks (HumanApprovalRequired, DirectoryAccessRequested, CommandApprovalRequested)
+  - RequestIdCaptured silent consumption
+  - Mixed event handling
+  - Cancellation token handling
+  - Constructor argument validation
+- ✅ **Total test count:** 1,597 (was 1,564, +33 new tests)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 114 (81 + 33 NEW), Core: 348, Tools: 847 + 1 skipped
+- ✅ **Zero regressions:** All 1,564 existing tests from previous v0.4.0 issues still pass
+- ✅ **Build:** Zero warnings, zero errors
+
+**Security & Correctness:**
+- ✅ Rate limiting prevents Telegram API abuse (30 edits/min enforced)
+- ✅ MarkdownV2 escaping prevents formatting injection
+- ✅ Interactive events delegated via callback (prevents approval bypass)
+- ✅ Message content sanitization handled upstream by TelegramInputSanitizer
+- ✅ All async methods use ConfigureAwait(false)
+- ✅ RateLimitTracker properly disposes SemaphoreSlim (CA2000)
+- ✅ Specific exception types caught (CA1031)
+- ✅ LoggerMessage suppressions for non-critical error paths (CA1848)
+
+**Architecture:**
+- ✅ Stateless singleton service (safe to share across sessions)
+- ✅ Accepts `IAsyncEnumerable<AgentEvent>` from AgentOrchestrator
+- ✅ Uses Telegram.Bot v22.9.0 package (already in project)
+- ✅ Compatible with ConsoleUI.DisplayStreamingResponseAsync pattern
+- ✅ XML documentation on all public members
+
+**Ready for:** Telegram approval flow integration (issue #141)
 
 ### Next Steps
 
