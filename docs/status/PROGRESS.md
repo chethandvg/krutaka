@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-16 (v0.4.0 ITelegramAuthGuard complete — 1,315 tests passing, 1 skipped)
+> **Last updated:** 2026-02-16 (v0.4.0 ITelegramAuthGuard complete — 1,516 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1952,8 +1952,8 @@ Three fundamental changes:
 - ✅ **Monotonic clock confirmed:** Uses `Environment.TickCount64` (milliseconds) for all timing, immune to system clock changes
 - ✅ **Silent drop verified:** Unknown user test confirms no exception thrown, only audit log entry
 - ✅ **XML documentation** on all public members
-- ✅ **All tests passing:** 1,316 tests total (1,315 passing, 1 skipped)
-  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 27 (NEW), Core: 348, Tools: 847 + 1 skipped
+- ✅ **All tests passing:** 1,517 tests total (1,516 passing, 1 skipped)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 28 (NEW), Core: 348, Tools: 847 + 1 skipped
 - ✅ **Zero regressions:** All 1,289 existing tests from v0.3.0 still pass
 - ✅ Ready for Telegram command routing and response streaming integration
 

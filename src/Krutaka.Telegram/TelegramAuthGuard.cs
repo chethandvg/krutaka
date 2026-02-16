@@ -69,6 +69,7 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
     public Task<AuthResult> ValidateAsync(Update update, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(update);
+        cancellationToken.ThrowIfCancellationRequested();
 
         // Extract user ID and chat ID
         var userId = update.Message?.From?.Id ?? update.CallbackQuery?.From?.Id ?? 0;
@@ -201,40 +202,52 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
         }
 
         // Check 4: Anti-replay (update_id must be greater than last processed)
-        var lastProcessed = Interlocked.CompareExchange(ref _lastProcessedUpdateId, updateId, _lastProcessedUpdateId);
-        if (updateId <= lastProcessed)
+        // Use CAS loop to maintain monotonic watermark (only advance, never go backwards)
+        while (true)
         {
-            var reason = "Replay attempt detected";
+            var lastProcessed = Volatile.Read(ref _lastProcessedUpdateId);
 
-            // Log security incident for replay attempt
-            _auditLogger.LogTelegramSecurityIncident(correlationContext, new TelegramSecurityIncidentEvent
+            // Check if this is a replay attempt
+            if (updateId <= lastProcessed)
             {
-                SessionId = correlationContext.SessionId,
-                TurnId = correlationContext.TurnId,
-                TelegramUserId = userId,
-                Type = IncidentType.ReplayAttempt,
-                Details = $"Replay attempt: update_id {updateId} <= last processed {lastProcessed}",
-                Timestamp = DateTimeOffset.UtcNow
-            });
+                var reason = "Replay attempt detected";
 
-            // Log authentication failure
-            _auditLogger.LogTelegramAuth(correlationContext, new TelegramAuthEvent
+                // Log security incident for replay attempt
+                _auditLogger.LogTelegramSecurityIncident(correlationContext, new TelegramSecurityIncidentEvent
+                {
+                    SessionId = correlationContext.SessionId,
+                    TurnId = correlationContext.TurnId,
+                    TelegramUserId = userId,
+                    Type = IncidentType.ReplayAttempt,
+                    Details = $"Replay attempt: update_id {updateId} <= last processed {lastProcessed}",
+                    Timestamp = DateTimeOffset.UtcNow
+                });
+
+                // Log authentication failure
+                _auditLogger.LogTelegramAuth(correlationContext, new TelegramAuthEvent
+                {
+                    SessionId = correlationContext.SessionId,
+                    TurnId = correlationContext.TurnId,
+                    TelegramUserId = userId,
+                    TelegramChatId = chatId,
+                    Outcome = AuthOutcome.Denied,
+                    DeniedReason = reason,
+                    UpdateId = updateId,
+                    Timestamp = DateTimeOffset.UtcNow
+                });
+
+                return Task.FromResult(AuthResult.Invalid(reason, userId, chatId));
+            }
+
+            // Try to advance the watermark atomically (CAS only succeeds if no other thread updated it)
+            var original = Interlocked.CompareExchange(ref _lastProcessedUpdateId, updateId, lastProcessed);
+            if (original == lastProcessed)
             {
-                SessionId = correlationContext.SessionId,
-                TurnId = correlationContext.TurnId,
-                TelegramUserId = userId,
-                TelegramChatId = chatId,
-                Outcome = AuthOutcome.Denied,
-                DeniedReason = reason,
-                UpdateId = updateId,
-                Timestamp = DateTimeOffset.UtcNow
-            });
-
-            return Task.FromResult(AuthResult.Invalid(reason, userId, chatId));
+                // Successfully updated - this update is accepted
+                break;
+            }
+            // If CAS failed, another thread updated the watermark - retry the loop
         }
-
-        // Update last processed update_id
-        Interlocked.Exchange(ref _lastProcessedUpdateId, updateId);
 
         // Check 5: Input validation (message length)
         var messageText = update.Message?.Text ?? update.CallbackQuery?.Data ?? string.Empty;
