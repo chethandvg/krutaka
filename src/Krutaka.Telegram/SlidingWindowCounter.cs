@@ -13,8 +13,8 @@ internal sealed class SlidingWindowCounter
     /// Adds a new timestamp to the window and returns the count within the window.
     /// Automatically removes expired timestamps.
     /// </summary>
-    /// <param name="currentTicks">The current tick count (from Environment.TickCount64).</param>
-    /// <param name="windowDurationTicks">The window duration in ticks.</param>
+    /// <param name="currentTicks">The current tick count in milliseconds (from Environment.TickCount64).</param>
+    /// <param name="windowDurationTicks">The window duration in milliseconds.</param>
     /// <returns>The number of timestamps within the window (including the new one).</returns>
     public int AddAndGetCount(long currentTicks, long windowDurationTicks)
     {
@@ -34,8 +34,8 @@ internal sealed class SlidingWindowCounter
     /// Gets the current count of timestamps within the window without adding a new one.
     /// Automatically removes expired timestamps.
     /// </summary>
-    /// <param name="currentTicks">The current tick count (from Environment.TickCount64).</param>
-    /// <param name="windowDurationTicks">The window duration in ticks.</param>
+    /// <param name="currentTicks">The current tick count in milliseconds (from Environment.TickCount64).</param>
+    /// <param name="windowDurationTicks">The window duration in milliseconds.</param>
     /// <returns>The number of timestamps within the window.</returns>
     public int GetCount(long currentTicks, long windowDurationTicks)
     {

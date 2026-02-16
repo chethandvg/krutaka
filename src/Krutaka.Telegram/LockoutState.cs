@@ -15,14 +15,14 @@ internal sealed class LockoutState
     public int FailedAttempts => _failedAttempts;
 
     /// <summary>
-    /// Gets the tick count when the lockout expires (0 if not locked out).
+    /// Gets the tick count in milliseconds when the lockout expires (0 if not locked out).
     /// </summary>
     public long LockoutExpiresAtTicks => _lockoutExpiresAtTicks;
 
     /// <summary>
     /// Checks if the user is currently locked out.
     /// </summary>
-    /// <param name="currentTicks">The current tick count (from Environment.TickCount64).</param>
+    /// <param name="currentTicks">The current tick count in milliseconds (from Environment.TickCount64).</param>
     /// <returns>True if locked out and lockout has not expired; otherwise, false.</returns>
     public bool IsLockedOut(long currentTicks)
     {
@@ -42,8 +42,8 @@ internal sealed class LockoutState
     /// <summary>
     /// Triggers a lockout with the specified duration.
     /// </summary>
-    /// <param name="currentTicks">The current tick count (from Environment.TickCount64).</param>
-    /// <param name="durationTicks">The lockout duration in ticks.</param>
+    /// <param name="currentTicks">The current tick count in milliseconds (from Environment.TickCount64).</param>
+    /// <param name="durationTicks">The lockout duration in milliseconds.</param>
     public void TriggerLockout(long currentTicks, long durationTicks)
     {
         var expiresAt = currentTicks + durationTicks;

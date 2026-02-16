@@ -29,10 +29,10 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
     // Anti-replay: track last processed update_id globally
     private int _lastProcessedUpdateId;
 
-    // Rate limit window duration in ticks (1 minute)
+    // Rate limit window duration in milliseconds (Environment.TickCount64 returns milliseconds)
     private readonly long _rateLimitWindowTicks;
 
-    // Lockout duration in ticks
+    // Lockout duration in milliseconds
     private readonly long _lockoutDurationTicks;
 
     /// <summary>
@@ -58,9 +58,9 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
         _allowedUserIds = [.. config.AllowedUsers.Select(u => u.UserId)];
         _userConfigs = config.AllowedUsers.ToDictionary(u => u.UserId, u => u);
 
-        // Pre-calculate durations in ticks
-        _rateLimitWindowTicks = TimeSpan.FromMinutes(1).Ticks;
-        _lockoutDurationTicks = config.LockoutDurationValue.Ticks;
+        // Pre-calculate durations in milliseconds (Environment.TickCount64 returns milliseconds)
+        _rateLimitWindowTicks = (long)TimeSpan.FromMinutes(1).TotalMilliseconds;
+        _lockoutDurationTicks = (long)config.LockoutDurationValue.TotalMilliseconds;
 
         _lastProcessedUpdateId = 0;
     }
@@ -138,6 +138,12 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
             });
 
             return Task.FromResult(AuthResult.Invalid(reason, userId, chatId));
+        }
+
+        // Clear lockout if it has expired (IsLockedOut returned false)
+        if (lockoutState.LockoutExpiresAtTicks > 0 && currentTicks >= lockoutState.LockoutExpiresAtTicks)
+        {
+            lockoutState.ClearLockout();
         }
 
         // Check 3: Rate limiting (sliding window)
