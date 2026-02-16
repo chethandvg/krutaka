@@ -180,6 +180,8 @@ Bot → User: ┌─────────────────────
 }
 ```
 
+**Status:** ✅ **Complete** (Issue #141 — 2026-02-16)
+
 ### HMAC Signing & Verification
 
 ```text

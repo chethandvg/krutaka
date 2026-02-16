@@ -2103,6 +2103,80 @@ Three fundamental changes:
 
 **Ready for:** Telegram approval flow integration (issue #141)
 
+### Inline Keyboard Approval Flow with HMAC-Signed Callbacks (v0.4.0 Issue #141)
+
+**Summary:** Implement Telegram inline keyboard approval flow for `HumanApprovalRequired`, `DirectoryAccessRequested`, and `CommandApprovalRequested` agent events with HMAC-SHA256 signed callbacks, nonce-based replay prevention, timestamp expiry, and user ID verification.
+
+**Status:** 🟢 Complete (2026-02-16)
+
+| ID | Component | Status | Date |
+|---|---|---|---|
+| v0.4.0-#141 | TelegramApprovalHandler with HMAC-signed callbacks and security controls | Complete | 2026-02-16 |
+
+**Deliverables:**
+- ✅ `CallbackPayload.cs` — record with Action, ToolUseId, SessionId, UserId, Timestamp, Nonce, Hmac
+- ✅ `CallbackDataSigner.cs` — HMAC-SHA256 signing with constant-time comparison
+  - Server-side secret: `RandomNumberGenerator.GetBytes(32)` at startup
+  - Sign() — serializes payload (excluding HMAC) + computes HMAC-SHA256
+  - Verify() — deserializes, validates HMAC (constant-time), returns payload or null
+- ✅ `ITelegramApprovalHandler.cs` — interface with SendApprovalRequestAsync and HandleCallbackAsync
+- ✅ `TelegramApprovalHandler.cs` (4 partial files) — implementation with:
+  - **Approval panels:**
+    - HumanApprovalRequired → tool name, input preview, [✅ Approve] [❌ Deny] [🔄 Always]
+    - DirectoryAccessRequested → path, level, justification, [✅ Grant] [❌ Deny] [📂 Session]
+    - CommandApprovalRequested → command, tier (🟢🟡🔴), directory, [✅ Approve] [❌ Deny] [🔄 Always] (Moderate only)
+  - **Callback verification:**
+    1. HMAC signature validation (constant-time comparison)
+    2. User ID verification (`callback.From.Id == payload.UserId`)
+    3. Timestamp expiry check (5-minute configurable timeout)
+    4. Nonce replay prevention (`ConcurrentDictionary<string, byte>`)
+  - **Orchestrator routing:** ApproveTool, DenyTool, ApproveDirectoryAccess, DenyDirectoryAccess, ApproveCommand, DenyCommand
+  - **Message editing:** "✅ Approved by @username" or "❌ Denied by @username"
+  - **Timeout handling:** Auto-deny + edit to "⏰ Approval timed out — auto-denied"
+  - **Audit logging:** `IAuditLogger.LogTelegramApproval()` for all decisions
+- ✅ Service registration in `ServiceExtensions.cs`: CallbackDataSigner + ITelegramApprovalHandler as singletons
+
+**Tests:**
+- ✅ **TelegramApprovalHandlerTests**: 12 tests covering:
+  - Deterministic signing (same input → same signature)
+  - Correct signature verification
+  - Tampered action field rejection
+  - Tampered user ID rejection
+  - Completely invalid HMAC rejection
+  - Malformed JSON rejection
+  - Null/empty data rejection
+  - Payload without HMAC rejection
+  - Single character change in HMAC rejection (validates constant-time comparison)
+  - Unique nonces produce different signatures
+  - Directory access action validation (dir_readonly, dir_readwrite, dir_execute)
+  - Command action validation (cmd_approve, cmd_always)
+- ✅ **Total test count:** 1,609 (was 1,597, +12 new tests)
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 126 (114 + 12 NEW), Core: 348, Tools: 847 + 1 skipped
+- ✅ **Zero regressions:** All 1,597 existing tests from previous v0.4.0 issues still pass
+- ✅ **Build:** Zero warnings, zero errors
+
+**Security & Correctness:**
+- ✅ HMAC-SHA256 with server-side secret (RandomNumberGenerator.GetBytes(32))
+- ✅ Constant-time HMAC comparison prevents timing attacks
+- ✅ Cross-user approval impossible (user ID mismatch = rejection)
+- ✅ Replay attacks impossible (nonce tracking in ConcurrentDictionary)
+- ✅ Expired callbacks rejected (timestamp with 5-minute timeout)
+- ✅ Tampered payloads rejected (verified via 12 comprehensive tests)
+- ✅ Audit logging for all approval/denial decisions
+- ✅ Per-session orchestrator routing (no global state leakage)
+- ✅ All async methods use ConfigureAwait(false)
+- ✅ LoggerMessage source generation for performance (CA1848 compliant)
+- ✅ Partial classes keep file size under 330 lines
+
+**Architecture:**
+- ✅ Stateless singleton service (safe to share across sessions)
+- ✅ Session lookup via `ISessionManager.GetSession(sessionId)`
+- ✅ Orchestrator accessed per-session (`session.Orchestrator.ApproveTool()`, etc.)
+- ✅ Uses Telegram.Bot v22.9.0 inline keyboard API
+- ✅ XML documentation on all public members
+
+**Ready for:** Telegram session bridge and polling service integration (issues #142, #143)
+
 ### Next Steps
 
 Implementation of v0.4.0 components will follow the complete issue breakdown in `docs/versions/v0.4.0.md`.
