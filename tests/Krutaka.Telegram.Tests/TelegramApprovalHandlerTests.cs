@@ -80,7 +80,7 @@ public class TelegramApprovalHandlerTests
     public void CallbackDataSigner_Should_RejectCompletelyInvalidHmac()
     {
         // Arrange
-        var invalidPayload = "{\"approvalId\":\"test123\",\"hmac\":\"invalid-hmac-signature\"}";
+        var invalidPayload = "{\"i\":\"test123\",\"s\":\"invalid-hmac-signature\"}";
 
         // Act
         var verified = _signer.Verify(invalidPayload);
@@ -93,7 +93,7 @@ public class TelegramApprovalHandlerTests
     public void CallbackDataSigner_Should_RejectMalformedJson()
     {
         // Arrange
-        var malformedPayload = "{\"approvalId\":\"test\",invalid json}";
+        var malformedPayload = "{\"i\":\"test\",invalid json}";
 
         // Act
         var verified = _signer.Verify(malformedPayload);
@@ -115,7 +115,7 @@ public class TelegramApprovalHandlerTests
     public void CallbackDataSigner_Should_RejectPayloadWithoutHmac()
     {
         // Arrange
-        var payloadWithoutHmac = "{\"approvalId\":\"test123\"}";
+        var payloadWithoutHmac = "{\"i\":\"test123\"}";
 
         // Act
         var verified = _signer.Verify(payloadWithoutHmac);
@@ -169,11 +169,11 @@ public class TelegramApprovalHandlerTests
 
         // Tamper by changing one character in HMAC (should still fail even though close)
         var json = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, object>>(signed);
-        if (json != null && json.TryGetValue("hmac", out var hmacValue))
+        if (json != null && json.TryGetValue("s", out var hmacValue))
         {
             var hmac = hmacValue.ToString()!;
             var tamperedHmac = hmac[..^1] + (hmac[^1] == 'A' ? 'B' : 'A');
-            json["hmac"] = tamperedHmac;
+            json["s"] = tamperedHmac;
             var tamperedSigned = System.Text.Json.JsonSerializer.Serialize(json);
 
             // Act
@@ -204,13 +204,13 @@ public class TelegramApprovalHandlerTests
         // Arrange
         var payload = new CallbackPayload(
             ApprovalId: "AbCdE",
-            Hmac: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"); // 44-char Base64 HMAC
+            Hmac: null);
 
-        // Act
-        var json = System.Text.Json.JsonSerializer.Serialize(payload);
+        // Act - use the actual signer to ensure we measure the real callback data format
+        var signed = _signer.Sign(payload);
 
         // Assert
-        json.Length.Should().BeLessOrEqualTo(64, "serialized callback payload must fit within Telegram's 64-byte limit");
+        signed.Length.Should().BeLessOrEqualTo(64, "serialized callback payload must fit within Telegram's 64-byte limit");
     }
 
     [Fact]

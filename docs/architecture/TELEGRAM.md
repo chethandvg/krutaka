@@ -230,6 +230,38 @@ If no callback received within the configurable timeout:
 2. Edit the original message: "⏰ Approval timed out — auto-denied"
 3. This works in concert with the orchestrator's own `_approvalTimeout`
 
+### Callback Data Size Optimization (Commit c1f3e1f)
+
+**Problem:** Telegram's inline keyboard `callback_data` field has a strict 1–64 byte limit. The initial implementation stored the full approval context (action, tool_use_id, session_id, user_id, timestamp, nonce, hmac) in the callback, resulting in 221-byte signed payloads that exceeded the limit.
+
+**Solution:** Server-side context storage with ultra-compact callback payloads:
+
+1. **Compact payload structure:**
+   ```json
+   {"i":"AbCdE","s":"bEy1luXQa+Hl0lDnn+SQGLO58rtneoxVfIw0NfPr3Fw="}
+   ```
+   - `"i"` (ApprovalId): 4-byte random ID (5-6 chars Base64)
+   - `"s"` (Hmac): HMAC signature
+   - Total: exactly 64 bytes
+
+2. **Server-side context storage:**
+   - `ApprovalContext` record stores: sessionId, userId, action, toolUseId, timestamp, nonce
+   - `ConcurrentDictionary<string, ApprovalContext>` maps approval IDs to full context
+   - Periodic cleanup removes expired entries (>5 minutes old)
+
+3. **JSON optimization:**
+   - `[JsonPropertyName("i")]` and `[JsonPropertyName("s")]` for single-character field names
+   - `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` prevents Unicode escaping of Base64 characters (`+` stays as `+`, not `\u002B`)
+
+4. **Security preserved:**
+   - HMAC still signs the approval ID (not the full context)
+   - Nonce replay prevention via `ConcurrentDictionary<string, byte>`
+   - User ID verification via `ApprovalContext.UserId` check
+   - Timestamp expiry via `ApprovalContext.Timestamp` check
+   - Server-side secret still generated via `RandomNumberGenerator.GetBytes(32)`
+
+**Test coverage:** 13 tests verify compact payload size, field name shortening, HMAC security, and correct action routing.
+
 ---
 
 ## 6. Telegram Session Mapping
