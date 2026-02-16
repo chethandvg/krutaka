@@ -41,9 +41,14 @@ public static class ServiceExtensions
         // Register validated config as singleton
         services.AddSingleton(config);
 
+        // Register ITelegramAuthGuard as singleton
+        // Note: This is a stateful singleton managing rate limiting and lockout state
+        // across all sessions, which is correct for Telegram auth guard
+        services.AddSingleton<ITelegramAuthGuard, TelegramAuthGuard>();
+
         // Placeholder registrations for interfaces to be implemented in later issues
-        // Note: ITelegramAuthGuard, ITelegramCommandRouter, ITelegramResponseStreamer will be
-        // registered in their respective implementation issues (#138, #139, #140)
+        // Note: ITelegramCommandRouter, ITelegramResponseStreamer will be
+        // registered in their respective implementation issues (#139, #140)
 
         return services;
     }
