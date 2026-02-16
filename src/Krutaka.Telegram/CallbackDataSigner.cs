@@ -7,10 +7,15 @@ namespace Krutaka.Telegram;
 /// <summary>
 /// Utility class for signing and verifying inline keyboard callback payloads using HMAC-SHA256.
 /// Prevents tampering, replay attacks, and cross-user approval.
+/// Works with compact payloads (approval ID only) to stay under Telegram's 64-byte limit.
 /// </summary>
 public sealed class CallbackDataSigner
 {
     private readonly byte[] _secret;
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
 
     /// <summary>
     /// Initializes a new instance of the <see cref="CallbackDataSigner"/> class.
@@ -29,31 +34,22 @@ public sealed class CallbackDataSigner
 
     /// <summary>
     /// Signs a callback payload and returns the serialized JSON with HMAC signature.
+    /// Result is kept under 64 bytes for Telegram's callback_data limit.
     /// </summary>
     /// <param name="payload">The callback payload to sign (Hmac field is ignored).</param>
-    /// <returns>JSON string with the payload and HMAC signature.</returns>
+    /// <returns>JSON string with the payload and HMAC signature (under 64 bytes).</returns>
     public string Sign(CallbackPayload payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
 
-        // Create a payload without HMAC for signing
-        var unsignedPayload = payload with { Hmac = null };
-
-        // Serialize to JSON (canonical format for signing)
-        var jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-        var unsignedJson = JsonSerializer.Serialize(unsignedPayload, jsonOptions);
-
-        // Compute HMAC-SHA256
-        var hmac = ComputeHmac(unsignedJson);
+        // Compute HMAC of just the approval ID
+        var hmac = ComputeHmac(payload.ApprovalId);
 
         // Create signed payload
         var signedPayload = payload with { Hmac = hmac };
 
-        // Return serialized signed payload
-        return JsonSerializer.Serialize(signedPayload, jsonOptions);
+        // Serialize to compact JSON
+        return JsonSerializer.Serialize(signedPayload, JsonOptions);
     }
 
     /// <summary>
@@ -71,26 +67,21 @@ public sealed class CallbackDataSigner
         try
         {
             // Deserialize the payload
-            var jsonOptions = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            };
-            var payload = JsonSerializer.Deserialize<CallbackPayload>(data, jsonOptions);
+            var payload = JsonSerializer.Deserialize<CallbackPayload>(data, JsonOptions);
 
             if (payload == null || string.IsNullOrWhiteSpace(payload.Hmac))
             {
                 return null;
             }
 
-            // Recreate unsigned payload for verification
-            var unsignedPayload = payload with { Hmac = null };
-            var unsignedJson = JsonSerializer.Serialize(unsignedPayload, jsonOptions);
-
             // Compute expected HMAC
-            var expectedHmac = ComputeHmac(unsignedJson);
+            var expectedHmac = ComputeHmac(payload.ApprovalId);
 
-            // Constant-time comparison to prevent timing attacks
-            if (!ConstantTimeEquals(expectedHmac, payload.Hmac))
+            // Constant-time comparison using framework-provided method
+            var expectedBytes = Convert.FromBase64String(expectedHmac);
+            var actualBytes = Convert.FromBase64String(payload.Hmac);
+            
+            if (!CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
             {
                 return null;
             }
@@ -99,6 +90,11 @@ public sealed class CallbackDataSigner
         }
         catch (JsonException)
         {
+            return null;
+        }
+        catch (FormatException)
+        {
+            // Invalid Base64 in HMAC
             return null;
         }
     }
@@ -111,24 +107,5 @@ public sealed class CallbackDataSigner
         var dataBytes = Encoding.UTF8.GetBytes(data);
         var hashBytes = HMACSHA256.HashData(_secret, dataBytes);
         return Convert.ToBase64String(hashBytes);
-    }
-
-    /// <summary>
-    /// Constant-time string comparison to prevent timing attacks.
-    /// </summary>
-    private static bool ConstantTimeEquals(string a, string b)
-    {
-        if (a.Length != b.Length)
-        {
-            return false;
-        }
-
-        var result = 0;
-        for (var i = 0; i < a.Length; i++)
-        {
-            result |= a[i] ^ b[i];
-        }
-
-        return result == 0;
     }
 }

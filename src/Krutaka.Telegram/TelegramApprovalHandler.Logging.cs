@@ -13,6 +13,9 @@ public sealed partial class TelegramApprovalHandler
     [LoggerMessage(Level = LogLevel.Warning, Message = "HMAC verification failed for callback from user {UserId}")]
     partial void LogHmacVerificationFailed(long userId);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Approval context {ApprovalId} not found for user {UserId}")]
+    partial void LogApprovalContextNotFound(string approvalId, long userId);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "User {ActualUserId} attempted to approve callback for user {ExpectedUserId}")]
     partial void LogUserIdMismatch(long actualUserId, long expectedUserId);
 
@@ -48,4 +51,13 @@ public sealed partial class TelegramApprovalHandler
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Error handling approval timeout for session {SessionId}")]
     partial void LogTimeoutHandlingError(Exception ex, Guid sessionId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error calling orchestrator deny on timeout for session {SessionId}")]
+    partial void LogTimeoutDenyError(Exception ex, Guid sessionId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Cleanup completed: {ContextCount} contexts, {NonceCount} nonces")]
+    partial void LogCleanupCompleted(int contextCount, int nonceCount);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Error during cleanup")]
+    partial void LogCleanupError(Exception ex);
 }

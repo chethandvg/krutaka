@@ -2,7 +2,6 @@ using Krutaka.Core;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Krutaka.Telegram;
 
@@ -43,10 +42,18 @@ public sealed partial class TelegramApprovalHandler
             return;
         }
 
-        // Step 2: Verify user ID matches
-        if (payload.UserId != callback.From.Id)
+        // Step 2: Retrieve approval context from server-side store
+        if (!_approvalContexts.TryGetValue(payload.ApprovalId, out var context))
         {
-            LogUserIdMismatch(callback.From.Id, payload.UserId);
+            LogApprovalContextNotFound(payload.ApprovalId, callback.From.Id);
+            await AnswerCallbackWithError(callback, "⚠️ Approval request expired or not found.", cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // Step 3: Verify user ID matches
+        if (context.UserId != callback.From.Id)
+        {
+            LogUserIdMismatch(callback.From.Id, context.UserId);
             await AnswerCallbackWithError(callback, "⚠️ This approval is not for you.", cancellationToken).ConfigureAwait(false);
             
             // Log security incident
@@ -54,21 +61,25 @@ public sealed partial class TelegramApprovalHandler
             return;
         }
 
-        // Step 3: Verify timestamp (not expired)
+        // Step 4: Verify timestamp (not expired)
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var age = now - payload.Timestamp;
+        var age = now - context.Timestamp;
         if (age > _callbackTimeout.TotalSeconds || age < 0)
         {
             LogExpiredCallback(callback.From.Id, age);
             await AnswerCallbackWithError(callback, "⏰ This approval request has expired.", cancellationToken).ConfigureAwait(false);
             await EditMessageToExpired(callback.Message, cancellationToken).ConfigureAwait(false);
+            
+            // Clean up expired context
+            _approvalContexts.TryRemove(payload.ApprovalId, out _);
+            _usedNonces.TryRemove(context.Nonce, out _);
             return;
         }
 
-        // Step 4: Verify nonce (prevent replay)
-        if (!_usedNonces.TryAdd(payload.Nonce, 0))
+        // Step 5: Verify nonce (prevent replay)
+        if (!_usedNonces.TryAdd(context.Nonce, 0))
         {
-            LogReplayAttempt(payload.Nonce, callback.From.Id);
+            LogReplayAttempt(context.Nonce, callback.From.Id);
             await AnswerCallbackWithError(callback, "⚠️ This approval has already been processed.", cancellationToken).ConfigureAwait(false);
             
             // Log security incident
@@ -76,32 +87,34 @@ public sealed partial class TelegramApprovalHandler
             return;
         }
 
-        // Step 5: Look up session
-        var session = _sessionManager.GetSession(payload.SessionId);
+        // Step 6: Look up session
+        var session = _sessionManager.GetSession(context.SessionId);
         if (session == null)
         {
-            LogSessionNotFound(payload.SessionId, callback.From.Id);
+            LogSessionNotFound(context.SessionId, callback.From.Id);
             await AnswerCallbackWithError(callback, "⚠️ Session not found or terminated.", cancellationToken).ConfigureAwait(false);
+            
+            // Clean up context
+            _approvalContexts.TryRemove(payload.ApprovalId, out _);
             return;
         }
 
-        // Step 6: Route to orchestrator method
-        var approved = payload.Action is "approve" or "always";
-        var alwaysApprove = payload.Action == "always";
+        // Step 7: Parse action and route to orchestrator
+        var (actionType, approved, alwaysApprove, accessLevel) = ParseAction(context.Action);
 
         try
         {
-            // Determine approval type based on payload structure
-            if (!string.IsNullOrWhiteSpace(payload.ToolUseId))
+            // Route based on action type and tool use ID presence
+            if (!string.IsNullOrWhiteSpace(context.ToolUseId))
             {
                 // Tool approval
                 if (approved)
                 {
-                    session.Orchestrator.ApproveTool(payload.ToolUseId, alwaysApprove);
+                    session.Orchestrator.ApproveTool(context.ToolUseId, alwaysApprove);
                 }
                 else
                 {
-                    session.Orchestrator.DenyTool(payload.ToolUseId);
+                    session.Orchestrator.DenyTool(context.ToolUseId);
                 }
 
                 // Log audit event
@@ -114,32 +127,39 @@ public sealed partial class TelegramApprovalHandler
                         Timestamp = DateTimeOffset.UtcNow,
                         TelegramUserId = callback.From.Id,
                         TelegramChatId = callback.Message.Chat.Id,
-                        ToolName = "tool", // We don't have the tool name in the payload, but orchestrator tracks it
-                        ToolUseId = payload.ToolUseId,
+                        ToolName = "tool",
+                        ToolUseId = context.ToolUseId,
                         Approved = approved
                     });
             }
-            else if (payload.Action.StartsWith("dir_", StringComparison.Ordinal))
+            else if (actionType == "directory")
             {
                 // Directory access approval
                 if (approved)
                 {
-                    // Extract access level from action (dir_readonly, dir_readwrite, dir_execute)
-                    var level = payload.Action switch
-                    {
-                        "dir_readonly" => AccessLevel.ReadOnly,
-                        "dir_readwrite" => AccessLevel.ReadWrite,
-                        "dir_execute" => AccessLevel.Execute,
-                        _ => AccessLevel.ReadOnly
-                    };
-                    session.Orchestrator.ApproveDirectoryAccess(level, createSessionGrant: alwaysApprove);
+                    session.Orchestrator.ApproveDirectoryAccess(accessLevel, createSessionGrant: alwaysApprove);
                 }
                 else
                 {
                     session.Orchestrator.DenyDirectoryAccess();
                 }
+
+                // Log audit event for directory access
+                _auditLogger.LogTelegramApproval(
+                    session.CorrelationContext,
+                    new TelegramApprovalEvent
+                    {
+                        SessionId = session.SessionId,
+                        TurnId = session.CorrelationContext.TurnId,
+                        Timestamp = DateTimeOffset.UtcNow,
+                        TelegramUserId = callback.From.Id,
+                        TelegramChatId = callback.Message.Chat.Id,
+                        ToolName = $"directory_access_{accessLevel}",
+                        ToolUseId = "",
+                        Approved = approved
+                    });
             }
-            else if (payload.Action.StartsWith("cmd_", StringComparison.Ordinal))
+            else if (actionType == "command")
             {
                 // Command approval
                 if (approved)
@@ -150,15 +170,30 @@ public sealed partial class TelegramApprovalHandler
                 {
                     session.Orchestrator.DenyCommand();
                 }
+
+                // Log audit event for command
+                _auditLogger.LogTelegramApproval(
+                    session.CorrelationContext,
+                    new TelegramApprovalEvent
+                    {
+                        SessionId = session.SessionId,
+                        TurnId = session.CorrelationContext.TurnId,
+                        Timestamp = DateTimeOffset.UtcNow,
+                        TelegramUserId = callback.From.Id,
+                        TelegramChatId = callback.Message.Chat.Id,
+                        ToolName = "command_execution",
+                        ToolUseId = "",
+                        Approved = approved
+                    });
             }
             else
             {
-                LogUnknownAction(payload.Action);
+                LogUnknownAction(context.Action);
                 await AnswerCallbackWithError(callback, "⚠️ Unknown approval action.", cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            // Step 7: Edit message to show decision
+            // Step 8: Edit message to show decision
             var username = callback.From.Username ?? callback.From.FirstName ?? "User";
             var decisionEmoji = approved ? "✅" : "❌";
             var decisionText = approved ? "Approved" : "Denied";
@@ -174,13 +209,48 @@ public sealed partial class TelegramApprovalHandler
             // Answer callback to remove loading state
             await _botClient.AnswerCallbackQuery(callback.Id, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-            LogApprovalProcessed(payload.Action, callback.From.Id, payload.SessionId);
+            // Clean up approval context after successful processing
+            _approvalContexts.TryRemove(payload.ApprovalId, out _);
+
+            LogApprovalProcessed(context.Action, callback.From.Id, context.SessionId);
         }
         catch (Exception ex)
         {
-            LogCallbackProcessingError(ex, payload.SessionId);
+            LogCallbackProcessingError(ex, context.SessionId);
             await AnswerCallbackWithError(callback, "⚠️ Error processing approval.", cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Parses an action string to determine action type, approval status, and parameters.
+    /// </summary>
+    /// <returns>Tuple of (actionType, approved, alwaysApprove, accessLevel)</returns>
+    private static (string ActionType, bool Approved, bool AlwaysApprove, AccessLevel AccessLevel) ParseAction(string action)
+    {
+        return action switch
+        {
+            // Tool actions
+            "approve" => ("tool", true, false, AccessLevel.ReadOnly),
+            "always" => ("tool", true, true, AccessLevel.ReadOnly),
+            "deny" => ("tool", false, false, AccessLevel.ReadOnly),
+
+            // Directory actions - one-time
+            "dir_readonly" => ("directory", true, false, AccessLevel.ReadOnly),
+            "dir_readwrite" => ("directory", true, false, AccessLevel.ReadWrite),
+            "dir_execute" => ("directory", true, false, AccessLevel.Execute),
+
+            // Directory actions - session grant
+            "dir_readonly_session" => ("directory", true, true, AccessLevel.ReadOnly),
+            "dir_readwrite_session" => ("directory", true, true, AccessLevel.ReadWrite),
+            "dir_execute_session" => ("directory", true, true, AccessLevel.Execute),
+
+            // Command actions
+            "cmd_approve" => ("command", true, false, AccessLevel.ReadOnly),
+            "cmd_always" => ("command", true, true, AccessLevel.ReadOnly),
+
+            // Default for unknown
+            _ => ("unknown", false, false, AccessLevel.ReadOnly)
+        };
     }
 
     /// <summary>

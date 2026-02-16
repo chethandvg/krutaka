@@ -60,7 +60,7 @@ public sealed partial class TelegramApprovalHandler
                          $"<b>Access Level:</b> {levelEmoji} {approval.AccessLevel}\n" +
                          $"<b>Justification:</b> {EscapeHtml(approval.Justification)}";
 
-        // Use action prefix to encode the access level
+        // Use distinct action strings for one-time vs session grants
         var approveAction = approval.AccessLevel switch
         {
             AccessLevel.ReadOnly => "dir_readonly",
@@ -69,13 +69,21 @@ public sealed partial class TelegramApprovalHandler
             _ => "dir_readonly"
         };
 
+        var sessionAction = approval.AccessLevel switch
+        {
+            AccessLevel.ReadOnly => "dir_readonly_session",
+            AccessLevel.ReadWrite => "dir_readwrite_session",
+            AccessLevel.Execute => "dir_execute_session",
+            _ => "dir_readonly_session"
+        };
+
         var keyboard = CreateKeyboard(
             sessionId,
             userId,
             toolUseId: "", // Directory approvals don't have a tool use ID
             approveAction: approveAction,
             denyAction: "deny",
-            alwaysAction: approveAction, // "always" uses same action, flag set in routing
+            alwaysAction: sessionAction,
             showAlways: true,
             approveLabel: "✅ Grant",
             alwaysLabel: "📂 Session");
@@ -129,6 +137,7 @@ public sealed partial class TelegramApprovalHandler
 
     /// <summary>
     /// Creates an inline keyboard with approval buttons and signed callback data.
+    /// Uses server-side context storage to keep callback data under 64 bytes.
     /// </summary>
     private InlineKeyboardMarkup CreateKeyboard(
         Guid sessionId,
@@ -143,73 +152,102 @@ public sealed partial class TelegramApprovalHandler
         string alwaysLabel = "🔄 Always")
     {
         var buttons = new List<InlineKeyboardButton[]>();
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
         // First row: Approve and Deny
-        var approvePayload = new CallbackPayload(
-            Action: approveAction,
-            ToolUseId: toolUseId,
-            SessionId: sessionId,
-            UserId: userId,
-            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            Nonce: GenerateNonce(),
-            Hmac: null);
-
-        var denyPayload = new CallbackPayload(
-            Action: denyAction,
-            ToolUseId: toolUseId,
-            SessionId: sessionId,
-            UserId: userId,
-            Timestamp: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            Nonce: GenerateNonce(),
-            Hmac: null);
+        var approveId = StoreApprovalContext(sessionId, userId, toolUseId, approveAction, timestamp);
+        var denyId = StoreApprovalContext(sessionId, userId, toolUseId, denyAction, timestamp);
 
         buttons.Add(
         [
-            InlineKeyboardButton.WithCallbackData(approveLabel, _signer.Sign(approvePayload)),
-            InlineKeyboardButton.WithCallbackData(denyLabel, _signer.Sign(denyPayload))
+            InlineKeyboardButton.WithCallbackData(approveLabel, _signer.Sign(new CallbackPayload(approveId, null))),
+            InlineKeyboardButton.WithCallbackData(denyLabel, _signer.Sign(new CallbackPayload(denyId, null)))
         ]);
 
         // Second row: Always (if applicable)
         if (showAlways)
         {
-            var alwaysPayload = new CallbackPayload(
-                Action: alwaysAction,
-                ToolUseId: toolUseId,
-                SessionId: sessionId,
-                UserId: userId,
-                Timestamp: DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                Nonce: GenerateNonce(),
-                Hmac: null);
+            var alwaysId = StoreApprovalContext(sessionId, userId, toolUseId, alwaysAction, timestamp);
 
             buttons.Add(
             [
-                InlineKeyboardButton.WithCallbackData(alwaysLabel, _signer.Sign(alwaysPayload))
+                InlineKeyboardButton.WithCallbackData(alwaysLabel, _signer.Sign(new CallbackPayload(alwaysId, null)))
             ]);
         }
 
         return new InlineKeyboardMarkup(buttons);
     }
 
+    /// <summary>
+    /// Stores approval context server-side and returns the approval ID.
+    /// </summary>
+    private string StoreApprovalContext(Guid sessionId, long userId, string toolUseId, string action, long timestamp)
+    {
+        var approvalId = GenerateApprovalId();
+        var nonce = GenerateNonce();
+
+        var context = new ApprovalContext(
+            SessionId: sessionId,
+            UserId: userId,
+            Action: action,
+            ToolUseId: toolUseId,
+            Timestamp: timestamp,
+            Nonce: nonce);
+
+        _approvalContexts[approvalId] = context;
+
+        return approvalId;
+    }
+
+    /// <summary>
+    /// Handles approval timeout by auto-denying and editing the message.
+    /// Also calls the orchestrator's deny method to ensure consistent state.
+    /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Background task must not throw")]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Parameter reserved for future use")]
     private async Task HandleApprovalTimeoutAsync(
         Message message,
         ManagedSession session,
-        AgentEvent approvalEvent,
-        CancellationToken cancellationToken)
+        AgentEvent approvalEvent)
     {
         try
         {
-            await Task.Delay(_callbackTimeout, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(_callbackTimeout).ConfigureAwait(false);
 
-            // Check if approval is still pending (orchestrator will have completed if approved/denied)
-            // For now, we just edit the message - the orchestrator's own timeout will handle denial
+            // Check if session still exists
+            var currentSession = _sessionManager.GetSession(session.SessionId);
+            if (currentSession == null)
+            {
+                return; // Session terminated, no need to handle timeout
+            }
+
+            // Call orchestrator deny method based on event type
+            try
+            {
+                switch (approvalEvent)
+                {
+                    case HumanApprovalRequired toolApproval:
+                        currentSession.Orchestrator.DenyTool(toolApproval.ToolUseId);
+                        break;
+                    case DirectoryAccessRequested:
+                        currentSession.Orchestrator.DenyDirectoryAccess();
+                        break;
+                    case CommandApprovalRequested:
+                        currentSession.Orchestrator.DenyCommand();
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogTimeoutDenyError(ex, session.SessionId);
+            }
+
+            // Edit message to show timeout
             await _botClient.EditMessageText(
                 message.Chat.Id,
                 message.MessageId,
                 $"{message.Text}\n\n⏰ <b>Approval timed out — auto-denied</b>",
                 parseMode: ParseMode.Html,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+                cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
             LogApprovalTimeout(session.SessionId);
         }
