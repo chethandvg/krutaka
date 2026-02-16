@@ -297,6 +297,21 @@ public class TelegramCommandRouterTests
     }
 
     [Fact]
+    public async Task RouteAsync_Should_ReturnUnrouted_ForEmptyMessage()
+    {
+        // Arrange
+        var update = CreateUpdate(messageText: null);
+        var authResult = AuthResult.Valid(userId: 12345678, chatId: 111, role: TelegramUserRole.User);
+
+        // Act
+        var result = await _router.RouteAsync(update, authResult, CancellationToken.None);
+
+        // Assert
+        result.Command.Should().Be(TelegramCommand.Unknown);
+        result.Routed.Should().BeFalse();
+    }
+
+    [Fact]
     public async Task RouteAsync_Should_ThrowArgumentNullException_WhenUpdateIsNull()
     {
         // Arrange
