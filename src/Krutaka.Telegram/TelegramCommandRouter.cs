@@ -61,22 +61,12 @@ public sealed class TelegramCommandRouter : ITelegramCommandRouter
 
         // Sanitize user input for commands that accept text input
         string? sanitizedInput = null;
-        if (ShouldSanitizeInput(command))
+        if (ShouldSanitizeInput(command) && !string.IsNullOrWhiteSpace(arguments))
         {
-            if (command == TelegramCommand.Ask && string.IsNullOrWhiteSpace(arguments))
-            {
-                // Plain text message (no /ask prefix) — use the entire message text
-                sanitizedInput = TelegramInputSanitizer.SanitizeMessageText(
-                    messageText ?? string.Empty,
-                    authResult.UserId);
-            }
-            else if (!string.IsNullOrWhiteSpace(arguments))
-            {
-                // Command with arguments — sanitize the arguments
-                sanitizedInput = TelegramInputSanitizer.SanitizeMessageText(
-                    arguments,
-                    authResult.UserId);
-            }
+            // Command with arguments — sanitize the arguments
+            sanitizedInput = TelegramInputSanitizer.SanitizeMessageText(
+                arguments,
+                authResult.UserId);
         }
 
         // Successfully routed

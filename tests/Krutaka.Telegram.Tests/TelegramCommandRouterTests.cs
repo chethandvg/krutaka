@@ -312,6 +312,24 @@ public class TelegramCommandRouterTests
     }
 
     [Fact]
+    public async Task RouteAsync_Should_TreatBareAskCommand_AsNoInput()
+    {
+        // Arrange
+        var update = CreateUpdate(messageText: "/ask");
+        var authResult = AuthResult.Valid(userId: 12345678, chatId: 111, role: TelegramUserRole.User);
+
+        // Act
+        var result = await _router.RouteAsync(update, authResult, CancellationToken.None);
+
+        // Assert
+        result.Command.Should().Be(TelegramCommand.Ask);
+        result.Arguments.Should().BeNull();
+        // Bare /ask with no arguments should have null SanitizedInput (no user content to sanitize)
+        result.SanitizedInput.Should().BeNull();
+        result.Routed.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task RouteAsync_Should_ThrowArgumentNullException_WhenUpdateIsNull()
     {
         // Arrange
