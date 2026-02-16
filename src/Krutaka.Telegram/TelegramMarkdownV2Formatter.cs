@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace Krutaka.Telegram;
 
@@ -16,9 +15,9 @@ public static partial class TelegramMarkdownV2Formatter
     /// Converts text to Telegram MarkdownV2 format.
     /// Escapes special characters outside of code blocks.
     /// </summary>
-    /// <param name="text">The text to format.</param>
-    /// <returns>The MarkdownV2-formatted text.</returns>
-    public static string Format(string text)
+    /// <param name="text">The text to format. Can be null or empty.</param>
+    /// <returns>The MarkdownV2-formatted text, or the original text if null/empty/formatting fails.</returns>
+    public static string? Format(string? text)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -89,10 +88,10 @@ public static partial class TelegramMarkdownV2Formatter
     /// <summary>
     /// Attempts to format text as MarkdownV2, returning plain text if formatting fails.
     /// </summary>
-    /// <param name="text">The text to format.</param>
+    /// <param name="text">The text to format. Can be null or empty.</param>
     /// <param name="formatted">The formatted text, or the original text if formatting failed.</param>
     /// <returns>True if formatting succeeded, false if fallback to plain text.</returns>
-    public static bool TryFormat(string text, out string formatted)
+    public static bool TryFormat(string? text, out string? formatted)
     {
         if (string.IsNullOrEmpty(text))
         {

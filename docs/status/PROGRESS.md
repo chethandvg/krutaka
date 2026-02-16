@@ -2045,15 +2045,15 @@ Three fundamental changes:
 **Deliverables:**
 - ✅ `ITelegramResponseStreamer.cs` — interface with `StreamResponseAsync` method
 - ✅ `TelegramResponseStreamer.cs` — implementation with:
-  - TextDelta buffering: 500ms timer or 200 char threshold
-  - Rate limiting: 30 edits/min/chat with SemaphoreSlim
+  - TextDelta buffering: 200 char threshold (event-driven flush, no timer)
+  - Rate limiting: 30 edits/min/chat (per-chat, shared across calls, monotonic clock)
   - Tool call status: ⚙️ Running, ✅ complete, ❌ failed messages
   - Message chunking: 4096 char limit with smart line-based splitting
   - Interactive event delegation via callback
   - RequestIdCaptured silent consumption
   - FinalResponse with MarkdownV2 formatting
 - ✅ `TelegramMarkdownV2Formatter.cs` — static helper with:
-  - Escape 15 special characters: `_ * [ ] ( ) ~ > # + - = | { } . !`
+  - Escape 17 special characters: `_ * [ ] ( ) ~ > # + - = | { } . !`
   - Preserve code blocks (triple backtick) without escaping
   - Preserve inline code (single backtick) without escaping
   - Graceful fallback for formatting errors
@@ -2062,7 +2062,7 @@ Three fundamental changes:
 **Tests:**
 - ✅ **TelegramMarkdownV2FormatterTests**: 18 tests covering:
   - Individual character escaping (_,  *, [, ], etc.)
-  - All 15 special characters in one test
+  - All 17 special characters in one test
   - Code block preservation (triple backtick)
   - Inline code preservation (single backtick)
   - Mixed code blocks and plain text
