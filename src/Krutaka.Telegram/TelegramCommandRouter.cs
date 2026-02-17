@@ -63,10 +63,14 @@ public sealed class TelegramCommandRouter : ITelegramCommandRouter
         string? sanitizedInput = null;
         if (ShouldSanitizeInput(command) && !string.IsNullOrWhiteSpace(arguments))
         {
-            // Command with arguments — sanitize the arguments
+            // Extract entities from the message for sanitization
+            var entities = update.Message?.Entities;
+
+            // Command with arguments — sanitize the arguments with entity stripping
             sanitizedInput = TelegramInputSanitizer.SanitizeMessageText(
                 arguments,
-                authResult.UserId);
+                authResult.UserId,
+                entities);
         }
 
         // Successfully routed
