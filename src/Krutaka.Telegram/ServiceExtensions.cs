@@ -73,6 +73,11 @@ public static class ServiceExtensions
         // Note: Stateless handler that can be safely shared across all sessions
         services.AddSingleton<ITelegramFileHandler, TelegramFileHandler>();
 
+        // Register ITelegramHealthMonitor as singleton (implemented in issue #147)
+        // Note: Stateful monitor (in-memory rate limiting + notification tracking) with thread-safe access,
+        //       intentionally registered as a singleton so health/rate state is shared across all sessions
+        services.AddSingleton<ITelegramHealthMonitor, TelegramHealthMonitor>();
+
         // Register ITelegramBotClient as singleton
         // Note: The TelegramBotService creates its own client instance, but TelegramResponseStreamer
         // and TelegramApprovalHandler need a shared client instance for sending messages/edits.

@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-17 (v0.4.0 File Exchange complete — 1,682 tests passing, 2 skipped)
+> **Last updated:** 2026-02-17 (v0.4.0 Health Monitoring complete — 1,705 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2344,6 +2344,60 @@ Three fundamental changes:
 - ✅ Path resolution through `PathResolver` (symlink/ADS/device name checks)
 
 **Ready for:** Integration with TelegramCommandRouter and full end-to-end testing
+
+### Health Monitoring — Error Alerts, Task Completion, Budget Warnings (v0.4.0 Issue #147)
+
+**Summary:** Implement a Telegram health monitoring service that sends proactive notifications for system events — error alerts, task completion, budget warnings, and startup/shutdown status. Includes notification rate limiting to prevent spam.
+
+**Status:** 🟢 Complete (2026-02-17)
+
+**Implementation:**
+
+| Component | Description | Status |
+|---|---|---|
+| v0.4.0-#147 | TelegramHealthMonitor with budget warnings, error alerts, and rate limiting | Complete | 2026-02-17 |
+
+**Deliverables:**
+- ✅ `ITelegramHealthMonitor.cs` — interface with:
+  - `NotifyStartupAsync`, `NotifyShutdownAsync`, `NotifyErrorAsync`, `NotifyTaskCompletedAsync`
+  - `NotifyBudgetWarningAsync` — at 80% threshold
+  - `CheckBudgetThresholdsAsync` — periodic check across all active sessions
+- ✅ `TelegramHealthMonitor.cs` — implementation with:
+  - ✅ Admin targeting: Startup/shutdown/error notifications sent to all users with `Role == Admin`
+  - ✅ Chat targeting: Task completion and budget warnings sent to specific chat ID
+  - ✅ Budget threshold: 80% token usage triggers warning (tracked per session, warns only once)
+  - ✅ Rate limiting: 1 notification per event type per chat per minute using monotonic clock (`Environment.TickCount64`)
+  - ✅ Error sanitization: Removes stack traces, file paths, and token-like strings (32+ alphanumeric chars)
+  - ✅ Session tracking: `HashSet<Guid>` prevents duplicate budget warnings per session
+  - ✅ External key parsing: Extracts chat ID from `telegram:12345678` format
+  - ✅ Graceful error handling: Continues sending to remaining admins on individual failures
+- ✅ Service registration in `ServiceExtensions.cs`: `ITelegramHealthMonitor` as singleton
+- ✅ Comprehensive tests (17 tests):
+  - Startup/shutdown notifications to admins only (not regular users)
+  - Error alert sanitization (removes stack traces, file paths, tokens)
+  - Task completion notification to specific chat
+  - Budget warning at 80% and above 80% thresholds
+  - Budget check edge cases (null session, non-Telegram external key)
+  - Rate limiting: duplicate notification suppression within 1 minute
+  - Rate limiting: different event types allowed (not rate-limited against each other)
+  - Error handling: continue on individual admin failure
+- ✅ **Test results:**
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 222 (202 + 17 NEW + 3 existing), Core: 348, Tools: 847 + 1 skipped
+  - **Total:** 1,705 tests passing (2 skipped), +17 from previous (was 1,688 after #145)
+- ✅ Zero regressions (all existing tests pass)
+- ✅ XML documentation on all public members
+
+**Security guarantees:**
+- ✅ Error alerts NEVER contain stack traces, file paths, or tokens (sanitized via `SanitizeErrorMessage`)
+- ✅ Budget warnings track per-session to prevent spam (warn once per session)
+- ✅ Rate limiting prevents notification spam (1 per event type per chat per minute)
+- ✅ Monotonic clock used for rate limiting (immune to system clock changes)
+- ✅ Admin-only notifications properly targeted (no leakage to regular users)
+
+**Pending integration:**
+- [ ] `TelegramBotService` — call `NotifyStartupAsync` after successful initialization
+- [ ] `TelegramBotService` — call `NotifyShutdownAsync` in `StopAsync`
+- [ ] Agent response pipeline — call `CheckBudgetThresholdsAsync` after each response completes
 
 ### Next Steps
 
