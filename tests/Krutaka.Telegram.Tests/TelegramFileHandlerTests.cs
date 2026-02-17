@@ -214,6 +214,24 @@ public sealed class TelegramFileHandlerTests : IDisposable
         result.Error.Should().Contain("size information is missing");
     }
 
+    [Fact]
+    public async Task ReceiveFileAsync_Should_AcceptZeroByteFile()
+    {
+        // Arrange - test edge case of 0-byte file (valid, should not trigger null check)
+        var message = new Message { Document = new Document { FileId = "test-id", FileName = "empty.txt", FileSize = 0 } };
+        var session = CreateMockSession();
+
+        _accessPolicyEngine.EvaluateAsync(Arg.Any<DirectoryAccessRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AccessDecision.Grant(Path.Combine(_projectPath, ".krutaka-temp"), AccessLevel.ReadWrite));
+
+        // Act
+        var result = await _handler.ReceiveFileAsync(message, session, CancellationToken.None);
+
+        // Assert - should pass validation checks (though download will fail without proper mocking)
+        // The point is that 0 is not treated as null/missing and passes initial validation
+        result.Error.Should().NotContain("size information is missing");
+    }
+
     #endregion
 
     #region Path Traversal Tests

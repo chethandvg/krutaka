@@ -58,7 +58,7 @@ public sealed class ManagedSession : IAsyncDisposable
     public ISessionAccessStore? SessionAccessStore { get; }
 
     private bool _disposed;
-    private readonly List<string> _tempDirectoriesToCleanup = [];
+    private readonly HashSet<string> _tempDirectoriesToCleanup = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ManagedSession"/> class.
@@ -115,10 +115,7 @@ public sealed class ManagedSession : IAsyncDisposable
         
         lock (_tempDirectoriesToCleanup)
         {
-            if (!_tempDirectoriesToCleanup.Contains(directoryPath, StringComparer.OrdinalIgnoreCase))
-            {
-                _tempDirectoriesToCleanup.Add(directoryPath);
-            }
+            _tempDirectoriesToCleanup.Add(directoryPath);
         }
     }
 
