@@ -20,7 +20,7 @@ public interface ITelegramFileHandler
     /// <returns>A FileReceiveResult indicating success or failure with error details.</returns>
     /// <remarks>
     /// Files are downloaded to {session.ProjectPath}/.krutaka-temp/{filename}.
-    /// The temp directory is automatically cleaned up when the session is disposed.
+    /// The temp directory is automatically registered for cleanup when the session is disposed.
     /// </remarks>
     Task<FileReceiveResult> ReceiveFileAsync(
         Message message,
@@ -33,7 +33,8 @@ public interface ITelegramFileHandler
     /// </summary>
     /// <param name="chatId">The Telegram chat ID to send the file to.</param>
     /// <param name="filePath">The absolute local file path to send.</param>
-    /// <param name="caption">Optional caption to include with the file (sanitized).</param>
+    /// <param name="session">The managed session for access policy validation.</param>
+    /// <param name="caption">Optional caption to include with the file.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the async operation.</returns>
     /// <exception cref="FileNotFoundException">Thrown if the file does not exist.</exception>
@@ -42,6 +43,7 @@ public interface ITelegramFileHandler
     Task SendFileAsync(
         long chatId,
         string filePath,
+        ManagedSession session,
         string? caption,
         CancellationToken cancellationToken);
 }

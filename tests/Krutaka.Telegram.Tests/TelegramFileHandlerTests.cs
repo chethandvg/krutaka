@@ -199,6 +199,21 @@ public sealed class TelegramFileHandlerTests : IDisposable
         result.Error.Should().Contain("10MB");
     }
 
+    [Fact]
+    public async Task ReceiveFileAsync_Should_RejectFileWithMissingSize()
+    {
+        // Arrange
+        var message = new Message { Document = new Document { FileId = "test-id", FileName = "test.cs", FileSize = null } };
+        var session = CreateMockSession();
+
+        // Act
+        var result = await _handler.ReceiveFileAsync(message, session, CancellationToken.None);
+
+        // Assert
+        result.Success.Should().BeFalse();
+        result.Error.Should().Contain("size information is missing");
+    }
+
     #endregion
 
     #region Path Traversal Tests
@@ -318,30 +333,74 @@ public sealed class TelegramFileHandlerTests : IDisposable
 
     #endregion
 
+    #region Temp Directory Cleanup Tests
+
+    [Fact]
+    public async Task RegisterTempDirectoryForCleanup_Should_CleanupOnDispose()
+    {
+        // Arrange
+        var session = CreateMockSession();
+        var tempDir = Path.Combine(session.ProjectPath, "test-temp");
+        Directory.CreateDirectory(tempDir);
+        await System.IO.File.WriteAllTextAsync(Path.Combine(tempDir, "testfile.txt"), "content");
+
+        // Act
+        session.RegisterTempDirectoryForCleanup(tempDir);
+        await session.DisposeAsync();
+
+        // Assert
+        Directory.Exists(tempDir).Should().BeFalse();
+    }
+
+    #endregion
+
     #region SendFileAsync Tests
 
     [Fact]
     public async Task SendFileAsync_Should_ThrowFileNotFoundException_WhenFileDoesNotExist()
     {
+        // Arrange
+        var session = CreateMockSession();
+
         // Act & Assert
         await Assert.ThrowsAsync<FileNotFoundException>(async () =>
-            await _handler.SendFileAsync(12345L, "nonexistent.txt", null, CancellationToken.None));
+            await _handler.SendFileAsync(12345L, "nonexistent.txt", session, null, CancellationToken.None));
     }
 
     [Fact]
     public async Task SendFileAsync_Should_ThrowArgumentException_WhenFileExceeds50MB()
     {
         // Arrange
+        var session = CreateMockSession();
         var largeFile = Path.Combine(_tempTestDir, "large.bin");
         using (var fs = System.IO.File.Create(largeFile))
         {
             fs.SetLength(51 * 1024 * 1024);
         }
 
+        _accessPolicyEngine.EvaluateAsync(Arg.Any<DirectoryAccessRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AccessDecision.Grant(_tempTestDir, AccessLevel.ReadOnly));
+
         // Act & Assert
         var ex = await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await _handler.SendFileAsync(12345L, largeFile, null, CancellationToken.None));
+            await _handler.SendFileAsync(12345L, largeFile, session, null, CancellationToken.None));
         ex.Message.Should().Contain("50MB");
+    }
+
+    [Fact]
+    public async Task SendFileAsync_Should_ThrowUnauthorizedAccessException_WhenAccessDenied()
+    {
+        // Arrange
+        var session = CreateMockSession();
+        var testFile = Path.Combine(_tempTestDir, "test.txt");
+        await System.IO.File.WriteAllTextAsync(testFile, "Test content");
+
+        _accessPolicyEngine.EvaluateAsync(Arg.Any<DirectoryAccessRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AccessDecision.Deny("Access denied by policy"));
+
+        // Act & Assert
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
+            await _handler.SendFileAsync(12345L, testFile, session, null, CancellationToken.None));
     }
 
     #endregion
