@@ -57,10 +57,7 @@ This is the most secure option using Windows DPAPI encryption.
 2. **Run the following command** (replace `YOUR_BOT_TOKEN` with the token from BotFather):
 
    ```powershell
-   # Install Meziantou.Framework.Win32.CredentialManager if not already installed
-   dotnet tool install --global Meziantou.Framework.Win32.CredentialManager
-
-   # Store the token (replace YOUR_BOT_TOKEN with actual token)
+   # Store the token using Windows Credential Manager (replace YOUR_BOT_TOKEN with actual token)
    cmdkey /generic:krutaka_telegram_bot_token /user:krutaka /pass:YOUR_BOT_TOKEN
    ```
 

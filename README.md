@@ -73,7 +73,6 @@ Krutaka.slnx
 ├── prompts/                   # System prompt templates
 └── docs/                      # Architecture and status documentation
 ```
-```
 
 ## Key Technology Choices
 
