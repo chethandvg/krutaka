@@ -4,7 +4,12 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
-**Implementation Status:** 🟡 **v0.4.0 Telegram Integration & Multi-Session In Progress** — v0.3.0 is complete with 1,289 tests passing (1 skipped). v0.4.0 adds Telegram bot interface and multi-session architecture. See `docs/status/PROGRESS.md` for detailed status.
+**Implementation Status:** 🟡 **v0.4.0 Telegram Integration & Multi-Session In Progress** — v0.3.0 is complete with 1,289 tests passing (1 skipped). v0.4.0 adds Telegram bot interface, multi-session architecture, and dual-mode host support (Console, Telegram, or Both). Currently 1,728 tests passing (2 skipped). See `docs/status/PROGRESS.md` for detailed status.
+
+**Host Modes:** The application supports three operating modes via `appsettings.json` `"Mode"` setting or `--mode` CLI argument:
+- **Console** (default): Single-session local console UI, no Telegram services loaded
+- **Telegram**: Headless bot service with multi-session support
+- **Both**: Concurrent Console + Telegram with shared session manager
 
 ## Coding Conventions
 
