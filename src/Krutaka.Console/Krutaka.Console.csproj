@@ -6,6 +6,7 @@
     <ProjectReference Include="..\Krutaka.Tools\Krutaka.Tools.csproj" />
     <ProjectReference Include="..\Krutaka.Memory\Krutaka.Memory.csproj" />
     <ProjectReference Include="..\Krutaka.Skills\Krutaka.Skills.csproj" />
+    <ProjectReference Include="..\Krutaka.Telegram\Krutaka.Telegram.csproj" />
   </ItemGroup>
 
   <ItemGroup>

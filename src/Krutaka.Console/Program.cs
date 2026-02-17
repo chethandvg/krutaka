@@ -159,25 +159,20 @@ try
     // Note: AgentOrchestrator is created per-session by SessionFactory (not registered globally)
     // v0.4.0: Per-session components are created by SessionFactory via ISessionManager
 
-    // Register SessionManagerOptions for Console single-session mode
-    builder.Services.AddSingleton(new SessionManagerOptions
-    {
-        MaxActiveSessions = 1, // Console is single-session
-        EvictionStrategy = EvictionStrategy.TerminateOldest,
-        IdleTimeout = TimeSpan.Zero, // No idle timeout for Console
-        GlobalMaxTokensPerHour = 1_000_000, // 1M tokens/hour
-        MaxSessionsPerUser = 1 // Single user in Console mode
-    });
+    // ========================================
+    // Mode Resolution and Configuration
+    // ========================================
 
-    // Register ApprovalHandler
-    builder.Services.AddSingleton(sp =>
-    {
-        var fileOps = sp.GetRequiredService<IFileOperations>();
-        return new ApprovalHandler(workingDirectory, fileOps);
-    });
+    // Resolve host mode from configuration and CLI arguments
+    var hostMode = HostModeConfigurator.ResolveMode(builder.Configuration, args);
+    Log.Information("Starting Krutaka in {Mode} mode", hostMode);
 
-    // Register ConsoleUI
-    builder.Services.AddSingleton<ConsoleUI>();
+    // Register SessionManagerOptions based on mode
+    var sessionManagerOptions = HostModeConfigurator.ConfigureSessionManager(hostMode, builder.Configuration);
+    builder.Services.AddSingleton(sessionManagerOptions);
+
+    // Register mode-specific services (ConsoleUI, TelegramBotService, ApprovalHandler)
+    HostModeConfigurator.RegisterModeSpecificServices(builder.Services, hostMode, builder.Configuration, workingDirectory);
 
     // Build the host
     var host = builder.Build();
@@ -186,8 +181,31 @@ try
     // Main Application Entry Point
     // ========================================
 
-    Log.Information("Krutaka starting...");
+    Log.Information("Krutaka starting in {Mode} mode...", hostMode);
 
+    // Mode-specific execution
+    switch (hostMode)
+    {
+        case HostMode.Telegram:
+            // Telegram mode: Just start the host and let TelegramBotService run
+            await host.RunAsync().ConfigureAwait(false);
+            return 0;
+
+        case HostMode.Both:
+            // Both mode: Start the host (starts TelegramBotService in background) then run console
+            await host.StartAsync().ConfigureAwait(false);
+            // Fall through to console logic
+            break;
+
+        case HostMode.Console:
+            // Console mode: Run console logic directly (no need to start host separately)
+            break;
+
+        default:
+            throw new InvalidOperationException($"Unexpected host mode: {hostMode}");
+    }
+
+    // Console mode execution (also used by Both mode)
     var ui = host.Services.GetRequiredService<ConsoleUI>();
     var sessionManager = host.Services.GetRequiredService<ISessionManager>();
     var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
