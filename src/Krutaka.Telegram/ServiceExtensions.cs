@@ -63,6 +63,10 @@ public static class ServiceExtensions
         // Note: Stateless handler (nonce tracking is thread-safe) that can be safely shared across all sessions
         services.AddSingleton<ITelegramApprovalHandler, TelegramApprovalHandler>();
 
+        // Register ITelegramSessionBridge as singleton (implemented in issue #141)
+        // Note: Stateless bridge that delegates session management to ISessionManager
+        services.AddSingleton<ITelegramSessionBridge, TelegramSessionBridge>();
+
         return services;
     }
 }
