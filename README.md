@@ -3,9 +3,9 @@
 [![Build and Test](https://github.com/chethandvg/krutaka/actions/workflows/build.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/build.yml)
 [![Security Tests](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml/badge.svg)](https://github.com/chethandvg/krutaka/actions/workflows/security-tests.yml)
 
-An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened console agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations.
+An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations. Access your agent via local console or remotely through Telegram.
 
-> **Status:** ✅ v0.3.0 — Graduated command execution with risk-tiered approval. 1,273 tests passing, ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
+> **Status:** ✅ v0.4.0 — Multi-session architecture with Telegram integration. 1,765 tests passing (2 skipped), ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
 
 ## Why Krutaka?
 
@@ -13,14 +13,16 @@ OpenClaw demonstrated the power of agentic AI — and also its dangers. CVE-2026
 
 Krutaka is built to avoid those mistakes:
 
-- **No network listener** — Console-only, no HTTP/WebSocket surface. Eliminates the entire CVE-2026-25253 attack class.
+- **No network listener** — Console-only by default, no HTTP/WebSocket surface. Eliminates the entire CVE-2026-25253 attack class.
+- **Telegram bot interface (optional)** — Secure remote access via Telegram Bot API with user allowlist, rate limiting, and lockout protection.
+- **Multi-session architecture** — Multiple users/chats can operate concurrently with full state isolation (directory grants, command approvals, conversation history).
 - **DPAPI-encrypted secrets** — API keys stored in Windows Credential Manager, never in files or environment variables.
 - **Mandatory human approval** — Write and execute operations require explicit user confirmation.
 - **Command allowlisting** — Shell execution uses a strict allowlist enforced in code, not config.
 - **Graduated command execution** — Commands classified into risk tiers (Safe/Moderate/Elevated/Dangerous) for context-appropriate approval instead of blanket prompting.
 - **Dynamic directory scoping** — Multi-directory access with layered policy engine (hard deny → auto-grant → session grants → user prompts).
 - **Path hardening** — Segment-by-segment symlink resolution, ADS blocking, device name blocking, ceiling enforcement.
-- **Prompt injection defense** — Untrusted content (file contents, command output) is tagged with XML delimiters and the model is instructed to treat it as data only.
+- **Prompt injection defense** — Untrusted content (file contents, command output, Telegram messages) is tagged with XML delimiters and the model is instructed to treat it as data only.
 
 ## Architecture
 
@@ -50,22 +52,27 @@ flowchart LR
 ### Solution Structure
 
 ```
-Krutaka.sln
+Krutaka.slnx
 ├── src/
 │   ├── Krutaka.Core/          # Interfaces, models, orchestrator (zero dependencies)
 │   ├── Krutaka.AI/            # Claude API client (official Anthropic package v12.4.0)
 │   ├── Krutaka.Tools/         # Tool implementations + security policy
 │   ├── Krutaka.Memory/        # SQLite FTS5 + session persistence
 │   ├── Krutaka.Skills/        # Markdown skill loader (YAML frontmatter)
-│   └── Krutaka.Console/       # Entry point + Spectre.Console UI
+│   ├── Krutaka.Console/       # Entry point + Spectre.Console UI
+│   └── Krutaka.Telegram/      # Telegram Bot API integration
 ├── tests/
 │   ├── Krutaka.Core.Tests/
 │   ├── Krutaka.AI.Tests/
 │   ├── Krutaka.Tools.Tests/   # Includes security test suite
-│   └── Krutaka.Memory.Tests/
+│   ├── Krutaka.Memory.Tests/
+│   ├── Krutaka.Skills.Tests/
+│   ├── Krutaka.Console.Tests/
+│   └── Krutaka.Telegram.Tests/
 ├── skills/                    # User-created skill files
 ├── prompts/                   # System prompt templates
 └── docs/                      # Architecture and status documentation
+```
 ```
 
 ## Key Technology Choices
@@ -106,6 +113,34 @@ dotnet test
 dotnet publish src/Krutaka.Console -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
+## Telegram Setup (Optional)
+
+Krutaka v0.4.0+ supports remote access via Telegram Bot API. This is completely optional — the local console works without any Telegram configuration.
+
+**Quick setup:**
+1. Create a bot with [@BotFather](https://t.me/BotFather) on Telegram
+2. Store the bot token in Windows Credential Manager (see [Telegram Setup Guide](docs/guides/TELEGRAM-SETUP.md))
+3. Get your Telegram User ID from [@userinfobot](https://t.me/userinfobot)
+4. Add your User ID to `appsettings.json`:
+   ```json
+   "Telegram": {
+     "AllowedUsers": [
+       { "UserId": 123456789, "Role": "Admin" }
+     ]
+   }
+   ```
+5. Run in Telegram mode:
+   ```bash
+   dotnet run --project src/Krutaka.Console -- --mode telegram
+   ```
+
+📖 **Full instructions:** [docs/guides/TELEGRAM-SETUP.md](docs/guides/TELEGRAM-SETUP.md)
+
+**Operating modes:**
+- `Console` (default) — Local-only, no Telegram services loaded
+- `Telegram` — Headless bot service, no console UI
+- `Both` — Concurrent console + Telegram with shared session manager
+
 ## Available Commands
 
 Once running, Krutaka provides the following commands:
@@ -132,9 +167,12 @@ Once running, Krutaka provides the following commands:
 | [Architecture Overview](docs/architecture/OVERVIEW.md) | Component map, project dependencies, technology choices |
 | [Architecture Decisions](docs/architecture/DECISIONS.md) | ADR log — why each major choice was made |
 | [Security Model](docs/architecture/SECURITY.md) | Threat model, security controls, policy rules |
+| [Multi-Session Architecture](docs/architecture/MULTI-SESSION.md) | Session isolation design and per-session state |
+| [Telegram Security](docs/architecture/TELEGRAM.md) | Telegram threat model and security boundaries |
 | [Progress Tracker](docs/status/PROGRESS.md) | Phase/issue completion status |
 | [Dependency Map](docs/status/DEPENDENCY-MAP.md) | NuGet package versions and purposes |
 | [Local Setup Guide](docs/guides/LOCAL-SETUP.md) | Dev environment prerequisites and build instructions |
+| [Telegram Setup Guide](docs/guides/TELEGRAM-SETUP.md) | Bot creation, token storage, configuration, troubleshooting |
 | [Testing Guide](docs/guides/TESTING.md) | Test strategy, how to run, security test corpus |
 
 ## Security Posture
@@ -149,6 +187,10 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 | **Command Allowlist** | Tiered risk classification via `GraduatedCommandPolicy` (Safe/Moderate/Elevated/Dangerous) | ✅ Complete |
 | **Path Validation** | Symlink resolution + ADS/device name blocking + ceiling enforcement | ✅ Complete |
 | **Directory Access Control** | Layered policy engine with auto-grant patterns and session grants | ✅ Complete |
+| **Multi-Session Isolation** | Per-session state for orchestrator, grants, approvals, conversation history | ✅ Complete |
+| **Telegram Authentication** | User allowlist, rate limiting (10 cmd/min), lockout (3 attempts → 1 hour) | ✅ Complete |
+| **Telegram Input Sanitization** | All messages wrapped in `<untrusted_content>` tags, Unicode normalization | ✅ Complete |
+| **Callback Signature Validation** | HMAC-SHA256 signed inline keyboard callbacks, nonce-based replay prevention | ✅ Complete |
 | **Process Sandboxing** | Windows Job Objects (256MB memory, 30s CPU limits) | ✅ Complete |
 | **Human Approval** | Blocking approval for write/execute/directory access operations | ✅ Complete |
 | **Environment Scrubbing** | Remove API keys/secrets from child processes | ✅ Complete |
@@ -158,13 +200,15 @@ Krutaka implements defense-in-depth security controls to prevent the vulnerabili
 
 ### Security Test Coverage
 
-- **580+ security policy tests** covering:
+- **950+ security policy tests** covering:
   - 40 command validation tests (allowlist, blocklist, metacharacters)
   - 40 path validation tests (traversal, blocked directories, file patterns)
   - 20 environment scrubbing tests
   - 25 access policy engine tests (layer logic, deny precedence, grant flow)
   - 87 adversarial tests (symlink escapes, ADS attacks, device names, glob pattern abuse, ceiling violations)
   - ~370 graduated command execution tests (tier classification, policy evaluation, config validation, adversarial scenarios)
+  - ~123 session isolation tests (per-session state, no leakage between sessions)
+  - ~245 Telegram security tests (auth guard, rate limiting, lockout, callback signing, input sanitization)
 - **All security tests passing** in CI/CD pipeline
 - **Separate security test workflow** for critical security validations
 
