@@ -16,6 +16,7 @@ namespace Krutaka.Telegram;
 public sealed class TelegramSessionBridge : ITelegramSessionBridge
 {
     private readonly ISessionManager _sessionManager;
+    private readonly ISessionFactory _sessionFactory;
     private readonly TelegramSecurityConfig _config;
     private readonly ILogger<TelegramSessionBridge>? _logger;
 
@@ -23,17 +24,21 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
     /// Initializes a new instance of the <see cref="TelegramSessionBridge"/> class.
     /// </summary>
     /// <param name="sessionManager">The session manager for creating and managing sessions.</param>
+    /// <param name="sessionFactory">The session factory for creating sessions with preserved IDs during restart.</param>
     /// <param name="config">The Telegram security configuration containing user-specific settings.</param>
     /// <param name="logger">Optional logger for diagnostics.</param>
     public TelegramSessionBridge(
         ISessionManager sessionManager,
+        ISessionFactory sessionFactory,
         TelegramSecurityConfig config,
         ILogger<TelegramSessionBridge>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(sessionManager);
+        ArgumentNullException.ThrowIfNull(sessionFactory);
         ArgumentNullException.ThrowIfNull(config);
 
         _sessionManager = sessionManager;
+        _sessionFactory = sessionFactory;
         _config = config;
         _logger = logger;
     }
@@ -49,7 +54,15 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
         var projectPath = ResolveProjectPath(userId, externalKey);
 
         // Check if JSONL exists on disk for this session
-        Guid? existingSessionId = SessionStore.FindMostRecentSession(projectPath);
+        Guid? existingSessionId = null;
+        try
+        {
+            existingSessionId = SessionStore.FindMostRecentSession(projectPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogWarning(ex, "Failed to discover existing sessions for project path '{ProjectPath}', will create new session", projectPath);
+        }
 
         ManagedSession session;
 
@@ -60,23 +73,37 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
                 externalKey, existingSessionId.Value);
 
             // Three-step resume pattern:
-            // Step 1: Resume session with preserved ID via SessionManager
-            session = await _sessionManager.ResumeSessionAsync(
-                existingSessionId.Value,
-                projectPath,
-                cancellationToken).ConfigureAwait(false);
+            // Step 1: Create session with preserved ID via SessionFactory (not SessionManager.Resume)
+            // After a process restart, SessionManager won't have this session in its suspended map,
+            // so we use SessionFactory directly to create with the preserved ID
+            var request = new SessionRequest(
+                ProjectPath: projectPath,
+                ExternalKey: externalKey,
+                UserId: userId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                MaxTokenBudget: 200_000,
+                MaxToolCallBudget: 1000);
+
+            session = _sessionFactory.Create(request, existingSessionId.Value);
 
             // Step 2: Load conversation history from JSONL
-            using var sessionStore = new SessionStore(projectPath, existingSessionId.Value);
-            var messages = await sessionStore.ReconstructMessagesAsync(cancellationToken).ConfigureAwait(false);
-
-            // Step 3: Restore history into orchestrator
-            if (messages.Count > 0)
+            try
             {
-                session.Orchestrator.RestoreConversationHistory(messages);
-                _logger?.LogInformation(
-                    "Restored {MessageCount} messages into session {SessionId} orchestrator.",
-                    messages.Count, session.SessionId);
+                using var sessionStore = new SessionStore(projectPath, existingSessionId.Value);
+                var messages = await sessionStore.ReconstructMessagesAsync(cancellationToken).ConfigureAwait(false);
+
+                // Step 3: Restore history into orchestrator
+                if (messages.Count > 0)
+                {
+                    session.Orchestrator.RestoreConversationHistory(messages);
+                    _logger?.LogInformation(
+                        "Restored {MessageCount} messages into session {SessionId} orchestrator.",
+                        messages.Count, session.SessionId);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
+            {
+                // Best-effort: log and continue with empty in-memory history (like Console does)
+                _logger?.LogWarning(ex, "Failed to reconstruct conversation history from JSONL for session {SessionId}. Starting with empty history.", session.SessionId);
             }
         }
         else
@@ -147,6 +174,8 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
         long userId,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        
         var userIdString = userId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         // Filter active sessions to those belonging to this user
@@ -160,12 +189,14 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
     }
 
     /// <inheritdoc/>
-    public async Task<ManagedSession?> SwitchSessionAsync(
+    public Task<ManagedSession?> SwitchSessionAsync(
         long chatId,
         long userId,
         Guid sessionId,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        
         var userIdString = userId.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         // Verify the session exists and belongs to this user
@@ -175,7 +206,7 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
         if (targetSession is null)
         {
             _logger?.LogWarning("Session {SessionId} not found for user {UserId}.", sessionId, userId);
-            return null;
+            return Task.FromResult<ManagedSession?>(null);
         }
 
         if (!string.Equals(targetSession.UserId, userIdString, StringComparison.Ordinal))
@@ -183,24 +214,22 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
             _logger?.LogWarning(
                 "Session {SessionId} does not belong to user {UserId}. Actual owner: {ActualUserId}.",
                 sessionId, userId, targetSession.UserId);
-            return null;
+            return Task.FromResult<ManagedSession?>(null);
         }
 
-        // Update the external key mapping to point to this session
-        var externalKey = BuildExternalKey(chatId, userId, ChatType.Private); // Use Private as default for switch
         var session = _sessionManager.GetSession(sessionId);
 
         if (session is null)
         {
             _logger?.LogWarning("Session {SessionId} is no longer active.", sessionId);
-            return null;
+            return Task.FromResult<ManagedSession?>(null);
         }
 
         _logger?.LogInformation(
-            "Switched chat {ChatId} to session {SessionId} for user {UserId}.",
-            chatId, sessionId, userId);
+            "Retrieved session {SessionId} for user {UserId}. Note: External key remapping not currently supported by ISessionManager.",
+            sessionId, userId);
 
-        return session;
+        return Task.FromResult<ManagedSession?>(session);
     }
 
     /// <summary>
@@ -222,7 +251,7 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
     /// <summary>
     /// Resolves the project path for the specified user and external key.
     /// If TelegramUserConfig.ProjectPath is set for this user, uses it.
-    /// Otherwise, defaults to {UserProfile}\KrutakaProjects\{externalKey}\ (auto-created).
+    /// Otherwise, defaults to {UserProfile}\KrutakaProjects\{sanitizedKey}\ (auto-created).
     /// </summary>
     private string ResolveProjectPath(long userId, string externalKey)
     {
@@ -236,9 +265,11 @@ public sealed class TelegramSessionBridge : ITelegramSessionBridge
             return userConfig.ProjectPath;
         }
 
-        // Default: {UserProfile}\KrutakaProjects\{externalKey}\
+        // Default: {UserProfile}\KrutakaProjects\{sanitizedKey}\
+        // Sanitize external key to be filesystem-safe (replace ':' with '-')
+        var sanitizedKey = externalKey.Replace(":", "-", StringComparison.Ordinal);
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var defaultProjectPath = Path.Combine(userProfile, "KrutakaProjects", externalKey);
+        var defaultProjectPath = Path.Combine(userProfile, "KrutakaProjects", sanitizedKey);
 
         // Ensure directory exists
         if (!Directory.Exists(defaultProjectPath))

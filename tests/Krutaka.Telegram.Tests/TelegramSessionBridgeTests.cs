@@ -13,6 +13,7 @@ namespace Krutaka.Telegram.Tests;
 public sealed class TelegramSessionBridgeTests : IDisposable
 {
     private readonly ISessionManager _sessionManager;
+    private readonly ISessionFactory _sessionFactory;
     private readonly TelegramSecurityConfig _config;
     private readonly ILogger<TelegramSessionBridge> _logger;
     private readonly TelegramSessionBridge _bridge;
@@ -25,6 +26,7 @@ public sealed class TelegramSessionBridgeTests : IDisposable
         Directory.CreateDirectory(_tempStorageRoot);
 
         _sessionManager = Substitute.For<ISessionManager>();
+        _sessionFactory = Substitute.For<ISessionFactory>();
         _config = new TelegramSecurityConfig(
             AllowedUsers:
             [
@@ -38,7 +40,7 @@ public sealed class TelegramSessionBridgeTests : IDisposable
         );
         _logger = Substitute.For<ILogger<TelegramSessionBridge>>();
 
-        _bridge = new TelegramSessionBridge(_sessionManager, _config, _logger);
+        _bridge = new TelegramSessionBridge(_sessionManager, _sessionFactory, _config, _logger);
     }
 
     public void Dispose()
@@ -171,7 +173,8 @@ public sealed class TelegramSessionBridgeTests : IDisposable
         var chatId = 987654321L;
         var chatType = ChatType.Private;
         var externalKey = $"telegram:dm:{userId}";
-        var expectedProjectPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "KrutakaProjects", externalKey);
+        var sanitizedKey = externalKey.Replace(":", "-", StringComparison.Ordinal); // telegram-dm-987654321
+        var expectedProjectPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "KrutakaProjects", sanitizedKey);
 
         // Act
         try
@@ -213,14 +216,15 @@ public sealed class TelegramSessionBridgeTests : IDisposable
 
         _sessionManager.ListActiveSessions().Returns([existingSessionSummary]);
 
-        // Act
+        // CreateSessionAsync will throw ArgumentNullException due to null return,
+        // but we're only verifying the TerminateSessionAsync call happened first
         try
         {
             await _bridge.CreateNewSessionAsync(chatId, userId, chatType, CancellationToken.None);
         }
         catch (NullReferenceException)
         {
-            // Expected since mock CreateSessionAsync returns null
+            // Expected - CreateSessionAsync mock returns null
         }
 
         // Assert
