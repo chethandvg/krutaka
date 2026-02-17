@@ -7,12 +7,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-17
+
 ### Added
-- **4 new tests** for previously deferred test coverage from PR #94:
-  - `RunAsync_Should_ThrowTimeoutException_WhenApprovalTimeoutExceeded` - Validates approval timeout mechanism
-  - `Constructor_Should_ThrowArgumentOutOfRangeException_WhenApprovalTimeoutNegative` - Validates parameter validation
-  - `RunAsync_Should_AllowInfiniteApprovalTimeout_WhenSetToZero` - Confirms zero timeout = infinite wait
-  - `Should_ThrowIOException_WhenSymlinkDepthExceedsMaximum` - Tests 32-level symlink depth limit with graceful permission skip
+- **Multi-session architecture**: Transform from single-session console app to multi-session, multi-interface platform
+  - `ISessionFactory` and `SessionFactory` — Creates isolated per-session agent instances with independent state
+  - `ISessionManager` — Manages session lifecycle (create, idle, suspend, resume, terminate) with resource governance
+  - `ManagedSession` — Per-session container with budget tracking, state machine, and disposal pattern
+  - `SessionRequest`, `SessionState` enum, `SessionBudget` — Core session abstractions in `Krutaka.Core`
+  - `SessionManagerOptions` — Configure max active sessions (default: 10), idle timeout (30 min), suspended session TTL (24 hours)
+  - Session eviction strategies — Idle timeout auto-suspend, TTL-based cleanup, LRU eviction when max sessions reached
+  - Per-session isolation for all mutable state — `AgentOrchestrator`, `CorrelationContext`, `SessionStore`, `ISessionAccessStore`, `ICommandApprovalCache`, `IToolRegistry` are scoped per session, not singleton
+  - Shared stateless services remain singleton — `IClaudeClient`, `ISecurityPolicy`, `IAuditLogger`, `IAccessPolicyEngine`, `ICommandRiskClassifier`, `ToolOptions`
+- **CorrelationContext agent identity fields**: Added `AgentId`, `ParentAgentId`, `AgentRole` properties for multi-agent context propagation
+  - `SetAgentContext(Guid, Guid?, string)` method with role validation
+  - Conditional audit log field inclusion when `AgentId` is non-null (backward compatible)
+- **Krutaka.Telegram project** — New composition root for Telegram Bot API integration (7+7 projects total)
+  - `TelegramBotService` — Background service implementing long polling and webhook support
+  - Dual-mode polling service supports both long polling (default) and webhook (production)
+  - `ITelegramAuthGuard` and `TelegramAuthGuard` — User allowlist, rate limiting (10 cmd/min default), lockout (3 attempts → 1 hour), anti-replay tracking
+  - `ITelegramCommandRouter` and `TelegramCommandRouter` — 12 supported commands (`/start`, `/help`, `/status`, `/pause`, `/resume`, `/restart`, `/cancel`, `/info`, `/debug`, `/killswitch`, `/sessions`, `/newsession`)
+  - `ITelegramResponseStreamer` and `TelegramResponseStreamer` — MarkdownV2 formatting, 4,096-byte chunking, rate limit compliance (20 msg/min user, 30 msg/sec global)
+  - `ITelegramApprovalHandler` and `TelegramApprovalHandler` — Inline keyboard approval flow with tier-specific panels (Safe/Moderate/Elevated), HMAC-SHA256 signed callbacks, nonce-based replay prevention
+  - `CallbackDataSigner` — HMAC-SHA256 signature generation and validation for callback tampering prevention (32-byte secret, base64url encoding)
+  - `ITelegramSessionBridge` and `TelegramSessionBridge` — Session routing (DM → user-scoped, group → chat-scoped), multi-session coordination
+  - `ITelegramFileHandler` and `TelegramFileHandler` — File upload/download with security validation (10 MB limit, access policy checks, path hardening)
+  - `ITelegramHealthMonitor` and `TelegramHealthMonitor` — Health checks, budget threshold alerts (80% token, 90% tool call, 95% turn warnings), admin-only push notifications
+  - `TelegramInputSanitizer` — Wrap all Telegram text in `<untrusted_content source="telegram:user:{userId}">` tags, Unicode NFC normalization, Telegram entity stripping
+  - `TelegramMarkdownV2Formatter` — Escape MarkdownV2 special characters for safe output formatting
+  - `PollingLockFile` — Single-instance lock to prevent polling conflicts
+  - `TelegramSecurityConfig`, `TelegramUserConfig`, `TelegramUserRole` — Configuration models in `Krutaka.Core` for DI and validation
+  - `TelegramConfigValidator` — Startup validation (AllowedUsers non-empty, duplicate UserId check, webhook URL validation)
+- **Telegram security configuration and startup validation**:
+  - `TelegramSecurityConfig.AllowedUsers` — Array of authorized users with UserId (numeric), Role (User/Admin), optional ProjectPath
+  - Empty AllowedUsers array = bot refuses to start (fail-fast validation)
+  - Bot token NEVER in config files — loaded via `ISecretsProvider` (Windows Credential Manager) or `KRUTAKA_TELEGRAM_BOT_TOKEN` env var
+  - Startup validation ensures AllowedUsers is populated, no duplicate UserIds, webhook URL present for Webhook mode
+- **Telegram-specific audit events**: 6 new event types added via default interface methods in `IAuditLogger`
+  - `LogTelegramMessageReceived` — Log inbound Telegram message with user ID, chat ID, message length
+  - `LogTelegramResponseSent` — Log outbound response with chunk count, total bytes sent
+  - `LogTelegramAuthFailure` — Log authentication failures (unknown user, rate limit, lockout)
+  - `LogTelegramCallbackReceived` — Log inline keyboard callback with payload signature status
+  - `LogTelegramFileUpload` — Log file upload events with file size, MIME type, security validation result
+  - `LogTelegramFileDownload` — Log file download events with file path, size, access policy result
+- **Dual-mode host architecture**: Support three operating modes via `appsettings.json` `"Mode"` setting or `--mode` CLI argument
+  - `HostMode.Console` (0, default) — Single-session local console UI, no Telegram services loaded, backward compatible with v0.1.0–v0.3.0
+  - `HostMode.Telegram` (1) — Headless bot service with multi-session support, no Console UI, requires Telegram configuration
+  - `HostMode.Both` (2) — Concurrent Console + Telegram with shared session manager, requires Telegram configuration
+  - Mode resolution: Config + CLI override, validated at startup
+  - Conditional DI registration — Console mode does NOT load Telegram services, Telegram/Both modes require valid Telegram configuration
+  - `Program.cs` refactored — Mode-aware execution paths, mode-specific logging
+- **~476 new tests** across all test projects, bringing total to **1,765 tests passing (2 skipped)**:
+  - 43 core abstraction tests (ISessionFactory, ISessionManager, ManagedSession, SessionBudget, SessionRequest, SessionState validation)
+  - 16 CorrelationContext tests (agent identity fields, SetAgentContext, ResetSession, audit log integration)
+  - 19 SessionFactory tests (isolation, ProjectPath validation, disposal, budget application)
+  - 11 SessionManager tests (lifecycle, eviction, resource limits, thread-safety)
+  - 20 dual-mode host tests (mode parsing, config override, conditional DI, validation)
+  - 244 Telegram integration tests (auth guard, command router, response streamer, approval handler, session bridge, file handler, health monitor, input sanitizer, callback signing)
+  - 123 adversarial tests (session isolation, Telegram security, callback tampering, rate limit bypass, lockout evasion, unknown user handling)
+
+### Changed
+- **`Program.cs` refactored from singleton orchestrator to multi-session architecture**:
+  - Replaced singleton `AgentOrchestrator`, `CorrelationContext`, `SessionStore` with `ISessionManager` registration
+  - Added mode-aware DI registration via `HostModeConfigurator`
+  - Console mode continues single-session behavior for backward compatibility
+  - Telegram/Both modes enable multi-session with configurable `MaxActiveSessions`
+- **`IAuditLogger` extended with Telegram methods via default interface implementations**:
+  - Added 6 new Telegram-specific log methods with default no-op implementations
+  - Backward compatible — existing implementations continue to work without modification
+  - `AuditLogger` (Serilog implementation) provides full Telegram audit trail
+- **Solution expanded to 7+7 projects**:
+  - Added `src/Krutaka.Telegram` (new composition root)
+  - Added `tests/Krutaka.Telegram.Tests` (244 tests passing, 1 skipped)
+  - Updated `Krutaka.slnx` to include new projects
+- **`AGENTS.md` updated with `Krutaka.Telegram` in project dependency rules**:
+  - `Krutaka.Telegram` listed as composition root (like `Krutaka.Console`)
+  - Dependency rule: Telegram references Core, Tools, Memory, AI (no circular dependencies)
+
+### Security
+- **Bot token security** (S1):
+  - NEVER in `appsettings.json` — loaded via `ISecretsProvider` (Windows Credential Manager with DPAPI encryption) or `KRUTAKA_TELEGRAM_BOT_TOKEN` environment variable
+  - Log redaction filter prevents token leakage in audit logs
+- **Empty AllowedUsers enforcement** (S2):
+  - `TelegramConfigValidator` fails startup if `AllowedUsers` is null or empty
+  - No default "allow all users" — explicit opt-in required
+  - Duplicate UserId validation prevents configuration errors
+- **Unknown user handling** (S3):
+  - Telegram updates from unknown users are silently dropped (no response, no audit log entry for user)
+  - Prevents enumeration attacks and spam
+- **Input sanitization** (S4):
+  - All Telegram text wrapped in `<untrusted_content source="telegram:user:{userId}">` XML tags before sending to Claude
+  - Prevents prompt injection via Telegram messages
+  - Unicode NFC normalization prevents homograph attacks
+  - Telegram entity stripping removes markdown/HTML formatting from untrusted input
+- **Callback signature validation** (S5):
+  - HMAC-SHA256 signed inline keyboard callbacks prevent tampering
+  - 32-byte random secret generated once per application lifetime
+  - Base64url encoding prevents URL-unsafe characters
+  - Nonce-based replay prevention (callbacks expire after use)
+  - Adversarial tests verify signature bypass attempts are blocked
+- **Per-session isolation** (S6):
+  - Each Telegram user/chat gets independent `AgentOrchestrator`, `CorrelationContext`, `SessionStore`, `ISessionAccessStore`, `ICommandApprovalCache`, `IToolRegistry`
+  - Directory grants approved by User A do NOT apply to User B
+  - Command approvals from Session 1 do NOT leak to Session 2
+  - Conversation history is isolated per session
+  - Adversarial tests verify no state leakage between sessions
+- **Global token budget** (S7):
+  - `SessionManager` tracks total tokens across all sessions
+  - Default global budget: 200,000 tokens per application lifetime (overridable via config)
+  - Prevents API exhaustion from concurrent users
+  - New session creation fails when global budget exhausted
+- **Kill switch priority** (S8):
+  - `/killswitch` command processed first in polling loop (before rate limiting)
+  - Ensures emergency shutdown works even under attack conditions
+  - Admin-only command (verified by role check)
+  - Gracefully terminates all active sessions and stops polling
 
 ## [0.3.0] - 2026-02-14
 
@@ -146,7 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/chethandvg/krutaka/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/chethandvg/krutaka/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/chethandvg/krutaka/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/chethandvg/krutaka/compare/v0.1.0...v0.1.1

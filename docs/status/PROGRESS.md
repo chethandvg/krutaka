@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-17 (v0.4.0 Health Monitoring complete — 1,705 tests passing, 2 skipped)
+> **Last updated:** 2026-02-17 (v0.4.0 Telegram Integration & Multi-Session Architecture complete — 1,765 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -1582,9 +1582,10 @@ This project represents a complete implementation of a security-hardened AI agen
 
 ---
 
-## v0.4.0 — Telegram Integration & Multi-Session Architecture (In Progress)
+## v0.4.0 — Telegram Integration & Multi-Session Architecture (Complete)
 
-> **Status:** 🟡 **In Progress**  
+> **Status:** ✅ **Complete** (2026-02-17)  
+> **Test Count:** 1,765 tests passing (2 skipped)  
 > **Reference:** See `docs/versions/v0.4.0.md` for complete architecture design, threat model, and implementation roadmap.
 
 ### Overview
