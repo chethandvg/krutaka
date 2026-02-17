@@ -69,6 +69,10 @@ public static class ServiceExtensions
         // Note: Stateless bridge that delegates session management to ISessionManager
         services.AddSingleton<ITelegramSessionBridge, TelegramSessionBridge>();
 
+        // Register ITelegramFileHandler as singleton (implemented in issue #145)
+        // Note: Stateless handler that can be safely shared across all sessions
+        services.AddSingleton<ITelegramFileHandler, TelegramFileHandler>();
+
         // Register ITelegramBotClient as singleton
         // Note: The TelegramBotService creates its own client instance, but TelegramResponseStreamer
         // and TelegramApprovalHandler need a shared client instance for sending messages/edits.
