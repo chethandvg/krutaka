@@ -2,9 +2,9 @@ name: Build and Test
 
 on:
   push:
-    branches: [ main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**', 'copilot/**' ]
+    branches: [ main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**' ]
   pull_request:
-    branches: [ main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**', 'copilot/**' ]
+    branches: [ main, develop, 'feature/**', 'bugfix/**', 'release/**', 'hotfix/**' ]
 
 jobs:
   build:
