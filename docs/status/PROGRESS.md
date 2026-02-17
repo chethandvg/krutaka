@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-16 (v0.4.0 ITelegramResponseStreamer complete — 1,597 tests passing, 1 skipped)
+> **Last updated:** 2026-02-17 (v0.4.0 TelegramSessionBridge complete — 1,621 tests passing, 1 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2175,7 +2175,59 @@ Three fundamental changes:
 - ✅ Uses Telegram.Bot v22.9.0 inline keyboard API
 - ✅ XML documentation on all public members
 
-**Ready for:** Telegram session bridge and polling service integration (issues #142, #143)
+**Ready for:** Telegram polling service integration (issue #143)
+
+| # | Issue | Summary | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-#141 | Telegram session bridge — map chat IDs to managed sessions via ISessionManager | Feature | 🟢 Complete | 2026-02-17 |
+
+**Summary:** Implement the bridge that maps Telegram chat IDs to managed sessions via `ISessionManager`. DM chats create user-scoped sessions (`telegram:dm:{userId}`), group chats create chat-scoped sessions (`telegram:group:{chatId}`). Includes project path resolution, auto-resume on bot restart with the three-step resume pattern, and session lifecycle commands via Telegram (`/new`, `/sessions`, `/session <id>`).
+
+**Implementation details:**
+- ✅ `ITelegramSessionBridge.cs` — interface with 4 methods:
+  - `GetOrCreateSessionAsync(chatId, userId, chatType, CancellationToken)` — gets existing or creates new session
+  - `CreateNewSessionAsync(chatId, userId, chatType, CancellationToken)` — terminates existing and creates fresh session
+  - `ListSessionsAsync(userId, CancellationToken)` — lists user's active sessions
+  - `SwitchSessionAsync(chatId, userId, sessionId, CancellationToken)` — switches to different session
+- ✅ `TelegramSessionBridge.cs` — implementation with:
+  - **External key format:**
+    - DM (Private) chat → `telegram:dm:{userId}`
+    - Group/Supergroup chat → `telegram:group:{chatId}`
+  - **Project path resolution:**
+    - Uses `TelegramUserConfig.ProjectPath` if configured
+    - Otherwise defaults to `{UserProfile}\KrutakaProjects\{externalKey}\` (auto-created)
+  - **Three-step resume pattern** for JSONL recovery:
+    1. Call `ISessionManager.ResumeSessionAsync(originalSessionId)` — preserves session ID
+    2. Call `SessionStore.ReconstructMessagesAsync()` — loads conversation history from disk
+    3. Call `session.Orchestrator.RestoreConversationHistory(messages)` — populates orchestrator
+  - **Critical:** History reconstruction is caller's responsibility (TelegramSessionBridge), NOT SessionManager's (Krutaka.Tools cannot reference Krutaka.Memory)
+  - **Session lifecycle commands:**
+    - `/new` — calls `CreateNewSessionAsync()` to terminate current session and create fresh one
+    - `/sessions` — calls `ListSessionsAsync()` to show user's active sessions
+    - `/session <id>` — calls `SwitchSessionAsync()` to switch to specific session
+- ✅ Service registration in `ServiceExtensions.cs`: `ITelegramSessionBridge` as singleton
+- ✅ Comprehensive tests (11 tests):
+  - External key format (DM, Group, Supergroup)
+  - Project path resolution (configured vs default)
+  - Session termination before new creation
+  - Session filtering by user ID
+  - Session switching with ownership validation
+  - Unsupported chat type rejection
+- ✅ **Test results:**
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 138 (127 + 11 NEW), Core: 348, Tools: 847 + 1 skipped
+  - **Total:** 1,621 tests passing (1 skipped), +11 from previous (was 1,610)
+- ✅ Zero regressions
+- ✅ XML documentation on all public members
+- ✅ Security: Session isolation maintained (different chats cannot access each other's sessions)
+- ✅ Resumed sessions preserve original session ID (via `ISessionFactory.Create(request, sessionId)`)
+
+**Security guarantees:**
+- ✅ External key validation prevents cross-chat session access
+- ✅ User ID validation in `SwitchSessionAsync` prevents unauthorized session switching
+- ✅ Project path resolution uses configured paths or safe defaults (user's home directory)
+- ✅ JSONL file discovery via `SessionStore.FindMostRecentSession` scoped to project directory
+
+**Ready for:** Telegram polling service integration (issue #143)
 
 ### Next Steps
 
