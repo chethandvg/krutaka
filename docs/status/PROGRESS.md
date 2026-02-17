@@ -2032,6 +2032,45 @@ Three fundamental changes:
 - ✅ **Review comments addressed:** All 5 security and correctness issues fixed (XML escaping, user mention preservation, bare command handling, performance)
 - ✅ Ready for Telegram response streaming and approval flow integration (issues #140, #141)
 
+### Harden Telegram Input Sanitization (v0.4.0 Issue #144)
+
+**Status:** 🟢 Complete  
+**Date:** 2026-02-17
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| v0.4.0-#144 | Harden TelegramInputSanitizer with entity stripping, Unicode normalization, control character removal, and prompt injection defense | Security | 🟢 Complete | 2026-02-17 |
+
+**Implementation details:**
+- ✅ Extended `src/Krutaka.Telegram/TelegramInputSanitizer.cs` with hardened sanitization pipeline:
+  - **Entity stripping:** Accept `MessageEntity[]` parameter, strip formatting entities (bold, italic, underline, strikethrough, spoiler, code, pre, custom_emoji), discard URLs from `text_link` entities
+  - **Unicode NFC normalization:** Apply `string.Normalize(NormalizationForm.FormC)` to prevent homoglyph attacks (e.g., Cyrillic 'а' U+0430 vs Latin 'a' U+0061)
+  - **Control character removal:** Remove U+0000–U+001F (except \n U+000A and \t U+0009) and U+007F (DEL)
+  - **Whitespace collapsing:** Collapse 3+ consecutive spaces into 2 spaces
+  - **Group chat @mention extraction:** `ExtractMentionedText(text, botUsername)` — extract text after `@botUsername` mention (case-insensitive)
+  - **Callback data isolation:** `IsCallbackDataSafe(callbackData)` — always returns false (callback data NEVER sent to Claude)
+- ✅ Updated `src/Krutaka.Telegram/TelegramCommandRouter.cs`:
+  - Pass `MessageEntity[]` from `Update.Message.Entities` to `TelegramInputSanitizer.SanitizeMessageText()`
+- ✅ Added 19 new tests in `tests/Krutaka.Telegram.Tests/TelegramInputSanitizerTests.cs`:
+  - Entity stripping: bold, italic, underline, strikethrough, spoiler, code, text_link, mixed entities
+  - Unicode normalization: Cyrillic homoglyph, mixed scripts (Café)
+  - Control character removal: U+0000, U+001F, U+007F (DEL), preserve \n and \t
+  - Whitespace collapsing: 10 consecutive spaces → 2 spaces, preserve 1-2 spaces
+  - Group chat @mention extraction: extract text after `@botUsername`, case-insensitive, return null when not mentioned
+  - Callback data isolation: always returns false
+- ✅ **All existing tests pass:** 13 original TelegramInputSanitizerTests tests still pass (zero regressions)
+- ✅ **Security checkpoints verified:**
+  - ✅ NO raw Telegram text reaches orchestrator without sanitization
+  - ✅ Callback data isolation enforced (NEVER forwarded to Claude)
+  - ✅ Unicode normalization prevents homoglyph-based prompt injection
+  - ✅ Control characters removed (except safe \n and \t)
+  - ✅ Entities stripped to prevent text_link URL injection
+- ✅ **XML documentation** on all new public members
+- ✅ **All tests passing:** 181 Telegram tests total (180 passing, 1 skipped)
+  - TelegramInputSanitizerTests: 32 tests (13 original + 19 new)
+- ✅ **Zero regressions:** All 180 existing Telegram tests from previous issues still pass
+- ✅ Ready for production use with hardened prompt injection defense
+
 ### ITelegramResponseStreamer — Map AgentEvent Stream to Telegram Message Edits (v0.4.0 Issue #140)
 
 **Summary:** Implement Telegram response streamer mapping `IAsyncEnumerable<AgentEvent>` to Telegram message edits with token buffering, rate limiting, message chunking, MarkdownV2 formatting, and tool call status indicators.
