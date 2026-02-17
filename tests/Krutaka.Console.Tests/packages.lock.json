@@ -572,6 +572,7 @@
           "Krutaka.Core": "[0.3.0, )",
           "Krutaka.Memory": "[0.3.0, )",
           "Krutaka.Skills": "[0.3.0, )",
+          "Krutaka.Telegram": "[0.3.0, )",
           "Krutaka.Tools": "[0.3.0, )",
           "Markdig": "[0.40.0, )",
           "Meziantou.Framework.Win32.CredentialManager": "[1.7.17, )",
@@ -602,6 +603,19 @@
           "Krutaka.Core": "[0.3.0, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "YamlDotNet": "[16.3.0, )"
+        }
+      },
+      "krutaka.telegram": {
+        "type": "Project",
+        "dependencies": {
+          "Krutaka.AI": "[0.3.0, )",
+          "Krutaka.Core": "[0.3.0, )",
+          "Krutaka.Memory": "[0.3.0, )",
+          "Krutaka.Tools": "[0.3.0, )",
+          "Microsoft.Extensions.Configuration.Abstractions": "[10.0.2, )",
+          "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.2, )",
+          "Telegram.Bot": "[22.9.0, )"
         }
       },
       "krutaka.tools": {
@@ -821,6 +835,15 @@
         "requested": "[0.49.1, )",
         "resolved": "0.49.1",
         "contentHash": "USV+pdu49OJ3nCjxNuw1K9Zw/c1HCBbwbjXZp0EOn6wM99tFdAtN34KEBZUMyRuJuXlUMDqhd8Yq9obW2MslYA=="
+      },
+      "Telegram.Bot": {
+        "type": "CentralTransitive",
+        "requested": "[22.9.0, )",
+        "resolved": "22.9.0",
+        "contentHash": "h8PjZYkWm5vxoiGU3tlHUrEY1llhbyCMqibBiOWDaH8yW/1F3qwJjUhDaBPzmA3PcYVnFgnrx5b6fiRp8lGLEg==",
+        "dependencies": {
+          "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0"
+        }
       },
       "YamlDotNet": {
         "type": "CentralTransitive",

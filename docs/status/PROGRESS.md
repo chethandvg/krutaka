@@ -2399,6 +2399,95 @@ Three fundamental changes:
 - [ ] `TelegramBotService` — call `NotifyShutdownAsync` in `StopAsync`
 - [ ] Agent response pipeline — call `CheckBudgetThresholdsAsync` after each response completes
 
+### Dual-Mode Host — Console, Telegram, or Both Modes via Configuration and CLI Flag (v0.4.0 Issue #147 - Real)
+
+**Summary:** Update the application host in `Program.cs` to support three operating modes — Console (existing behavior), Telegram (headless bot service), or Both (concurrent). The mode is selected via `appsettings.json` configuration or a `--mode` CLI argument override.
+
+**Status:** 🟢 Complete (2026-02-17)
+
+**Implementation:**
+
+| Component | Description | Status | Date |
+|---|---|---|---|
+| v0.4.0-#147 | HostMode enum and conditional DI registration | Complete | 2026-02-17 |
+
+**Deliverables:**
+- ✅ `HostMode.cs` — enum with three values:
+  - `Console` (0) — default mode, backward compatible
+  - `Telegram` (1) — headless bot service
+  - `Both` (2) — concurrent Console + Telegram
+- ✅ `HostModeConfigurator.cs` — internal helper class with:
+  - `ResolveMode(IConfiguration, string[])` — resolves mode from config + CLI override
+  - `ConfigureSessionManager(HostMode, IConfiguration)` — mode-aware SessionManagerOptions
+  - `RegisterModeSpecificServices()` — conditional DI registration
+  - `ValidateTelegramConfiguration()` — ensures Telegram config exists for Telegram/Both modes
+- ✅ `Program.cs` updates:
+  - Mode resolution at startup
+  - Conditional DI registration based on mode
+  - Mode-specific execution paths (Console loop, host.RunAsync(), or both)
+  - Startup logging of active mode
+- ✅ `appsettings.json` — added `"Mode": "Console"` (default)
+- ✅ `Krutaka.Console.csproj` — added `ProjectReference` to `Krutaka.Telegram`
+- ✅ Comprehensive tests (20 tests):
+  - HostModeTests (9 tests):
+    - Enum has all 3 values (Console=0, Telegram=1, Both=2)
+    - Parses from string (case-insensitive)
+    - ToString support
+    - Invalid string throws ArgumentException
+  - DualModeHostTests (11 tests):
+    - Default mode is Console when config missing
+    - Config parsing (Console, Telegram, Both)
+    - CLI override (`--mode telegram`, `--mode both`, `--mode console`)
+    - Invalid mode values throw descriptive exceptions
+    - Case-insensitive parsing (config and CLI)
+- ✅ **Test results:**
+  - **Total:** 1,728 tests passing (2 skipped) — +20 new tests
+  - **Breakdown:** AI: 10, Console: 141 (+11), Core: 357 (+9), Memory: 131, Skills: 17, Telegram: 225, Tools: 847
+  - **Regressions:** 0 ✅
+- ✅ Zero behavioral change for existing users (default mode is Console)
+- ✅ XML documentation on all public members
+
+**Mode behaviors:**
+- **Console mode** (default):
+  - `MaxActiveSessions = 1` (single-session)
+  - Registers `ConsoleUI` and `ApprovalHandler`
+  - Does NOT register Telegram services
+  - Does NOT require Telegram configuration
+  - Existing behavior preserved (backward compatible)
+- **Telegram mode** (headless):
+  - `MaxActiveSessions` from config (default: 10)
+  - Registers `TelegramBotService` as `IHostedService`
+  - Does NOT register `ConsoleUI`
+  - Requires valid Telegram configuration (validated at startup)
+  - Runs as background service until Ctrl+C or `/killswitch`
+- **Both mode** (concurrent):
+  - `MaxActiveSessions` from config (default: 10)
+  - Registers both `ConsoleUI` and `TelegramBotService`
+  - Shared `ISessionManager` — Console and Telegram sessions coexist
+  - Requires valid Telegram configuration
+  - Console exit (e.g., `/exit`) shuts down both Console and Telegram
+
+**Security guarantees:**
+- ✅ Console mode NEVER loads Telegram services (conditional registration)
+- ✅ Telegram/Both modes validate configuration at startup (fail-fast)
+- ✅ `HostModeConfigurator` is internal (not exposed outside assembly)
+- ✅ Parameter validation via `ArgumentNullException.ThrowIfNull`
+- ✅ Clean shutdown: `CancellationToken` propagates to all services
+
+**CLI usage:**
+```bash
+# Console mode (default)
+Krutaka.Console.exe
+
+# Telegram mode (override config)
+Krutaka.Console.exe --mode telegram
+
+# Both mode (override config)
+Krutaka.Console.exe --mode both
+```
+
+**Ready for:** Functional testing in all three modes, manual verification of concurrent operation
+
 ### Next Steps
 
 Implementation of v0.4.0 components will follow the complete issue breakdown in `docs/versions/v0.4.0.md`.
