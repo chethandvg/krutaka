@@ -194,6 +194,27 @@ try
         case HostMode.Both:
             // Both mode: Start the host (starts TelegramBotService in background) then run console
             await host.StartAsync().ConfigureAwait(false);
+            
+            // Link host lifetime to console UI shutdown token so /killswitch from Telegram can stop console
+            var hostLifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+            
+            // Register callback to trigger UI shutdown when host is stopping
+            var consoleUi = host.Services.GetRequiredService<ConsoleUI>();
+            hostLifetime.ApplicationStopping.Register(() =>
+            {
+                // Trigger console shutdown when Telegram requests shutdown via /killswitch
+#pragma warning disable CA1031 // Do not catch general exception types - during shutdown, we want to continue even if disposal fails
+                try
+                {
+                    consoleUi.Dispose();
+                }
+                catch
+                {
+                    // Ignore disposal errors during shutdown
+                }
+#pragma warning restore CA1031
+            });
+            
             // Fall through to console logic
             break;
 

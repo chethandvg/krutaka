@@ -27,10 +27,18 @@ internal static class HostModeConfigurator
         ArgumentNullException.ThrowIfNull(args);
 
         // Check CLI arguments first (--mode takes precedence)
-        for (int i = 0; i < args.Length - 1; i++)
+        for (int i = 0; i < args.Length; i++)
         {
             if (args[i].Equals("--mode", StringComparison.OrdinalIgnoreCase))
             {
+                // Ensure there's a value after --mode
+                if (i + 1 >= args.Length)
+                {
+                    throw new ArgumentException(
+                        "The --mode argument requires a value. Valid values: Console, Telegram, Both",
+                        nameof(args));
+                }
+
                 var modeValue = args[i + 1];
                 if (Enum.TryParse<HostMode>(modeValue, ignoreCase: true, out var cliMode))
                 {
@@ -176,6 +184,12 @@ internal static class HostModeConfigurator
                 "Please ensure all required properties are present.");
         }
 
-        // TelegramConfigValidator.Validate will be called during AddTelegramBot
+        // Validate required properties - TelegramConfigValidator.Validate will perform full validation during AddTelegramBot,
+        // but we do a basic check here to fail fast on obviously invalid configurations
+        if (config.AllowedUsers is null || config.AllowedUsers.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Telegram configuration is invalid: AllowedUsers must be specified and contain at least one user.");
+        }
     }
 }

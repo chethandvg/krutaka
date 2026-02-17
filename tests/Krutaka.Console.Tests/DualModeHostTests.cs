@@ -20,7 +20,7 @@ public class DualModeHostTests
         string[] args = [];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Console);
@@ -39,7 +39,7 @@ public class DualModeHostTests
         string[] args = [];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Console);
@@ -58,7 +58,7 @@ public class DualModeHostTests
         string[] args = [];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Telegram);
@@ -77,7 +77,7 @@ public class DualModeHostTests
         string[] args = [];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Both);
@@ -96,7 +96,7 @@ public class DualModeHostTests
         string[] args = ["--mode", "telegram"];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Telegram);
@@ -115,7 +115,7 @@ public class DualModeHostTests
         string[] args = ["--mode", "both"];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Both);
@@ -134,7 +134,7 @@ public class DualModeHostTests
         string[] args = ["--mode", "console"];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Console);
@@ -153,7 +153,7 @@ public class DualModeHostTests
         string[] args = [];
 
         // Act
-        var act = () => ResolveHostMode(configuration, args);
+        var act = () => HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         act.Should().Throw<ArgumentException>()
@@ -168,7 +168,7 @@ public class DualModeHostTests
         string[] args = ["--mode", "invalid"];
 
         // Act
-        var act = () => ResolveHostMode(configuration, args);
+        var act = () => HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         act.Should().Throw<ArgumentException>()
@@ -188,7 +188,7 @@ public class DualModeHostTests
         string[] args = [];
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Telegram);
@@ -202,49 +202,24 @@ public class DualModeHostTests
         string[] args = ["--mode", "BOTH"]; // uppercase
 
         // Act
-        var mode = ResolveHostMode(configuration, args);
+        var mode = HostModeConfigurator.ResolveMode(configuration, args);
 
         // Assert
         mode.Should().Be(HostMode.Both);
     }
 
-    /// <summary>
-    /// Helper method to resolve host mode from configuration and CLI arguments.
-    /// This mirrors the logic that will be in Program.cs.
-    /// </summary>
-    private static HostMode ResolveHostMode(IConfiguration configuration, string[] args)
+    [Fact]
+    public void ResolveHostMode_WithTrailingModeArgument_ThrowsArgumentException()
     {
-        // Check CLI arguments first (--mode takes precedence)
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i].Equals("--mode", StringComparison.OrdinalIgnoreCase))
-            {
-                var modeValue = args[i + 1];
-                if (Enum.TryParse<HostMode>(modeValue, ignoreCase: true, out var cliMode))
-                {
-                    return cliMode;
-                }
+        // Arrange
+        var configuration = new ConfigurationBuilder().Build();
+        string[] args = ["--mode"]; // No value after --mode
 
-                throw new ArgumentException(
-                    $"Invalid host mode '{modeValue}' specified via --mode. Valid values: Console, Telegram, Both",
-                    nameof(args));
-            }
-        }
+        // Act
+        var act = () => HostModeConfigurator.ResolveMode(configuration, args);
 
-        // Fall back to configuration
-        var configMode = configuration["Mode"];
-        if (!string.IsNullOrWhiteSpace(configMode))
-        {
-            if (Enum.TryParse<HostMode>(configMode, ignoreCase: true, out var parsedMode))
-            {
-                return parsedMode;
-            }
-
-            throw new ArgumentException(
-                $"Invalid host mode '{configMode}' in configuration. Valid values: Console, Telegram, Both");
-        }
-
-        // Default to Console for backward compatibility
-        return HostMode.Console;
+        // Assert
+        act.Should().Throw<ArgumentException>()
+            .WithMessage("*--mode argument requires a value*");
     }
 }
