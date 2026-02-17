@@ -2345,7 +2345,7 @@ Three fundamental changes:
 
 **Ready for:** Integration with TelegramCommandRouter and full end-to-end testing
 
-### Health Monitoring — Heartbeat, Error Alerts, Task Completion, Budget Warnings (v0.4.0 Issue #147)
+### Health Monitoring — Error Alerts, Task Completion, Budget Warnings (v0.4.0 Issue #147)
 
 **Summary:** Implement a Telegram health monitoring service that sends proactive notifications for system events — error alerts, task completion, budget warnings, and startup/shutdown status. Includes notification rate limiting to prevent spam.
 

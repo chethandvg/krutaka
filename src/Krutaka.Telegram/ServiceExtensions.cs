@@ -74,7 +74,8 @@ public static class ServiceExtensions
         services.AddSingleton<ITelegramFileHandler, TelegramFileHandler>();
 
         // Register ITelegramHealthMonitor as singleton (implemented in issue #147)
-        // Note: Stateless monitor with thread-safe rate limiting that can be safely shared across all sessions
+        // Note: Stateful monitor (in-memory rate limiting + notification tracking) with thread-safe access,
+        //       intentionally registered as a singleton so health/rate state is shared across all sessions
         services.AddSingleton<ITelegramHealthMonitor, TelegramHealthMonitor>();
 
         // Register ITelegramBotClient as singleton

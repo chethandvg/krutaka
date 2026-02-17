@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using Krutaka.Core;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
@@ -93,7 +94,9 @@ public sealed class TelegramHealthMonitor : ITelegramHealthMonitor
         ArgumentNullException.ThrowIfNull(budget);
 
         var tokenUsagePercent = (budget.TokensUsed * 100.0) / budget.MaxTokens;
-        var message = $"💰 Budget warning: {tokenUsagePercent:F1}% of token budget used ({budget.TokensUsed:N0}/{budget.MaxTokens:N0} tokens)";
+        var message = string.Create(
+            CultureInfo.InvariantCulture,
+            $"💰 Budget warning: {tokenUsagePercent:F1}% of token budget used ({budget.TokensUsed:N0}/{budget.MaxTokens:N0} tokens)");
 
         await SendToSpecificChatAsync(chatId, message, "budget_warning", cancellationToken).ConfigureAwait(false);
     }
@@ -102,6 +105,7 @@ public sealed class TelegramHealthMonitor : ITelegramHealthMonitor
     public async Task CheckBudgetThresholdsAsync(CancellationToken cancellationToken)
     {
         var sessions = _sessionManager.ListActiveSessions();
+        var terminatedSessionIds = new List<Guid>();
 
         foreach (var sessionSummary in sessions)
         {
@@ -109,36 +113,100 @@ public sealed class TelegramHealthMonitor : ITelegramHealthMonitor
             var session = _sessionManager.GetSession(sessionSummary.SessionId);
             if (session is null)
             {
-                continue; // Session may have been terminated since we listed it
+                // Session terminated since we listed it - track for cleanup
+                terminatedSessionIds.Add(sessionSummary.SessionId);
+                continue;
             }
 
             // Check if budget exceeds 80% threshold
             var tokenUsagePercent = (session.Budget.TokensUsed * 100.0) / session.Budget.MaxTokens;
             if (tokenUsagePercent >= 80.0)
             {
-                // Check if we've already warned about this session
-                lock (_budgetWarnedSessions)
+                // Determine chat ID from external key (e.g., "telegram:dm:123456789", "telegram:group:-100123456789")
+                if (session.ExternalKey is not null &&
+                    TryGetTelegramChatId(session.ExternalKey, out var chatId))
                 {
-                    if (_budgetWarnedSessions.Contains(session.SessionId))
+                    // Check if we've already warned about this session (after successful chatId resolution)
+                    bool shouldWarn;
+                    lock (_budgetWarnedSessions)
                     {
-                        continue; // Already warned, skip
+                        shouldWarn = !_budgetWarnedSessions.Contains(session.SessionId);
                     }
 
-                    // Mark as warned
-                    _budgetWarnedSessions.Add(session.SessionId);
-                }
-
-                // Determine chat ID from external key (e.g., "telegram:123456789")
-                if (session.ExternalKey is not null && session.ExternalKey.StartsWith("telegram:", StringComparison.Ordinal))
-                {
-                    var chatIdStr = session.ExternalKey["telegram:".Length..];
-                    if (long.TryParse(chatIdStr, out var chatId))
+                    if (shouldWarn)
                     {
-                        await NotifyBudgetWarningAsync(chatId, session.Budget, cancellationToken).ConfigureAwait(false);
+                        // Send the warning
+                        try
+                        {
+                            await NotifyBudgetWarningAsync(chatId, session.Budget, cancellationToken).ConfigureAwait(false);
+                            
+                            // Mark as warned only after successful send
+                            lock (_budgetWarnedSessions)
+                            {
+                                _budgetWarnedSessions.Add(session.SessionId);
+                            }
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogError(
+                                ex,
+                                "Failed to send budget warning for session {SessionId}",
+                                session.SessionId);
+                            // Don't mark as warned if send failed - retry next time
+                        }
                     }
                 }
             }
         }
+
+        // Cleanup: remove warned sessions that have been terminated
+        if (terminatedSessionIds.Count > 0)
+        {
+            lock (_budgetWarnedSessions)
+            {
+                foreach (var sessionId in terminatedSessionIds)
+                {
+                    _budgetWarnedSessions.Remove(sessionId);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attempts to extract a Telegram chat ID from a session external key.
+    /// Supports formats: "telegram:dm:{userId}", "telegram:group:{chatId}".
+    /// For private chats (dm), chatId == userId.
+    /// </summary>
+    /// <param name="externalKey">The session external key.</param>
+    /// <param name="chatId">The extracted chat ID if successful.</param>
+    /// <returns>True if chat ID was successfully extracted; false otherwise.</returns>
+    private static bool TryGetTelegramChatId(string externalKey, out long chatId)
+    {
+        chatId = default;
+
+        if (string.IsNullOrWhiteSpace(externalKey))
+        {
+            return false;
+        }
+
+        if (!externalKey.StartsWith("telegram:", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var parts = externalKey.Split(':', StringSplitOptions.RemoveEmptyEntries);
+
+        // Supported formats:
+        // - telegram:dm:{userId}      → chatId = userId (private chat)
+        // - telegram:group:{chatId}   → chatId = chatId (group/supergroup)
+        if (parts.Length == 3 && parts[0] == "telegram")
+        {
+            // For private chats (dm), chatId == userId
+            // For groups, parts[2] is the chatId
+            return long.TryParse(parts[2], CultureInfo.InvariantCulture, out chatId);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -232,6 +300,7 @@ public sealed class TelegramHealthMonitor : ITelegramHealthMonitor
     /// Checks if a notification should be sent based on rate limiting.
     /// Rate limit: maximum 1 notification per event type per chat per minute.
     /// Uses monotonic clock (Environment.TickCount64) for reliable timing.
+    /// Uses atomic operations to prevent race conditions.
     /// </summary>
     /// <returns>True if notification should be sent; false if rate-limited.</returns>
     private bool ShouldSendNotification(long chatId, string eventType)
@@ -239,19 +308,40 @@ public sealed class TelegramHealthMonitor : ITelegramHealthMonitor
         var key = (chatId, eventType);
         var now = Environment.TickCount64;
 
-        // Try to get the last notification time
-        if (_lastNotificationTicks.TryGetValue(key, out var lastTicks))
+        // Atomically check and update the last notification time using a lock-free retry loop
+        while (true)
         {
-            var elapsed = now - lastTicks;
-            if (elapsed < RateLimitTicksPerMinute)
+            // Try to get the existing timestamp
+            if (_lastNotificationTicks.TryGetValue(key, out var lastTicks))
             {
-                return false; // Rate limited
+                // Check if we're within the rate limit window
+                var elapsed = now - lastTicks;
+                if (elapsed < RateLimitTicksPerMinute)
+                {
+                    // Within rate limit window - reject
+                    return false;
+                }
+
+                // Try to update atomically - if this fails, another thread won, retry
+                if (_lastNotificationTicks.TryUpdate(key, now, lastTicks))
+                {
+                    // Successfully updated - allow the notification
+                    return true;
+                }
+                // Another thread updated it, retry with new value
+            }
+            else
+            {
+                // No entry exists yet - try to add it
+                // Use TryAdd which only succeeds if the key doesn't exist
+                if (_lastNotificationTicks.TryAdd(key, now))
+                {
+                    // Successfully added - allow the notification
+                    return true;
+                }
+                // Another thread added it first, retry to check the value they added
             }
         }
-
-        // Update last notification time
-        _lastNotificationTicks[key] = now;
-        return true;
     }
 
     /// <summary>

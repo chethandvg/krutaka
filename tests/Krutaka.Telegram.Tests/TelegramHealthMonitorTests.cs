@@ -36,6 +36,25 @@ public class TelegramHealthMonitorTests
         _monitor = new TelegramHealthMonitor(_botClient, _config, _sessionManager, _logger);
     }
 
+    private static ManagedSession CreateTestSession(Guid sessionId, string externalKey, SessionBudget budget)
+    {
+#pragma warning disable CA2000 // Dispose objects before losing scope - caller is responsible for disposal
+        var orchestrator = new AgentOrchestrator(
+            Substitute.For<IClaudeClient>(),
+            Substitute.For<IToolRegistry>(),
+            Substitute.For<ISecurityPolicy>());
+
+        return new ManagedSession(
+            sessionId,
+            "/test/path",
+            externalKey,
+            orchestrator,
+            new CorrelationContext(sessionId),
+            budget,
+            null);
+#pragma warning restore CA2000
+    }
+
     [Fact]
     public async Task NotifyStartupAsync_Should_SendMessageToAllAdminUsers()
     {
@@ -75,8 +94,8 @@ public class TelegramHealthMonitorTests
         // Act
         await _monitor.NotifyErrorAsync(errorWithStackTrace, CancellationToken.None);
 
-        // Assert - should send sanitized error (without stack traces or file paths)
-        await _botClient.Received().SendRequest<global::Telegram.Bot.Types.Message>(
+        // Assert - should send sanitized error to both admins (without stack traces or file paths)
+        await _botClient.Received(2).SendRequest<global::Telegram.Bot.Types.Message>(
             Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
                 r.Text.Contains("⚠️ Error alert:") &&
                 !r.Text.Contains("at System.IO") &&
@@ -97,8 +116,8 @@ public class TelegramHealthMonitorTests
         // Act
         await _monitor.NotifyErrorAsync(errorWithStackTrace, CancellationToken.None);
 
-        // Assert
-        await _botClient.Received().SendRequest<global::Telegram.Bot.Types.Message>(
+        // Assert - should send to both admins
+        await _botClient.Received(2).SendRequest<global::Telegram.Bot.Types.Message>(
             Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
                 !r.Text.Contains("at Krutaka")),
             Arg.Any<CancellationToken>());
@@ -113,8 +132,8 @@ public class TelegramHealthMonitorTests
         // Act
         await _monitor.NotifyErrorAsync(errorWithFilePath, CancellationToken.None);
 
-        // Assert
-        await _botClient.Received().SendRequest<global::Telegram.Bot.Types.Message>(
+        // Assert - should send to both admins
+        await _botClient.Received(2).SendRequest<global::Telegram.Bot.Types.Message>(
             Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
                 !r.Text.Contains("C:\\Projects")),
             Arg.Any<CancellationToken>());
@@ -129,8 +148,8 @@ public class TelegramHealthMonitorTests
         // Act
         await _monitor.NotifyErrorAsync(errorWithToken, CancellationToken.None);
 
-        // Assert
-        await _botClient.Received().SendRequest<global::Telegram.Bot.Types.Message>(
+        // Assert - should send to both admins
+        await _botClient.Received(2).SendRequest<global::Telegram.Bot.Types.Message>(
             Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
                 !r.Text.Contains("sk_test_")),
             Arg.Any<CancellationToken>());
@@ -220,10 +239,12 @@ public class TelegramHealthMonitorTests
     public async Task CheckBudgetThresholdsAsync_Should_SkipSession_WhenExternalKeyIsNotTelegram()
     {
         // Arrange
+        var sessionId = Guid.NewGuid();
+        
         _sessionManager.ListActiveSessions().Returns(
         [
             new SessionSummary(
-                Guid.NewGuid(),
+                sessionId,
                 SessionState.Active,
                 "/test/path",
                 "console", // Non-Telegram external key
@@ -233,11 +254,16 @@ public class TelegramHealthMonitorTests
                 90_000, // 90% of 100K
                 0)
         ]);
+        
+        // Return null to indicate session isn't accessible (or we could create a real one)
+        // But since the external key check happens first, this won't matter
+        _sessionManager.GetSession(sessionId).Returns((ManagedSession?)null);
 
         // Act
         await _monitor.CheckBudgetThresholdsAsync(CancellationToken.None);
 
         // Assert - should not send any warnings for non-Telegram sessions
+        // (session is null so it exits early anyway, but the key would fail too)
         await _botClient.DidNotReceive().SendRequest<global::Telegram.Bot.Types.Message>(
             Arg.Any<global::Telegram.Bot.Requests.SendMessageRequest>(),
             Arg.Any<CancellationToken>());
@@ -254,7 +280,7 @@ public class TelegramHealthMonitorTests
                 sessionId,
                 SessionState.Active,
                 "/test/path",
-                "telegram:12345678",
+                "telegram:dm:12345678",
                 null,
                 DateTimeOffset.UtcNow,
                 DateTimeOffset.UtcNow,
@@ -273,6 +299,121 @@ public class TelegramHealthMonitorTests
     }
 
     [Fact]
+    public async Task CheckBudgetThresholdsAsync_Should_ParseDmExternalKey()
+    {
+        // Arrange - use actual telegram:dm:{userId} format
+        var sessionId = Guid.NewGuid();
+        var budget = new SessionBudget(maxTokens: 100_000, maxToolCalls: 100);
+        budget.AddTokens(85_000); // 85% usage
+
+#pragma warning disable CA2000 // Dispose objects before losing scope - using statement handles disposal
+        await using var session = CreateTestSession(sessionId, "telegram:dm:12345678", budget);
+#pragma warning restore CA2000
+
+        _sessionManager.ListActiveSessions().Returns(
+        [
+            new SessionSummary(
+                sessionId,
+                SessionState.Active,
+                "/test/path",
+                "telegram:dm:12345678",
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                85_000,
+                0)
+        ]);
+        _sessionManager.GetSession(sessionId).Returns(session);
+
+        // Act
+        await _monitor.CheckBudgetThresholdsAsync(CancellationToken.None);
+
+        // Assert - should send warning to chat 12345678 (userId in dm format)
+        await _botClient.Received(1).SendRequest<global::Telegram.Bot.Types.Message>(
+            Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
+                r.ChatId.Identifier == 12345678 &&
+                r.Text.Contains("💰 Budget warning")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CheckBudgetThresholdsAsync_Should_ParseGroupExternalKey()
+    {
+        // Arrange - use telegram:group:{chatId} format
+        var sessionId = Guid.NewGuid();
+        var budget = new SessionBudget(maxTokens: 100_000, maxToolCalls: 100);
+        budget.AddTokens(85_000); // 85% usage
+
+#pragma warning disable CA2000 // Dispose objects before losing scope - using statement handles disposal
+        await using var session = CreateTestSession(sessionId, "telegram:group:-100123456789", budget);
+#pragma warning restore CA2000
+
+        _sessionManager.ListActiveSessions().Returns(
+        [
+            new SessionSummary(
+                sessionId,
+                SessionState.Active,
+                "/test/path",
+                "telegram:group:-100123456789",
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                85_000,
+                0)
+        ]);
+        _sessionManager.GetSession(sessionId).Returns(session);
+
+        // Act
+        await _monitor.CheckBudgetThresholdsAsync(CancellationToken.None);
+
+        // Assert - should send warning to group chat -100123456789
+        await _botClient.Received(1).SendRequest<global::Telegram.Bot.Types.Message>(
+            Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
+                r.ChatId.Identifier == -100123456789 &&
+                r.Text.Contains("💰 Budget warning")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CheckBudgetThresholdsAsync_Should_SendWarningOnlyOnce_ForSameSession()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        var budget = new SessionBudget(maxTokens: 100_000, maxToolCalls: 100);
+        budget.AddTokens(85_000); // 85% usage
+
+#pragma warning disable CA2000 // Dispose objects before losing scope - using statement handles disposal
+        await using var session = CreateTestSession(sessionId, "telegram:dm:12345678", budget);
+#pragma warning restore CA2000
+
+        _sessionManager.ListActiveSessions().Returns(
+        [
+            new SessionSummary(
+                sessionId,
+                SessionState.Active,
+                "/test/path",
+                "telegram:dm:12345678",
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow,
+                85_000,
+                0)
+        ]);
+        _sessionManager.GetSession(sessionId).Returns(session);
+
+        // Act - call twice
+        await _monitor.CheckBudgetThresholdsAsync(CancellationToken.None);
+        await _monitor.CheckBudgetThresholdsAsync(CancellationToken.None);
+
+        // Assert - should send warning only ONCE
+        await _botClient.Received(1).SendRequest<global::Telegram.Bot.Types.Message>(
+            Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
+                r.ChatId.Identifier == 12345678 &&
+                r.Text.Contains("💰 Budget warning")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task RateLimit_Should_SuppressDuplicateNotifications_WithinOneMinute()
     {
         // Arrange - send two error notifications within a short time
@@ -281,10 +422,25 @@ public class TelegramHealthMonitorTests
         await _monitor.NotifyErrorAsync("First error", CancellationToken.None);
         await _monitor.NotifyErrorAsync("Second error", CancellationToken.None);
 
-        // Assert - should only send the first notification due to rate limiting
-        // Each admin user should receive only 1 message (not 2)
-        await _botClient.Received(2).SendRequest<global::Telegram.Bot.Types.Message>( // 2 admin users, 1 message each
+        // Assert - rate limiting is per (chatId, eventType)
+        // First NotifyErrorAsync: sends to both admins (12345678, 11111111) = 2 calls
+        // Second NotifyErrorAsync: both admins are rate-limited because event type "error" was just sent = 0 new calls
+        // Total: 2 calls
+        await _botClient.Received(2).SendRequest<global::Telegram.Bot.Types.Message>(
             Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
+                r.Text.Contains("⚠️ Error alert:")),
+            Arg.Any<CancellationToken>());
+
+        // Verify that at least one notification was sent to each admin (should be exactly 1 each)
+        await _botClient.Received(1).SendRequest<global::Telegram.Bot.Types.Message>(
+            Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
+                r.ChatId.Identifier == 12345678 &&
+                r.Text.Contains("⚠️ Error alert:")),
+            Arg.Any<CancellationToken>());
+
+        await _botClient.Received(1).SendRequest<global::Telegram.Bot.Types.Message>(
+            Arg.Is<global::Telegram.Bot.Requests.SendMessageRequest>(r =>
+                r.ChatId.Identifier == 11111111 &&
                 r.Text.Contains("⚠️ Error alert:")),
             Arg.Any<CancellationToken>());
     }

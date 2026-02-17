@@ -1,3 +1,5 @@
+using Krutaka.Core;
+
 namespace Krutaka.Telegram;
 
 /// <summary>
@@ -21,10 +23,13 @@ public interface ITelegramHealthMonitor
     Task NotifyShutdownAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Sends an error alert to all admin users with a sanitized error summary.
-    /// Error alerts NEVER contain stack traces, file paths, tokens, or other sensitive data.
+    /// Sends an error alert to all admin users.
+    /// The provided error summary is sanitized before sending and alerts NEVER contain stack traces,
+    /// file paths, tokens, or other sensitive data.
     /// </summary>
-    /// <param name="errorSummary">The sanitized error summary.</param>
+    /// <param name="errorSummary">
+    /// A raw, human-readable error summary that may contain sensitive details; it will be sanitized before sending.
+    /// </param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     Task NotifyErrorAsync(string errorSummary, CancellationToken cancellationToken);
@@ -45,7 +50,7 @@ public interface ITelegramHealthMonitor
     /// <param name="budget">The session budget with current usage information.</param>
     /// <param name="cancellationToken">Cancellation token to cancel the operation.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    Task NotifyBudgetWarningAsync(long chatId, Core.SessionBudget budget, CancellationToken cancellationToken);
+    Task NotifyBudgetWarningAsync(long chatId, SessionBudget budget, CancellationToken cancellationToken);
 
     /// <summary>
     /// Checks all active sessions for budget threshold violations (80% usage).
