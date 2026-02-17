@@ -391,7 +391,7 @@ Implemented in `Krutaka.Tools/EnvironmentScrubber.cs` with case-insensitive patt
 ## Prompt Injection Defense
 
 ### Untrusted Content Tagging
-All content from external sources (file reads, command output, web fetches) must be wrapped:
+All content from external sources (file reads, command output, web fetches, **Telegram user input**) must be wrapped:
 
 ```xml
 <untrusted_file_content path="src/Program.cs">
@@ -401,7 +401,46 @@ All content from external sources (file reads, command output, web fetches) must
 <untrusted_command_output command="git status">
 {output here}
 </untrusted_command_output>
+
+<untrusted_content source="telegram:user:12345678">
+{Telegram user message here}
+</untrusted_content>
 ```
+
+### Telegram Input Sanitization (v0.4.0 Issue #144)
+
+**Status:** 🟢 Complete (2026-02-17)
+
+All Telegram user input undergoes a **7-layer sanitization pipeline** before being wrapped in `<untrusted_content>` tags:
+
+1. **Entity stripping** — Remove Telegram formatting entities (bold, italic, underline, strikethrough, spoiler, code, pre, custom_emoji). For `text_link` entities (URLs embedded in text), discard the URL and preserve only the visible text.
+2. **Unicode NFC normalization** — Apply `string.Normalize(NormalizationForm.FormC)` to prevent homoglyph attacks (e.g., Cyrillic 'а' U+0430 vs Latin 'a' U+0061).
+3. **Control character removal** — Remove U+0000–U+001F (except newline \n U+000A and tab \t U+0009) and U+007F (DEL).
+4. **Whitespace collapsing** — Collapse sequences of 3+ consecutive spaces into 2 spaces.
+5. **Trimming** — Trim leading/trailing whitespace.
+6. **XML escaping** — `SecurityElement.Escape()` to prevent breaking out of wrapper tags.
+7. **Untrusted content wrapping** — Wrap in `<untrusted_content source="telegram:user:{userId}">` tags.
+
+**Implementation:**
+- `TelegramInputSanitizer.SanitizeMessageText(text, userId, entities?)` — applies full pipeline
+- `TelegramInputSanitizer.SanitizeFileCaption(caption, userId, entities?)` — same pipeline for file captions
+- `TelegramInputSanitizer.ExtractMentionedText(text, botUsername)` — for group chats, extract only text after `@botUsername` mention
+- `TelegramInputSanitizer.IsCallbackDataSafe(callbackData)` — always returns false (callback data NEVER sent to Claude)
+
+**Group chat isolation:**
+- In group chats, only messages mentioning the bot are processed (`@botUsername` mention required)
+- Only the text after the mention is extracted and sanitized
+
+**Callback data isolation:**
+- Inline keyboard callback data (from approval buttons) is NEVER included in prompts sent to Claude
+- Callback data is ONLY processed by `TelegramApprovalHandler` with HMAC-SHA256 verification
+
+**Security guarantees:**
+- NO raw Telegram text ever reaches the agent without sanitization
+- Unicode normalization prevents homoglyph-based prompt injection
+- Control characters cannot be used to manipulate prompt structure
+- Text_link entities cannot inject arbitrary URLs into prompts
+- Callback data isolation prevents approval flow manipulation
 
 ### System Prompt Anti-Injection Instructions
 The system prompt must include (hardcoded, not from file):
