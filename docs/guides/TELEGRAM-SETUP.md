@@ -47,31 +47,9 @@ Before setting up the Telegram bot, ensure you have:
 
 ## Step 2: Store the Bot Token Securely
 
-Krutaka **never** stores bot tokens in configuration files. You must use one of these secure methods:
+Krutaka **never** stores bot tokens in configuration files. You must use an environment variable to store the token securely:
 
-### Option A: Windows Credential Manager (Recommended)
-
-This is the most secure option using Windows DPAPI encryption.
-
-1. **Open PowerShell** as your regular user (no admin needed)
-2. **Run the following command** (replace `YOUR_BOT_TOKEN` with the token from BotFather):
-
-   ```powershell
-   # Store the token using Windows Credential Manager (replace YOUR_BOT_TOKEN with actual token)
-   cmdkey /generic:krutaka_telegram_bot_token /user:krutaka /pass:YOUR_BOT_TOKEN
-   ```
-
-3. **Verify** the credential was stored:
-   ```powershell
-   cmdkey /list | findstr krutaka
-   ```
-   You should see: `Target: krutaka_telegram_bot_token`
-
-### Option B: Environment Variable
-
-If you cannot use Credential Manager (e.g., in CI/CD), use an environment variable:
-
-1. **Set the environment variable** (replace `YOUR_BOT_TOKEN`):
+1. **Set the environment variable** (replace `YOUR_BOT_TOKEN` with the token from BotFather):
 
    **PowerShell:**
    ```powershell
@@ -90,7 +68,7 @@ If you cannot use Credential Manager (e.g., in CI/CD), use an environment variab
    $env:KRUTAKA_TELEGRAM_BOT_TOKEN
    ```
 
-⚠️ **Security Note:** Credential Manager is more secure because it uses DPAPI encryption. Environment variables are visible to any process running under your user account.
+⚠️ **Security Note:** Environment variables are visible to any process running under your user account. For production deployments, consider using a secrets management service or Azure Key Vault.
 
 ---
 
@@ -246,23 +224,21 @@ dotnet run --project src/Krutaka.Console -- --mode console
 
 3. **Open Telegram** and find your bot by its @username (e.g., `@mykrutaka_agent_bot`)
 
-4. **Start a chat** with your bot and send `/start`
+4. **Start a chat** with your bot and send `/help`
 
-5. **You should receive a welcome message** from the bot with available commands
+5. **You should receive a help message** from the bot listing available commands
 
-6. **Try a simple command** to verify it's working:
-   ```
-   /help
-   ```
-
-7. **Test the AI agent** by sending a message:
+6. **Test the AI agent** by sending a message:
    ```
    List the files in the current directory
+   ```
+   or use the `/ask` command:
+   ```
+   /ask What is the current time?
    ```
 
 ### Verification Checklist
 
-- [ ] Bot responds to `/start` with a welcome message
 - [ ] Bot responds to `/help` with command list
 - [ ] Bot accepts and processes AI prompts
 - [ ] Approval prompts work (if enabled for the command)
@@ -290,9 +266,9 @@ dotnet run --project src/Krutaka.Console -- --mode console
 
 ### Error: "Bot token not found"
 
-**Cause:** The bot token is not available in Credential Manager or environment variables.
+**Cause:** The bot token is not available as an environment variable.
 
-**Fix:** Follow [Step 2](#step-2-store-the-bot-token-securely) to store the token securely.
+**Fix:** Follow [Step 2](#step-2-store-the-bot-token-securely) to set the `KRUTAKA_TELEGRAM_BOT_TOKEN` environment variable.
 
 ---
 
@@ -356,7 +332,7 @@ If group chats don't work, ensure:
 
 ### ✅ Do's
 
-- ✅ **Store bot token in Credential Manager** — Most secure option using DPAPI encryption
+- ✅ **Use environment variables for bot token** — Keep secrets out of configuration files
 - ✅ **Use explicit AllowedUsers list** — Never allow all users
 - ✅ **Set Admin role sparingly** — Only trusted users should be Admins
 - ✅ **Enable `RequireConfirmationForElevated`** — Prevents accidental destructive commands
