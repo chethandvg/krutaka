@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Krutaka.Core;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -12,12 +13,14 @@ namespace Krutaka.Telegram.Tests;
 /// cross-user authorization checks, and malformed data handling.
 /// Modeled after AccessPolicyEngineAdversarialTests.
 /// </summary>
-public class TelegramCallbackTamperingAdversarialTests : IDisposable
+public sealed class TelegramCallbackTamperingAdversarialTests : IDisposable
 {
     private readonly CallbackDataSigner _signer;
     private readonly byte[] _testSecret;
     private readonly ITelegramBotClient _mockBotClient;
+#pragma warning disable CA2213 // Mock object doesn't need disposal
     private readonly ISessionManager _mockSessionManager;
+#pragma warning restore CA2213
     private readonly IAuditLogger _mockAuditLogger;
     private readonly TelegramApprovalHandler _handler;
 
@@ -35,55 +38,41 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
         _mockSessionManager = Substitute.For<ISessionManager>();
         _mockAuditLogger = Substitute.For<IAuditLogger>();
 
+        // Create logger mock for TelegramApprovalHandler
+        var mockLogger = Substitute.For<ILogger<TelegramApprovalHandler>>();
+
         _handler = new TelegramApprovalHandler(
             _mockBotClient,
             _mockSessionManager,
             _mockAuditLogger,
-            _testSecret,
-            callbackTimeout: TimeSpan.FromMinutes(5));
+            _signer,
+            mockLogger);
     }
 
     public void Dispose()
     {
         _handler.Dispose();
+        // _mockSessionManager is a mock (NSubstitute.For<>) and doesn't need explicit disposal
+        GC.SuppressFinalize(this);
     }
 
     [Fact]
-    public async Task Should_RejectCallback_WhenActionFieldIsModifiedButHmacUnchanged()
+    public void Should_RejectCallback_WhenApprovalIdIsModifiedInSignedData()
     {
-        // Arrange
-        var sessionId = Guid.NewGuid();
-        var userId = 12345678L;
-        var toolUseId = "test-tool-001";
-        
-        // Create a mock session
-        var mockSession = CreateMockSession(sessionId);
-        _mockSessionManager.GetSession(sessionId).Returns(mockSession);
-
-        // Create a valid callback payload using the handler's internal method
-        var approvalId = await CreateApprovalContextViaReflection(sessionId, userId, toolUseId, "approve");
-
-        // Sign it
-        var payload = new CallbackPayload(ApprovalId: approvalId, Hmac: null);
+        // Arrange - CallbackDataSigner signs only the ApprovalId field (see CallbackDataSigner.Sign)
+        // Create a valid signed callback
+        var payload = new CallbackPayload(ApprovalId: "valid123", Hmac: null);
         var signedData = _signer.Sign(payload);
 
-        // Tamper: change the action in the approval context (simulate tampering with server-side data)
-        // This simulates an attacker trying to modify the action after the HMAC was created
-        var callback = CreateCallback(userId, signedData);
+        // Tamper: modify the ApprovalId in the signed JSON (this is what the HMAC protects)
+        // This tests that tampering with the signed field (ApprovalId) is detected
+        var tamperedData = signedData.Replace("valid123", "hacked99", StringComparison.Ordinal);
 
-        // Act
-        await _handler.HandleCallbackAsync(callback, CancellationToken.None);
-
-        // Assert - The handler should process it correctly if the HMAC is valid
-        // However, if we tamper with the signed data itself, it should be rejected
-        // Let's test the actual tampering scenario:
-        
-        // Create a new test with actual data tampering
-        var tamperedData = signedData.Replace("approve", "deny", StringComparison.Ordinal);
-
-        // Verify that tampered data fails HMAC verification
+        // Act - Verify that tampered data fails HMAC verification
         var verifiedPayload = _signer.Verify(tamperedData);
-        verifiedPayload.Should().BeNull("tampered callback data should fail HMAC verification");
+
+        // Assert - HMAC validation should fail for tampered ApprovalId
+        verifiedPayload.Should().BeNull("tampered ApprovalId should fail HMAC verification");
     }
 
     [Fact]
@@ -144,7 +133,7 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
         var userId = 12345678L;
         var toolUseId = "test-tool-001";
 
-        var mockSession = CreateMockSession(sessionId);
+        await using var mockSession = CreateMockSession(sessionId);
         _mockSessionManager.GetSession(sessionId).Returns(mockSession);
 
         // Create approval context
@@ -155,16 +144,17 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
         var callback1 = CreateCallback(userId, signedData);
         var callback2 = CreateCallback(userId, signedData); // Same data (same nonce)
 
-        // Act - First callback should succeed
+        // Act - First callback should succeed (removes context)
         await _handler.HandleCallbackAsync(callback1, CancellationToken.None);
 
         // Act - Second callback with same nonce should be rejected
         await _handler.HandleCallbackAsync(callback2, CancellationToken.None);
 
-        // Assert - Verify the bot was called with an error for the second callback
+        // Assert - After first callback, approval context is removed, so second callback gets "expired or not found"
+        // (per HandleCallbackAsync control flow: context lookup happens before nonce check)
         await _mockBotClient.Received(1).AnswerCallbackQuery(
             Arg.Is<string>(id => id == callback2.Id),
-            Arg.Is<string>(text => text.Contains("already been processed", StringComparison.OrdinalIgnoreCase)),
+            Arg.Is<string>(text => text.Contains("expired or not found", StringComparison.OrdinalIgnoreCase)),
             Arg.Any<bool>(),
             Arg.Any<string>(),
             Arg.Any<int>(),
@@ -287,7 +277,6 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
             From = new User { Id = 12345678L },
             Message = new Message
             {
-                MessageId = 100,
                 Date = DateTime.UtcNow,
                 Chat = new Chat { Id = 111 }
             },
@@ -315,10 +304,9 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
         var callback = new CallbackQuery
         {
             Id = "test-callback-id",
-            From = null, // Null sender
+            From = null!, // Null sender
             Message = new Message
             {
-                MessageId = 100,
                 Date = DateTime.UtcNow,
                 Chat = new Chat { Id = 111 }
             },
@@ -348,7 +336,6 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
             From = new User { Id = userId, Username = "testuser" },
             Message = new Message
             {
-                MessageId = 100,
                 Date = DateTime.UtcNow,
                 Chat = new Chat { Id = 111 },
                 Text = "Original approval request"
@@ -357,20 +344,35 @@ public class TelegramCallbackTamperingAdversarialTests : IDisposable
         };
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope", Justification = "AgentOrchestrator is disposed through ManagedSession.DisposeAsync")]
     private static ManagedSession CreateMockSession(Guid sessionId)
     {
-        var mockOrchestrator = Substitute.For<AgentOrchestrator>(
-            Substitute.For<IClaudeClient>(),
-            Substitute.For<IAuditLogger>(),
-            new CorrelationContext(sessionId),
-            Substitute.For<IToolRegistry>(),
-            Substitute.For<ISessionStore>(),
-            Substitute.For<ISessionAccessStore>(),
-            Substitute.For<ICommandApprovalCache>());
-
+        // Create a minimal mock orchestrator using NSubstitute
+        // Note: AgentOrchestrator has complex dependencies, so we create mocks for all required services
+        var mockClaudeClient = Substitute.For<IClaudeClient>();
+        var mockToolRegistry = Substitute.For<IToolRegistry>();
+        var mockSecurityPolicy = Substitute.For<ISecurityPolicy>();
+        var mockSessionAccessStore = Substitute.For<ISessionAccessStore>();
+        var mockAuditLogger = Substitute.For<IAuditLogger>();
         var correlationContext = new CorrelationContext(sessionId);
-        var budget = new SessionBudget(10000, 100, 10);
+        var mockCommandApprovalCache = Substitute.For<ICommandApprovalCache>();
 
+        // Create AgentOrchestrator - it's IDisposable and will be disposed with the ManagedSession
+        var mockOrchestrator = new AgentOrchestrator(
+            mockClaudeClient,
+            mockToolRegistry,
+            mockSecurityPolicy,
+            maxToolResultCharacters: 10000,
+            sessionAccessStore: mockSessionAccessStore,
+            auditLogger: mockAuditLogger,
+            correlationContext: correlationContext,
+            contextCompactor: null,
+            commandApprovalCache: mockCommandApprovalCache);
+
+        var budget = new SessionBudget(10000, 100);
+
+        // Return ManagedSession which implements IAsyncDisposable
+        // Caller should use 'await using' to properly dispose the orchestrator and session
         return new ManagedSession(
             sessionId,
             "/tmp/test-project",

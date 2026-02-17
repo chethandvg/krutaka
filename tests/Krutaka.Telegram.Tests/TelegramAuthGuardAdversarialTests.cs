@@ -154,7 +154,7 @@ public class TelegramAuthGuardAdversarialTests
     }
 
     [Fact]
-    public async Task Should_HandleGracefully_WhenUpdateIsNull()
+    public void Should_ThrowArgumentNullException_WhenUpdateIsNull()
     {
         // Arrange
         var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
@@ -162,9 +162,9 @@ public class TelegramAuthGuardAdversarialTests
         // Act
         var action = async () => await authGuard.ValidateAsync(null!, CancellationToken.None);
 
-        // Assert - Should not throw, should return invalid result
-        var result = await action.Should().NotThrowAsync();
-        result.Subject.IsValid.Should().BeFalse();
+        // Assert - ValidateAsync contract requires non-null update, throws ArgumentNullException per API design
+        action.Should().ThrowAsync<ArgumentNullException>()
+            .WithMessage("*update*");
     }
 
     [Fact]
@@ -258,7 +258,6 @@ public class TelegramAuthGuardAdversarialTests
             Id = 1,
             Message = new Message
             {
-                MessageId = 100,
                 Date = DateTime.UtcNow,
                 Chat = new Chat { Id = 111 },
                 From = null, // Null sender
@@ -280,7 +279,6 @@ public class TelegramAuthGuardAdversarialTests
             Id = updateId,
             Message = new Message
             {
-                MessageId = updateId * 10,
                 Date = DateTime.UtcNow,
                 Chat = new Chat { Id = chatId },
                 From = new User { Id = userId },

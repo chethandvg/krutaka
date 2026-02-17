@@ -116,45 +116,47 @@ public sealed class SessionResourceExhaustionAdversarialTests : IDisposable
 
         // Assert
         await action.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*exceeds the maximum allowed sessions per user*");
+            .WithMessage("*has reached the maximum number of sessions*");
 
         manager.ListActiveSessions().Should().HaveCount(2,
             "only the first two sessions should exist");
     }
 
     [Fact]
-    public async Task Should_RejectPrompt_WhenGlobalTokenBudgetExceeded()
+    public async Task Should_VerifyGlobalTokenBudgetTrackingMechanism()
     {
         // Arrange
-        var globalMaxTokens = 1000;
+        var globalMaxTokens = 10000;
         var options = new SessionManagerOptions(GlobalMaxTokensPerHour: globalMaxTokens);
 
         var factory = _serviceProvider.GetRequiredService<ISessionFactory>();
         await using var manager = new SessionManager(factory, options, logger: null);
 
+        // Act - Create a session with a small budget first
         var session = await manager.CreateSessionAsync(
-            new SessionRequest(_testProjectPath),
+            new SessionRequest(_testProjectPath, MaxTokenBudget: 1000),
             CancellationToken.None);
 
-        // Act - Consume tokens up to the limit
-        manager.RecordTokenUsage(globalMaxTokens);
+        // Record token usage that would prevent creating another session with same budget
+        manager.RecordTokenUsage(9001); // 9001 + 1000 (next session budget) = 10001 > 10000 limit
 
-        // Try to run a prompt (which would consume more tokens)
-        // With mock client, this won't actually consume tokens, but we verify the pattern
-        var eventList = new List<AgentEvent>();
-        await foreach (var evt in session.Orchestrator.RunAsync("test prompt", ""))
-        {
-            eventList.Add(evt);
-        }
+        // Try to create another session that would exceed the global budget
+        var action = async () => await manager.CreateSessionAsync(
+            new SessionRequest($"{_testProjectPath}/project2", MaxTokenBudget: 1000),
+            CancellationToken.None);
 
-        // Assert - Verify the budget tracking works correctly
-        // The mock client returns empty events, so actual token consumption isn't tested here
-        // But we verify the budget tracking mechanism is in place
-        manager.ListActiveSessions().Should().HaveCount(1);
+        // Assert - Should throw because global budget would be exceeded
+        // (9001 used + 1000 new session = 10001 > 10000 limit)
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Global hourly token budget exhausted*");
+
+        // Verify first session remains active
+        manager.ListActiveSessions().Should().HaveCount(1, 
+            "first session should remain active");
     }
 
     [Fact]
-    public async Task Should_PreserveStateAndBudget_WhenSessionIsSuspendedAndResumed()
+    public async Task Should_PreserveSessionStateAcrossLifecycle()
     {
         // Arrange
         var factory = _serviceProvider.GetRequiredService<ISessionFactory>();
@@ -178,25 +180,21 @@ public sealed class SessionResourceExhaustionAdversarialTests : IDisposable
 
         // Record some token usage
         session.Budget.AddTokens(100);
-
         var originalTokensUsed = session.Budget.TokensUsed;
-
-        // Act - Get the SessionStore to verify conversation history persistence
-        var sessionStoreField = session.Orchestrator.GetType()
-            .GetField("_sessionStore", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
-            .GetValue(session.Orchestrator);
-
-        sessionStoreField.Should().NotBeNull("Session should have a SessionStore");
-
-        // Note: In a real scenario, suspend would serialize conversation history to disk
-        // and resume would reconstruct it. This is tested in SessionManagerTests.
-        // Here we focus on the budget preservation aspect.
 
         // Assert - Verify budget is preserved in the session object
         session.Budget.TokensUsed.Should().Be(originalTokensUsed);
 
         // Verify the session ID remains the same (important for JSONL continuity)
         session.SessionId.Should().Be(originalSessionId);
+        
+        // Verify access grants are preserved
+        var activeGrants = await session.SessionAccessStore.GetActiveGrantsAsync(CancellationToken.None);
+        activeGrants.Should().NotBeEmpty("access grants should be preserved in session");
+        
+        // Note: Actual suspend/resume functionality would be tested with SessionManager.SuspendSessionAsync
+        // and SessionManager.ResumeSessionAsync when those APIs are implemented. This test verifies
+        // that session state (budget, grants, SessionId) is maintained within the ManagedSession object.
     }
 
     [Fact]
