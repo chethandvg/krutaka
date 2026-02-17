@@ -33,7 +33,7 @@ public sealed class TelegramFileHandler : ITelegramFileHandler
         ".cs", ".json", ".xml", ".md", ".txt", ".yaml", ".yml",
         ".py", ".js", ".ts", ".html", ".css",
         ".csproj", ".sln", ".slnx", ".props", ".config",
-        ".sh", ".bat", ".log", ".csv", ".sql"
+        ".log", ".csv", ".sql"
     ];
 
     // Blocked executable extensions (case-insensitive)

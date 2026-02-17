@@ -2308,7 +2308,7 @@ Three fundamental changes:
 - ✅ `FileReceiveResult.cs` — record with Success, LocalPath, FileName, FileSize, Error fields
 - ✅ `ITelegramFileHandler.cs` — interface with ReceiveFileAsync and SendFileAsync methods
 - ✅ `TelegramFileHandler.cs` — implementation with comprehensive security validation:
-  - ✅ File extension allowlist (`.cs`, `.json`, `.xml`, `.md`, `.txt`, `.yaml`, `.yml`, `.py`, `.js`, `.ts`, `.html`, `.css`, `.csproj`, `.sln`, `.slnx`, `.props`, `.config`, `.sh`, `.bat`, `.log`, `.csv`, `.sql`)
+  - ✅ File extension allowlist (`.cs`, `.json`, `.xml`, `.md`, `.txt`, `.yaml`, `.yml`, `.py`, `.js`, `.ts`, `.html`, `.css`, `.csproj`, `.sln`, `.slnx`, `.props`, `.config`, `.log`, `.csv`, `.sql`)
   - ✅ Executable extension blocklist (`.exe`, `.dll`, `.bat`, `.cmd`, `.ps1`, `.sh`, `.msi`, `.vbs`, `.scr`, `.com`, `.pif`, `.reg`, `.wsf`, `.hta`)
   - ✅ Double-extension bypass detection (`file.txt.exe` → detected and blocked)
   - ✅ File size validation (10MB receive limit, 50MB send limit)
