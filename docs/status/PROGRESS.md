@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-17 (v0.4.0 TelegramBotService complete — 1,638 tests passing, 2 skipped)
+> **Last updated:** 2026-02-17 (v0.4.0 File Exchange complete — 1,682 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2291,6 +2291,59 @@ Three fundamental changes:
 - ✅ Code review feedback addressed
 
 **Ready for:** Full integration testing and webhook mode implementation
+
+### File Exchange — Receive and Send Files Through Telegram (v0.4.0 Issue #145)
+
+**Summary:** Implement file upload (receive) and download (send) capabilities through Telegram with comprehensive security validation. Uploaded files are validated against extension allowlists, size limits, and filename path traversal checks before being placed in a per-session temporary directory accessible to the agent's tools.
+
+**Status:** 🟢 Complete (2026-02-17)
+
+**Implementation:**
+
+| Component | Description | Status |
+|---|---|---|
+| v0.4.0-#145 | TelegramFileHandler with security validation for file exchange | Complete | 2026-02-17 |
+
+**Deliverables:**
+- ✅ `FileReceiveResult.cs` — record with Success, LocalPath, FileName, FileSize, Error fields
+- ✅ `ITelegramFileHandler.cs` — interface with ReceiveFileAsync and SendFileAsync methods
+- ✅ `TelegramFileHandler.cs` — implementation with comprehensive security validation:
+  - ✅ File extension allowlist (`.cs`, `.json`, `.xml`, `.md`, `.txt`, `.yaml`, `.yml`, `.py`, `.js`, `.ts`, `.html`, `.css`, `.csproj`, `.sln`, `.slnx`, `.props`, `.config`, `.log`, `.csv`, `.sql`)
+  - ✅ Executable extension blocklist (`.exe`, `.dll`, `.bat`, `.cmd`, `.ps1`, `.sh`, `.msi`, `.vbs`, `.scr`, `.com`, `.pif`, `.reg`, `.wsf`, `.hta`)
+  - ✅ Double-extension bypass detection (`file.txt.exe` → detected and blocked)
+  - ✅ File size validation (10MB receive limit, 50MB send limit)
+  - ✅ Path traversal prevention (rejects `..`, `/`, `\` in filenames)
+  - ✅ Reserved Windows device name blocking (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`)
+  - ✅ Per-session temp directory (`.krutaka-temp`) with automatic cleanup on session disposal
+  - ✅ `IAccessPolicyEngine` integration for path validation
+  - ✅ `TelegramInputSanitizer` integration for caption sanitization
+  - ✅ `PathResolver` integration for symlink/ADS/device name checks
+- ✅ Service registration in `ServiceExtensions.cs`: `ITelegramFileHandler` as singleton
+- ✅ Comprehensive tests (16 tests):
+  - Executable rejection (.exe, .dll, .ps1, .bat)
+  - Double-extension bypass detection
+  - Size limit enforcement (10MB receive, 50MB send)
+  - Path traversal prevention
+  - Reserved device name blocking
+  - No document error handling
+  - Send file validation
+- ✅ **Test results:**
+  - AI: 10, Console: 130, Memory: 131, Skills: 17, Telegram: 202 (186 + 16 NEW), Core: 348, Tools: 847 + 1 skipped
+  - **Total:** 1,682 tests passing (2 skipped), +16 from previous (was 1,666 after #143)
+- ✅ Zero regressions (all existing tests pass)
+- ✅ XML documentation on all public members
+
+**Security guarantees:**
+- ✅ ALL executable extensions ALWAYS blocked (no exceptions)
+- ✅ Double-extension bypass ALWAYS caught (checks all extensions, not just final)
+- ✅ Path traversal in filenames ALWAYS blocked (no directory separators allowed)
+- ✅ Reserved device names ALWAYS blocked (Windows CON/PRN/etc. detection)
+- ✅ Temp directory automatically cleaned on session termination (via `ManagedSession.DisposeAsync`)
+- ✅ File captions sanitized through `TelegramInputSanitizer` (prompt injection defense)
+- ✅ Access policy validation through `IAccessPolicyEngine` before download
+- ✅ Path resolution through `PathResolver` (symlink/ADS/device name checks)
+
+**Ready for:** Integration with TelegramCommandRouter and full end-to-end testing
 
 ### Next Steps
 

@@ -58,6 +58,7 @@ public sealed class ManagedSession : IAsyncDisposable
     public ISessionAccessStore? SessionAccessStore { get; }
 
     private bool _disposed;
+    private readonly HashSet<string> _tempDirectoriesToCleanup = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ManagedSession"/> class.
@@ -105,9 +106,24 @@ public sealed class ManagedSession : IAsyncDisposable
     }
 
     /// <summary>
+    /// Registers a temporary directory for automatic cleanup when the session is disposed.
+    /// </summary>
+    /// <param name="directoryPath">The absolute path to the temporary directory.</param>
+    public void RegisterTempDirectoryForCleanup(string directoryPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
+        
+        lock (_tempDirectoriesToCleanup)
+        {
+            _tempDirectoriesToCleanup.Add(directoryPath);
+        }
+    }
+
+    /// <summary>
     /// Disposes the session, releasing all resources and transitioning to Terminated state.
     /// Calls Orchestrator.Dispose() synchronously since AgentOrchestrator implements IDisposable (not IAsyncDisposable).
     /// Disposes SessionAccessStore if present (InMemorySessionAccessStore implements IDisposable).
+    /// Cleans up registered temporary directories.
     /// </summary>
     public ValueTask DisposeAsync()
     {
@@ -126,6 +142,29 @@ public sealed class ManagedSession : IAsyncDisposable
         if (SessionAccessStore is IDisposable disposableStore)
         {
             disposableStore.Dispose();
+        }
+
+        // Clean up registered temporary directories
+        lock (_tempDirectoriesToCleanup)
+        {
+            foreach (var tempDir in _tempDirectoriesToCleanup)
+            {
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, recursive: true);
+                    }
+                }
+#pragma warning disable CA1031 // Do not catch general exception types - cleanup failures should not prevent disposal
+                catch
+#pragma warning restore CA1031
+                {
+                    // Ignore cleanup errors - best effort cleanup
+                }
+            }
+
+            _tempDirectoriesToCleanup.Clear();
         }
 
         _disposed = true;
