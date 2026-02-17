@@ -82,6 +82,7 @@ public static class TelegramInputSanitizer
 
     /// <summary>
     /// Extracts text directed at the bot in group chats (after @botUsername mention).
+    /// Matches only on token boundaries to prevent matching substrings of longer usernames.
     /// </summary>
     /// <param name="text">The message text from a group chat.</param>
     /// <param name="botUsername">The bot's username (without @).</param>
@@ -95,19 +96,35 @@ public static class TelegramInputSanitizer
             return null;
         }
 
-        // Look for @botUsername mention (case-insensitive)
+        // Look for @botUsername mention (case-insensitive) with token boundary check
         var mention = $"@{botUsername}";
         var index = text.IndexOf(mention, StringComparison.OrdinalIgnoreCase);
 
-        if (index == -1)
+        while (index != -1)
         {
-            return null;
+            // Check if this is a valid token boundary match
+            var endIndex = index + mention.Length;
+            
+            // Ensure the character after the mention (if any) is not alphanumeric or underscore
+            // This prevents matching @krutaka_bot as part of @krutaka_bot2 or @krutaka_bot_admin
+            if (endIndex < text.Length)
+            {
+                var nextChar = text[endIndex];
+                if (char.IsLetterOrDigit(nextChar) || nextChar == '_')
+                {
+                    // Not a valid boundary — search for next occurrence
+                    index = text.IndexOf(mention, index + 1, StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
+            }
+
+            // Valid match found — extract text after the mention
+            var afterMention = text.Substring(endIndex).TrimStart();
+            return string.IsNullOrWhiteSpace(afterMention) ? null : afterMention;
         }
 
-        // Extract text after the mention
-        var afterMention = text.Substring(index + mention.Length).TrimStart();
-
-        return string.IsNullOrWhiteSpace(afterMention) ? null : afterMention;
+        // No valid mention found
+        return null;
     }
 
     /// <summary>

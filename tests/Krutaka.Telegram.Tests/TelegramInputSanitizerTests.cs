@@ -504,6 +504,81 @@ public class TelegramInputSanitizerTests
         extracted.Should().BeNull();
     }
 
+    [Fact]
+    public void ExtractMentionedText_Should_ReturnNull_WhenMentionIsPartOfLongerUsername()
+    {
+        // Arrange
+        var text = "@krutaka_bot2 run this";
+        var botUsername = "krutaka_bot";
+
+        // Act
+        var extracted = TelegramInputSanitizer.ExtractMentionedText(text, botUsername);
+
+        // Assert
+        // Should NOT match @krutaka_bot as part of @krutaka_bot2
+        extracted.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractMentionedText_Should_ReturnNull_WhenMentionHasAlphanumericSuffix()
+    {
+        // Arrange
+        var text = "@krutaka_bot_admin help me";
+        var botUsername = "krutaka_bot";
+
+        // Act
+        var extracted = TelegramInputSanitizer.ExtractMentionedText(text, botUsername);
+
+        // Assert
+        // Should NOT match @krutaka_bot as part of @krutaka_bot_admin
+        extracted.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractMentionedText_Should_MatchAtEndOfText()
+    {
+        // Arrange
+        var text = "Hey @krutaka_bot";
+        var botUsername = "krutaka_bot";
+
+        // Act
+        var extracted = TelegramInputSanitizer.ExtractMentionedText(text, botUsername);
+
+        // Assert
+        // Should match when mention is at end of text (no text after)
+        extracted.Should().BeNull();
+    }
+
+    [Fact]
+    public void ExtractMentionedText_Should_MatchWithPunctuationAfterMention()
+    {
+        // Arrange
+        var text = "@krutaka_bot, how does auth work?";
+        var botUsername = "krutaka_bot";
+
+        // Act
+        var extracted = TelegramInputSanitizer.ExtractMentionedText(text, botUsername);
+
+        // Assert
+        // Should match when followed by punctuation (comma is not alphanumeric or underscore)
+        extracted.Should().Be(", how does auth work?");
+    }
+
+    [Fact]
+    public void ExtractMentionedText_Should_MatchWithSpaceAfterMention()
+    {
+        // Arrange
+        var text = "@krutaka_bot help";
+        var botUsername = "krutaka_bot";
+
+        // Act
+        var extracted = TelegramInputSanitizer.ExtractMentionedText(text, botUsername);
+
+        // Assert
+        // Should match when followed by space
+        extracted.Should().Be("help");
+    }
+
     #endregion
 
     #region Callback Data Isolation Tests (Issue #144)
