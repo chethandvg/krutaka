@@ -471,11 +471,7 @@ public sealed class TelegramBotService : BackgroundService
         var handler = new HttpClientHandler
         {
             SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
-            {
-                // Use default validation, just enforce TLS version
-                return errors == SslPolicyErrors.None;
-            }
+            CheckCertificateRevocationList = true // CA5399: Enable certificate revocation checking
         };
 
         // TelegramBotClient takes ownership of HttpClient and will dispose the handler

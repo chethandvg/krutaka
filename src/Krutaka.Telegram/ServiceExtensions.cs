@@ -73,28 +73,4 @@ public static class ServiceExtensions
 
         return services;
     }
-
-    /// <summary>
-    /// Validates that SessionManagerOptions is configured correctly for Telegram mode.
-    /// Telegram requires MaxActiveSessions > 1 to support multiple concurrent users.
-    /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <exception cref="InvalidOperationException">Thrown when SessionManagerOptions.MaxActiveSessions is not greater than 1.</exception>
-    public static void ValidateSessionManagerOptionsForTelegram(this IServiceCollection services)
-    {
-        // This method should be called from the host (e.g., Program.cs) after both
-        // ISessionManager and Telegram services are registered
-        var serviceProvider = services.BuildServiceProvider();
-        
-        // Try to get SessionManagerOptions - if it's registered, validate it
-        var options = serviceProvider.GetService<SessionManagerOptions>();
-        if (options is not null && options.MaxActiveSessions <= 1)
-        {
-            throw new InvalidOperationException(
-                $"SessionManagerOptions.MaxActiveSessions must be greater than 1 when running in Telegram mode. " +
-                $"Current value: {options.MaxActiveSessions}. " +
-                "Telegram requires multi-session support to handle concurrent users. " +
-                "Update your configuration to set MaxActiveSessions to a value > 1 (recommended: 10 or higher).");
-        }
-    }
 }
