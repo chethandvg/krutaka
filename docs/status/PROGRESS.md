@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-17 (v0.4.0 TelegramSessionBridge complete — 1,621 tests passing, 1 skipped)
+> **Last updated:** 2026-02-17 (v0.4.0 TelegramBotService complete — 1,638 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2228,6 +2228,30 @@ Three fundamental changes:
 - ✅ JSONL file discovery via `SessionStore.FindMostRecentSession` scoped to project directory
 
 **Ready for:** Telegram polling service integration (issue #143)
+
+### TelegramBotService — Dual-Mode Long Polling and Webhook (v0.4.0 Issue #143)
+
+**Summary:** Implement the main Telegram bot lifecycle service as a `BackgroundService` (`IHostedService`). Supports two transport modes — long polling (hardened with all security mitigations) and webhook — selectable via configuration. The service orchestrates the full message pipeline: receive update → authenticate → route → process → stream response.
+
+**Status:** 🟢 Complete (2026-02-17)
+
+**Implementation:**
+
+| Component | Description | Status |
+|---|---|---|
+| v0.4.0-#143 | TelegramBotService with dual-mode transport and hardened long polling | Complete | 2026-02-17 |
+
+**Deliverables:**
+- ✅ `TelegramBotService.cs` — `BackgroundService` implementation with full pipeline
+- ✅ `PollingLockFile.cs` — Single-instance polling lock utility
+- ✅ Long polling security mitigations (TLS 1.2+, offset-after-processing, kill switch priority, exponential backoff, consecutive failure limit)
+- ✅ Bot token loading from `ISecretsProvider` (Windows Credential Manager) or environment variable
+- ✅ Clean shutdown via `CancellationToken` from `IHostedService` lifecycle
+- ✅ Comprehensive tests (17 tests, 1,638 total tests passing)
+- ✅ CodeQL security scan passed (0 alerts)
+- ✅ Code review feedback addressed
+
+**Ready for:** Full integration testing and webhook mode implementation
 
 ### Next Steps
 
