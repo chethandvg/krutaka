@@ -363,12 +363,14 @@ public class TelegramBotServiceTests
             loggerMock);
 
         // Assert - Verify no log message contains the actual token
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         loggerMock.DidNotReceive().Log(
             Arg.Any<LogLevel>(),
             Arg.Any<EventId>(),
             Arg.Is<object>(o => o.ToString()!.Contains("333333333:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw")),
             Arg.Any<Exception>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     private TelegramBotService CreateService()
