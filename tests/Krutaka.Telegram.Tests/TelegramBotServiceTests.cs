@@ -9,6 +9,7 @@ using Telegram.Bot.Types.Enums;
 
 namespace Krutaka.Telegram.Tests;
 
+[Collection("PollingLockFileTests")]  // Share collection to prevent lock conflicts
 public class TelegramBotServiceTests
 {
     private readonly TelegramSecurityConfig _config;

@@ -25,7 +25,11 @@ public sealed class TelegramBotService : BackgroundService
     private readonly ITelegramAuthGuard _authGuard;
     private readonly ITelegramCommandRouter _router;
     private readonly ITelegramSessionBridge _sessionBridge;
+    // Note: _streamer will be wired into HandleSessionCommandAsync in future work
+    // Currently, session command handling sends placeholder acknowledgments
+    #pragma warning disable IDE0052 // Remove unread private members - will be used for response streaming
     private readonly ITelegramResponseStreamer _streamer;
+    #pragma warning restore IDE0052
     private readonly ISessionManager _sessionManager;
     private readonly IHostApplicationLifetime _hostLifetime;
     private readonly ILogger<TelegramBotService> _logger;
@@ -177,28 +181,69 @@ public sealed class TelegramBotService : BackgroundService
                 }
 
                 // Kill switch priority: check for /killswitch BEFORE processing any other command
-                var killSwitchUpdate = updates.FirstOrDefault(u =>
-                    u.Message?.Text?.Trim().Equals(_config.PanicCommand, StringComparison.OrdinalIgnoreCase) == true);
+                // Use normalized command detection to handle @BotName mentions in group chats
+                var killSwitchUpdate = updates.FirstOrDefault(u => IsKillSwitchCommand(u.Message?.Text));
 
+                bool killSwitchExecuted = false;
                 if (killSwitchUpdate is not null)
                 {
                     _logger.LogCritical("Kill switch command detected in batch, processing immediately");
-                    await ProcessUpdateAsync(killSwitchUpdate, cancellationToken).ConfigureAwait(false);
                     
-                    // Commit offset for kill switch
-                    _lastProcessedUpdateId = killSwitchUpdate.Id;
-
-                    // Process kill switch will trigger shutdown, so we return here
-                    return;
+                    // Validate and process kill switch - only exit if it was actually executed
+                    var authResult = await _authGuard.ValidateAsync(killSwitchUpdate, cancellationToken).ConfigureAwait(false);
+                    if (authResult.IsValid)
+                    {
+                        var routeResult = await _router.RouteAsync(killSwitchUpdate, authResult, cancellationToken).ConfigureAwait(false);
+                        if (routeResult.Routed && routeResult.Command == TelegramCommand.KillSwitch)
+                        {
+                            await HandleKillSwitchAsync(authResult.ChatId, cancellationToken).ConfigureAwait(false);
+                            killSwitchExecuted = true;
+                            
+                            // Commit offset for kill switch before exiting
+                            // Make one more poll to confirm the offset with Telegram
+                            _lastProcessedUpdateId = killSwitchUpdate.Id;
+                            try
+                            {
+                                await _botClient.GetUpdates(
+                                    offset: _lastProcessedUpdateId + 1,
+                                    timeout: 0,
+                                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                            }
+#pragma warning disable CA1031 // Ignore all errors during final offset confirmation before shutdown
+                            catch
+#pragma warning restore CA1031
+                            {
+                                // Ignore errors during final offset confirmation
+                            }
+                            
+                            // Exit polling loop - app shutdown initiated
+                            return;
+                        }
+                    }
                 }
 
                 // Process updates sequentially
                 foreach (var update in updates)
                 {
-                    await ProcessUpdateAsync(update, cancellationToken).ConfigureAwait(false);
+                    // Skip kill switch if already processed
+                    if (killSwitchUpdate is not null && update.Id == killSwitchUpdate.Id && killSwitchExecuted)
+                    {
+                        continue;
+                    }
+
+                    var success = await ProcessUpdateAsync(update, cancellationToken).ConfigureAwait(false);
                     
-                    // Commit offset AFTER processing (T15 mitigation: offset-after-processing)
-                    _lastProcessedUpdateId = update.Id;
+                    // Commit offset AFTER successful processing (offset-after-processing mitigation)
+                    // Only advance if processing succeeded to allow retry on transient failures
+                    if (success)
+                    {
+                        _lastProcessedUpdateId = update.Id;
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Update {UpdateId} processing failed, will retry on next poll", update.Id);
+                        break; // Stop processing this batch, will retry failed update and remaining updates
+                    }
                 }
 
                 // Reset backoff on successful batch processing
@@ -243,9 +288,49 @@ public sealed class TelegramBotService : BackgroundService
     }
 
     /// <summary>
+    /// Checks if a message text represents the kill switch command.
+    /// Handles @BotName mentions in group chats by normalizing the command.
+    /// </summary>
+    private bool IsKillSwitchCommand(string? messageText)
+    {
+        if (string.IsNullOrWhiteSpace(messageText))
+        {
+            return false;
+        }
+
+        var trimmed = messageText.Trim();
+
+        // Fast path: exact match
+        if (trimmed.Equals(_config.PanicCommand, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var panicCommand = _config.PanicCommand?.Trim() ?? string.Empty;
+        if (panicCommand.Length == 0)
+        {
+            return false;
+        }
+
+        // Extract command token (before any arguments or whitespace)
+        var spaceIndex = trimmed.IndexOf(' ', StringComparison.Ordinal);
+        var commandToken = spaceIndex >= 0 ? trimmed[..spaceIndex] : trimmed;
+
+        // Strip optional @BotName mention (e.g., "/killswitch@MyBot" -> "/killswitch")
+        var atIndex = commandToken.IndexOf('@', StringComparison.Ordinal);
+        if (atIndex >= 0)
+        {
+            commandToken = commandToken[..atIndex];
+        }
+
+        return commandToken.Equals(panicCommand, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Processes a single Telegram update through the authentication and routing pipeline.
     /// </summary>
-    private async Task ProcessUpdateAsync(Update update, CancellationToken cancellationToken)
+    /// <returns>True if processing succeeded; false if it failed and should be retried.</returns>
+    private async Task<bool> ProcessUpdateAsync(Update update, CancellationToken cancellationToken)
     {
         try
         {
@@ -253,7 +338,7 @@ public sealed class TelegramBotService : BackgroundService
             if (update.Message is null && update.CallbackQuery is null)
             {
                 _logger.LogDebug("Skipping update {UpdateId} with no message or callback query", update.Id);
-                return;
+                return true; // Successfully skipped, advance offset
             }
 
             // Step 1: Validate authentication
@@ -265,9 +350,8 @@ public sealed class TelegramBotService : BackgroundService
                     update.Id,
                     authResult.DeniedReason ?? "Unknown");
                 
-                // For unknown users, silent drop (no reply sent)
-                // For known users with rate limit/lockout, the auth guard already sent a reply
-                return;
+                // Auth denied - this is a permanent failure, advance offset
+                return true;
             }
 
             // Step 2: Route to command handler
@@ -275,15 +359,17 @@ public sealed class TelegramBotService : BackgroundService
             if (!routeResult.Routed)
             {
                 _logger.LogWarning("Update {UpdateId} could not be routed", update.Id);
-                return;
+                return true; // Routing failed permanently, advance offset
             }
 
             // Step 3: Handle command based on type
             await HandleCommandAsync(routeResult, authResult, update, cancellationToken).ConfigureAwait(false);
+            return true; // Successfully processed
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogError(ex, "Error processing update {UpdateId}", update.Id);
+            _logger.LogError(ex, "Error processing update {UpdateId}, will retry", update.Id);
+            return false; // Transient failure, do not advance offset
         }
     }
 
@@ -363,21 +449,22 @@ public sealed class TelegramBotService : BackgroundService
     private async Task HandleHelpCommandAsync(long chatId, CancellationToken cancellationToken)
     {
         const string helpText = """
-            **Krutaka Bot Commands**
+            *Krutaka Bot Commands*
 
             • Send any message to interact with the AI agent
-            • /help - Show this help message
-            • /status - Show current session status
-            • /sessions - List all active sessions
-            • /new - Start a new session
-            • /session <id> - Switch to a specific session
-            • /budget - Show token budget usage
-            • /killswitch - Emergency shutdown (admin only)
+            • /help \\- Show this help message
+            • /status \\- Show current session status
+            • /sessions \\- List all active sessions
+            • /new \\- Start a new session
+            • /session <id> \\- Switch to a specific session
+            • /budget \\- Show token budget usage
+            • /killswitch \\- Emergency shutdown \\(admin only\\)
             """;
 
         await _botClient.SendMessage(
             chatId,
             helpText,
+            parseMode: ParseMode.MarkdownV2,
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 

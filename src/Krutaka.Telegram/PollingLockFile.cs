@@ -28,6 +28,13 @@ public sealed class PollingLockFile : IDisposable
         else
         {
             _lockFilePath = lockFilePath;
+            
+            // Ensure parent directory exists for custom paths
+            var directory = Path.GetDirectoryName(_lockFilePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
         }
     }
 

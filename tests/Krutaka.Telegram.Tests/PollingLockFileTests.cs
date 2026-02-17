@@ -2,6 +2,20 @@ using FluentAssertions;
 
 namespace Krutaka.Telegram.Tests;
 
+// Disable test parallelization for this collection to prevent lock file conflicts
+// xUnit requires collection definition classes to be public and will never instantiate them
+#pragma warning disable CA1515 // Consider making public types internal
+#pragma warning disable CA1711 // Identifiers should not have incorrect suffix
+#pragma warning disable CA1812 // Avoid uninstantiated internal classes - xUnit uses this via reflection
+[CollectionDefinition("PollingLockFileTests", DisableParallelization = true)]
+public sealed class PollingLockFileTestsCollection
+{
+}
+#pragma warning restore CA1812
+#pragma warning restore CA1711
+#pragma warning restore CA1515
+
+[Collection("PollingLockFileTests")]
 public sealed class PollingLockFileTests : IDisposable
 {
     private readonly string _testLockPath;
