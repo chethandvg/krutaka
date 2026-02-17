@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents (GitHub Copilot, etc.) work
 
 Krutaka is an OpenClaw-inspired AI agent built in C#/.NET 10 for Windows. It is a console application that uses the Claude API to perform agentic tasks (read/write files, execute commands, search code) with human-in-the-loop approval for destructive operations.
 
-**Implementation Status:** 🟡 **v0.4.0 Telegram Integration & Multi-Session In Progress** — v0.3.0 is complete with 1,289 tests passing (1 skipped). v0.4.0 adds Telegram bot interface and multi-session architecture. Auto-resume on startup, session discovery, layered access policy engine, adversarial test coverage, and tiered command execution complete. The project is ready for day-to-day use. See `docs/status/PROGRESS.md` for details.
+**Implementation Status:** ✅ **v0.4.0 Telegram Integration & Multi-Session Architecture Complete** — v0.4.0 is complete with 1,765 tests passing (2 skipped). Adds Telegram bot interface, multi-session architecture, dual-mode host support (Console, Telegram, or Both), and comprehensive security controls. The project is ready for production use with both local console and remote Telegram access. See `docs/status/PROGRESS.md` for details.
 
 **Important:** We use the official `Anthropic` NuGet package (v12.4.0), NOT the community `Anthropic.SDK` package. Always refer to it as the "official Anthropic package" or "Anthropic NuGet package" to avoid confusion. See ADR-003 in `docs/architecture/DECISIONS.md` for details.
 
@@ -102,8 +102,9 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 4. **All shell commands must be validated through `ICommandPolicy.EvaluateAsync()` for tier-based approval before execution.**
 5. **Shell commands must use CliWrap with explicit argument arrays — never string interpolation.**
 6. **Child processes must have sensitive environment variables scrubbed before execution.**
-7. **Untrusted content (file contents, command output, web pages) sent to Claude must be wrapped in `<untrusted_content>` XML tags.**
-8. **Write, execute, and directory access operations must require human approval (enforced by `ISecurityPolicy.IsApprovalRequired` and `IAccessPolicyEngine`).**
+7. **Untrusted content (file contents, command output, web pages, Telegram messages) sent to Claude must be wrapped in `<untrusted_content>` XML tags.**
+8. **Telegram user input must be wrapped in `<untrusted_content source="telegram:user:{userId}">` tags before sending to Claude.**
+9. **Write, execute, and directory access operations must require human approval (enforced by `ISecurityPolicy.IsApprovalRequired` and `IAccessPolicyEngine`).**
 
 ## Key Files Reference
 
@@ -114,13 +115,14 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `docs/architecture/OVERVIEW.md` | Living architecture document — component structure |
 | `docs/architecture/SECURITY.md` | Security threat model and policy rules |
 | `docs/architecture/DECISIONS.md` | Architecture Decision Records (ADR-001 through ADR-013) |
+| `docs/architecture/MULTI-SESSION.md` | Multi-session isolation architecture |
+| `docs/architecture/TELEGRAM.md` | Telegram security architecture |
 | `docs/status/PROGRESS.md` | Issue/phase completion tracker |
 | `docs/status/DEPENDENCY-MAP.md` | NuGet package versions |
 | `docs/guides/LOCAL-SETUP.md` | Build and run instructions |
+| `docs/guides/TELEGRAM-SETUP.md` | Telegram bot setup and configuration |
 | `docs/guides/TESTING.md` | Test strategy and procedures |
 | `docs/versions/v0.2.0.md` | v0.2.0 dynamic directory scoping architecture design |
 | `docs/versions/v0.3.0.md` | v0.3.0 graduated command execution architecture design |
 | `docs/versions/v0.4.0.md` | v0.4.0 Telegram integration and multi-session architecture design |
-| `docs/architecture/MULTI-SESSION.md` | Multi-session isolation architecture |
-| `docs/architecture/TELEGRAM.md` | Telegram security architecture |
 | `CHANGELOG.md` | Release notes following Keep a Changelog format |
