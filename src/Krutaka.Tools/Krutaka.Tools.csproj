@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Krutaka.Core\Krutaka.Core.csproj" />
+    <ProjectReference Include="..\Krutaka.Memory\Krutaka.Memory.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -165,6 +165,70 @@ public sealed class MemoryFileService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Appends raw markdown content to the MEMORY.md file.
+    /// This method preserves the markdown structure (headers, lists, etc.) without sanitization.
+    /// Used for pre-compaction memory flush where Claude generates the markdown structure.
+    /// </summary>
+    /// <param name="markdownContent">The markdown content to append.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task AppendRawMarkdownAsync(
+        string markdownContent,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(markdownContent, nameof(markdownContent));
+
+        await _fileLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // Ensure directory exists
+            var directory = Path.GetDirectoryName(_memoryFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            // Read existing content
+            var existingContent = File.Exists(_memoryFilePath)
+                ? await File.ReadAllTextAsync(_memoryFilePath, cancellationToken).ConfigureAwait(false)
+                : string.Empty;
+
+            var newContent = new System.Text.StringBuilder(existingContent);
+
+            // Add separator if file has existing content
+            if (newContent.Length > 0)
+            {
+                // Ensure proper spacing
+                if (!existingContent.EndsWith('\n'))
+                {
+                    newContent.AppendLine();
+                }
+
+                newContent.AppendLine(); // Blank line before new section
+            }
+
+            // Append raw markdown content
+            newContent.Append(markdownContent);
+
+            // Ensure trailing newline
+            if (!markdownContent.EndsWith('\n'))
+            {
+                newContent.AppendLine();
+            }
+
+            // Atomic write: temp file → move
+            var tempFile = _memoryFilePath + ".tmp";
+            await File.WriteAllTextAsync(tempFile, newContent.ToString(), cancellationToken).ConfigureAwait(false);
+            File.Move(tempFile, _memoryFilePath, overwrite: true);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
     /// <inheritdoc />
     public void Dispose()
     {

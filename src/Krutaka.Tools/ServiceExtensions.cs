@@ -1,4 +1,5 @@
 using Krutaka.Core;
+using Krutaka.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -132,7 +133,25 @@ public static class ServiceExtensions
         // SystemPromptBuilder will use the tool registry from the active session, not from global DI.
 
         // Register session factory (singleton) for v0.4.0 multi-session support
-        services.AddSingleton<ISessionFactory, SessionFactory>();
+        services.AddSingleton<ISessionFactory>(sp =>
+        {
+            var claudeClient = sp.GetRequiredService<IClaudeClient>();
+            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+            var accessPolicyEngine = sp.GetRequiredService<IAccessPolicyEngine>();
+            var commandRiskClassifier = sp.GetRequiredService<ICommandRiskClassifier>();
+            var toolOptions = sp.GetRequiredService<ToolOptions>();
+            var auditLogger = sp.GetService<IAuditLogger>();
+            var memoryFileService = sp.GetService<MemoryFileService>();
+
+            return new SessionFactory(
+                claudeClient,
+                securityPolicy,
+                accessPolicyEngine,
+                commandRiskClassifier,
+                toolOptions,
+                auditLogger,
+                memoryFileService);
+        });
 
         // Register session manager (singleton) for v0.4.0 multi-session lifecycle management
         services.AddSingleton<ISessionManager>(sp =>

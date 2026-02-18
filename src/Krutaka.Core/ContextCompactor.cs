@@ -16,6 +16,7 @@ public sealed class ContextCompactor
     private readonly int _maxTokens;
     private readonly double _compactionThreshold;
     private readonly int _messagesToKeep;
+    private readonly Func<string, CancellationToken, Task>? _memoryWriter;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ContextCompactor"/> class.
@@ -27,6 +28,7 @@ public sealed class ContextCompactor
     /// <param name="auditLogger">Optional audit logger for structured logging.</param>
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
     /// <param name="compactionClient">Optional separate Claude client for generating summaries (e.g., using a cheaper model). Defaults to the main client.</param>
+    /// <param name="memoryWriter">Optional delegate for writing extracted context to MEMORY.md before compaction.</param>
     public ContextCompactor(
         IClaudeClient claudeClient,
         int maxTokens = 200_000,
@@ -34,7 +36,8 @@ public sealed class ContextCompactor
         int messagesToKeep = 6,
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null,
-        IClaudeClient? compactionClient = null)
+        IClaudeClient? compactionClient = null,
+        Func<string, CancellationToken, Task>? memoryWriter = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _compactionClient = compactionClient ?? claudeClient;
@@ -43,6 +46,7 @@ public sealed class ContextCompactor
         _maxTokens = maxTokens;
         _compactionThreshold = compactionThreshold;
         _messagesToKeep = messagesToKeep;
+        _memoryWriter = memoryWriter;
     }
 
     /// <summary>
@@ -172,6 +176,9 @@ public sealed class ContextCompactor
             messagesToSummarize.RemoveAt(messagesToSummarize.Count - 1);
             messagesToKeep.Insert(0, preceding);
         }
+
+        // Pre-compaction memory flush: Extract key context to MEMORY.md before summarization
+        await FlushContextToMemoryAsync(messagesToSummarize, cancellationToken).ConfigureAwait(false);
 
         // Generate summary using configured model
         var summary = await GenerateSummaryAsync(messagesToSummarize, cancellationToken).ConfigureAwait(false);
@@ -392,6 +399,95 @@ Structure as:
         }
 
         return formatted.ToString();
+    }
+
+    /// <summary>
+    /// Flushes critical context from conversation history to MEMORY.md before compaction.
+    /// This is best-effort — failures do not prevent compaction.
+    /// </summary>
+    private async Task FlushContextToMemoryAsync(
+        List<object> messagesToSummarize,
+        CancellationToken cancellationToken)
+    {
+        // Skip if no memory writer delegate is provided
+        if (_memoryWriter == null)
+        {
+            return;
+        }
+
+        // Skip if there are no messages to extract from
+        if (messagesToSummarize.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            // Create a memory extraction prompt
+            var extractionPrompt = @"Extract critical context from this conversation that should be preserved before summarization. Focus on:
+
+1. **Key Decisions Made** - Technical choices, architectural decisions, what was chosen and WHY
+2. **File Paths** - Any files created, modified, or discussed (full paths)
+3. **User Preferences** - Explicit requirements, style choices, constraints expressed by the user
+4. **Progress State** - What work is completed, what's pending, current blockers
+5. **Important Context** - Business logic, domain knowledge, constraints that inform future work
+
+Format as a concise bullet list under the heading ""## Session Context (auto-saved)"". Be specific but brief.";
+
+            // Format conversation content and wrap in untrusted_content tags (security pattern)
+            var conversationContent = FormatMessagesForSummary(messagesToSummarize);
+            var wrappedContent = $"<untrusted_content>\n<conversation_to_extract>\n{conversationContent}\n</conversation_to_extract>\n</untrusted_content>";
+
+            // Create single-turn conversation for extraction
+            var extractionMessages = new List<object>
+            {
+                new
+                {
+                    role = "user",
+                    content = $"{extractionPrompt}\n\n{wrappedContent}"
+                }
+            };
+
+            // Call compaction client (cheaper model) to extract context
+            var extractedContent = new System.Text.StringBuilder();
+
+            await foreach (var evt in _compactionClient.SendMessageAsync(
+                extractionMessages,
+                "You are a helpful assistant that extracts critical context from technical conversations.",
+                tools: null,
+                cancellationToken).ConfigureAwait(false))
+            {
+                if (evt is TextDelta delta)
+                {
+                    extractedContent.Append(delta.Text);
+                }
+                else if (evt is FinalResponse final && !string.IsNullOrEmpty(final.Content))
+                {
+                    extractedContent.Clear();
+                    extractedContent.Append(final.Content);
+                    break;
+                }
+            }
+
+            var extracted = extractedContent.ToString();
+
+            // Write to MEMORY.md if extraction succeeded
+            if (!string.IsNullOrWhiteSpace(extracted))
+            {
+                await _memoryWriter(extracted, cancellationToken).ConfigureAwait(false);
+            }
+        }
+#pragma warning disable CA1031 // Do not catch general exception types - best-effort operation, failures should not prevent compaction
+        catch (Exception ex)
+        {
+            // Log warning but don't fail compaction — memory flush is best-effort
+            if (_auditLogger != null && _correlationContext != null)
+            {
+                // Log as informational event since this is a non-critical failure
+                System.Diagnostics.Debug.WriteLine($"Pre-compaction memory flush failed (best-effort operation): {ex.Message}");
+            }
+        }
+#pragma warning restore CA1031
     }
 }
 
