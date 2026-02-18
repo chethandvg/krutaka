@@ -64,6 +64,9 @@ public class SecretsProviderTests
     [InlineData("123:abc@def")] // Invalid character in token (@)
     [InlineData("123:abc def")] // Space in token
     [InlineData("123:abc!def")] // Invalid character in token (!)
+    [InlineData("123:αβγ")] // Unicode letters (not ASCII)
+    [InlineData("①②③:abc")] // Unicode digits (not ASCII)
+    [InlineData("123:café")] // Unicode character (é)
     public void IsValidBotToken_Should_ReturnFalse_WhenBotTokenIsInvalid(string? botToken)
     {
         // Act
@@ -141,6 +144,6 @@ public class SecretsProviderTests
 
         // Assert
         action.Should().Throw<ArgumentException>()
-            .WithMessage("*must match the format 'digits:alphanumeric'*");
+            .WithMessage("*must match the format 'digits:letters/digits/underscore/hyphen'*");
     }
 }

@@ -452,13 +452,13 @@ public sealed class TelegramBotService : BackgroundService
             *Krutaka Bot Commands*
 
             • Send any message to interact with the AI agent
-            • /help \\- Show this help message
-            • /status \\- Show current session status
-            • /sessions \\- List all active sessions
-            • /new \\- Start a new session
-            • /session <id> \\- Switch to a specific session
-            • /budget \\- Show token budget usage
-            • /killswitch \\- Emergency shutdown \\(admin only\\)
+            • /help \- Show this help message
+            • /status \- Show current session status
+            • /sessions \- List all active sessions
+            • /new \- Start a new session
+            • /session \<id\> \- Switch to a specific session
+            • /budget \- Show token budget usage
+            • /killswitch \- Emergency shutdown \(admin only\)
             """;
 
         await _botClient.SendMessage(

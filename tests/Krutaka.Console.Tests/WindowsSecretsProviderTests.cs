@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Krutaka.Console;
-using Krutaka.Core;
 
 namespace Krutaka.Console.Tests;
 
@@ -9,6 +8,7 @@ namespace Krutaka.Console.Tests;
 /// Note: These tests validate the ISecretsProvider interface implementation,
 /// but do not test actual Windows Credential Manager operations (requires Windows OS).
 /// The SetSecret method will throw if the underlying SecretsProvider validation fails.
+/// Tests that call GetSecret/HasSecret may fail if credentials exist on the machine.
 /// </summary>
 public class WindowsSecretsProviderTests
 {
@@ -62,29 +62,7 @@ public class WindowsSecretsProviderTests
 
         // Assert
         action.Should().Throw<ArgumentException>()
-            .WithMessage("*must match the format 'digits:alphanumeric'*");
-    }
-
-    [Theory]
-    [InlineData("Claude:ApiKey")]
-    [InlineData("Krutaka_ApiKey")]
-    public void GetSecret_Should_ReturnNull_WhenClaudeApiKeyDoesNotExist(string key)
-    {
-        // Act - No credential is actually stored in this test environment
-        var result = _secretsProvider.GetSecret(key);
-
-        // Assert
-        result.Should().BeNull();
-    }
-
-    [Fact]
-    public void GetSecret_Should_ReturnNull_WhenTelegramBotTokenDoesNotExist()
-    {
-        // Act - No credential is actually stored in this test environment
-        var result = _secretsProvider.GetSecret("KRUTAKA_TELEGRAM_BOT_TOKEN");
-
-        // Assert
-        result.Should().BeNull();
+            .WithMessage("*must match the format 'digits:letters/digits/underscore/hyphen'*");
     }
 
     [Fact]
@@ -95,28 +73,6 @@ public class WindowsSecretsProviderTests
 
         // Assert
         result.Should().BeNull();
-    }
-
-    [Theory]
-    [InlineData("Claude:ApiKey")]
-    [InlineData("Krutaka_ApiKey")]
-    public void HasSecret_Should_ReturnFalse_WhenClaudeApiKeyDoesNotExist(string key)
-    {
-        // Act - No credential is actually stored in this test environment
-        var result = _secretsProvider.HasSecret(key);
-
-        // Assert
-        result.Should().BeFalse();
-    }
-
-    [Fact]
-    public void HasSecret_Should_ReturnFalse_WhenTelegramBotTokenDoesNotExist()
-    {
-        // Act - No credential is actually stored in this test environment
-        var result = _secretsProvider.HasSecret("KRUTAKA_TELEGRAM_BOT_TOKEN");
-
-        // Assert
-        result.Should().BeFalse();
     }
 
     [Fact]

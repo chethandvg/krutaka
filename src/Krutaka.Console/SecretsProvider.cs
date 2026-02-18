@@ -10,7 +10,7 @@ internal static class SecretsProvider
 {
     // Credential target names for different secret types
     private const string ApiKeyCredentialName = "Krutaka_ApiKey";
-    private const string BotTokenCredentialName = "Krutaka_Telegram_BotToken";
+    private const string BotTokenCredentialName = "KRUTAKA_TELEGRAM_BOT_TOKEN";
 
     // Validation patterns
     private const string ApiKeyPrefix = "sk-ant-";
@@ -99,7 +99,7 @@ internal static class SecretsProvider
         if (!IsValidBotToken(botToken))
         {
             throw new ArgumentException(
-                "Bot token must match the format 'digits:alphanumeric'. Please provide a valid Telegram bot token.",
+                "Bot token must match the format 'digits:letters/digits/underscore/hyphen' (e.g., '123456789:ABCdef_GHI-jkl'). Please provide a valid Telegram bot token.",
                 nameof(botToken));
         }
 
@@ -157,9 +157,9 @@ internal static class SecretsProvider
     }
 
     /// <summary>
-    /// Validates that a Telegram bot token matches the required pattern (digits:alphanumeric).
-    /// Format: {bot_id}:{token} where bot_id is digits and token is alphanumeric.
-    /// Example: "123456789:ABCdefGHIjklMNOpqrsTUVwxyz1234567890"
+    /// Validates that a Telegram bot token matches the required pattern.
+    /// Format: {bot_id}:{token} where bot_id is ASCII digits and token contains only ASCII letters, digits, underscores, and hyphens.
+    /// Example: "123456789:ABCdef_GHIjkl-MNOpqrsTUVwxyz1234567890"
     /// </summary>
     /// <param name="botToken">The bot token to validate.</param>
     /// <returns>True if the bot token is valid, otherwise false.</returns>
@@ -176,16 +176,22 @@ internal static class SecretsProvider
             return false;
         }
 
-        // First part (bot_id) must be all digits
+        // First part (bot_id) must be all ASCII digits (0-9)
         var botId = parts[0];
-        if (string.IsNullOrEmpty(botId) || !botId.All(char.IsDigit))
+        if (string.IsNullOrEmpty(botId) || !botId.All(c => c >= '0' && c <= '9'))
         {
             return false;
         }
 
-        // Second part (token) must be alphanumeric (letters and digits only, no special chars)
+        // Second part (token) must contain only ASCII letters, digits, underscores, and hyphens
+        // [A-Za-z0-9_-]+
         var token = parts[1];
-        if (string.IsNullOrEmpty(token) || !token.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-'))
+        if (string.IsNullOrEmpty(token) || !token.All(c => 
+            (c >= 'A' && c <= 'Z') || 
+            (c >= 'a' && c <= 'z') || 
+            (c >= '0' && c <= '9') || 
+            c == '_' || 
+            c == '-'))
         {
             return false;
         }
