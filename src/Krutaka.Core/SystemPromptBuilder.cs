@@ -448,7 +448,20 @@ public sealed class SystemPromptBuilder
         }
 
         sb.AppendLine();
-        sb.AppendLine("IMPORTANT: Always use paths within or below the working directory. You cannot access paths above the ceiling directory.");
+        
+        // Adjust the IMPORTANT message based on what information is available
+        if (hasWorkingDirectory && hasCeilingDirectory)
+        {
+            sb.AppendLine("IMPORTANT: Always use paths within or below the working directory. You cannot access paths above the ceiling directory.");
+        }
+        else if (hasWorkingDirectory)
+        {
+            sb.AppendLine("IMPORTANT: Always use paths within or below the working directory.");
+        }
+        else if (hasCeilingDirectory)
+        {
+            sb.AppendLine("IMPORTANT: You cannot access paths above the ceiling directory.");
+        }
 
         return sb.ToString().Trim();
     }
