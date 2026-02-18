@@ -1166,4 +1166,5 @@ file sealed class MockToolOptions : IToolOptions
 #pragma warning disable CA1819 // Properties should not return arrays - this is test data
     public string[] AutoGrantPatterns { get; set; } = [];
 #pragma warning restore CA1819
+    public bool EnablePreCompactionFlush { get; set; } = true;
 }

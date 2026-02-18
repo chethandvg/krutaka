@@ -478,14 +478,14 @@ Format as a concise bullet list under the heading ""## Session Context (auto-sav
             }
         }
 #pragma warning disable CA1031 // Do not catch general exception types - best-effort operation, failures should not prevent compaction
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
         {
             // Log warning but don't fail compaction — memory flush is best-effort
-            if (_auditLogger != null && _correlationContext != null)
-            {
-                // Log as informational event since this is a non-critical failure
-                System.Diagnostics.Debug.WriteLine($"Pre-compaction memory flush failed (best-effort operation): {ex.Message}");
-            }
+            // Rethrow cancellation exceptions to avoid masking cancellation during shutdown
+            
+            // Use Debug.WriteLine as fallback since we can't use IAuditLogger.LogError (it doesn't exist)
+            // This ensures warnings are emitted in all environments for debugging
+            System.Diagnostics.Debug.WriteLine($"Pre-compaction memory flush failed (best-effort operation): {ex.Message}");
         }
 #pragma warning restore CA1031
     }

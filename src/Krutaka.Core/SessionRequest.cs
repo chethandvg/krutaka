@@ -15,7 +15,8 @@ public record SessionRequest(
     string? UserId = null,
     int MaxTokenBudget = 200_000,
     int MaxToolCallBudget = 100,
-    TimeSpan? MaxDuration = null)
+    TimeSpan? MaxDuration = null,
+    Func<string, CancellationToken, Task>? MemoryWriter = null)
 {
     /// <summary>
     /// Gets the validated project path.

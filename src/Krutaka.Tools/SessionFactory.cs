@@ -1,5 +1,4 @@
 using Krutaka.Core;
-using Krutaka.Memory;
 
 namespace Krutaka.Tools;
 
@@ -16,7 +15,6 @@ public sealed class SessionFactory : ISessionFactory
     private readonly IAccessPolicyEngine _accessPolicyEngine;
     private readonly ICommandRiskClassifier _commandRiskClassifier;
     private readonly ToolOptions _toolOptions;
-    private readonly MemoryFileService? _memoryFileService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SessionFactory"/> class.
@@ -27,15 +25,13 @@ public sealed class SessionFactory : ISessionFactory
     /// <param name="commandRiskClassifier">The command risk classifier (shared singleton).</param>
     /// <param name="toolOptions">The tool options (shared singleton).</param>
     /// <param name="auditLogger">The audit logger (shared singleton, optional).</param>
-    /// <param name="memoryFileService">The memory file service for pre-compaction flush (shared singleton, optional).</param>
     public SessionFactory(
         IClaudeClient claudeClient,
         ISecurityPolicy securityPolicy,
         IAccessPolicyEngine accessPolicyEngine,
         ICommandRiskClassifier commandRiskClassifier,
         ToolOptions toolOptions,
-        IAuditLogger? auditLogger = null,
-        MemoryFileService? memoryFileService = null)
+        IAuditLogger? auditLogger = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _securityPolicy = securityPolicy ?? throw new ArgumentNullException(nameof(securityPolicy));
@@ -43,7 +39,6 @@ public sealed class SessionFactory : ISessionFactory
         _commandRiskClassifier = commandRiskClassifier ?? throw new ArgumentNullException(nameof(commandRiskClassifier));
         _toolOptions = toolOptions ?? throw new ArgumentNullException(nameof(toolOptions));
         _auditLogger = auditLogger;
-        _memoryFileService = memoryFileService;
     }
 
     /// <inheritdoc/>
@@ -105,15 +100,7 @@ public sealed class SessionFactory : ISessionFactory
         // Create per-session IToolRegistry with tools scoped to ProjectPath
         var toolRegistry = CreateSessionToolRegistry(request.ProjectPath, sessionAccessPolicyEngine, commandApprovalCache, correlationContext);
 
-        // Create memory writer delegate if memory file service and feature flag are enabled
-        Func<string, CancellationToken, Task>? memoryWriter = null;
-        if (_memoryFileService != null && _toolOptions.EnablePreCompactionFlush)
-        {
-            memoryWriter = async (content, ct) =>
-                await _memoryFileService.AppendRawMarkdownAsync(content, ct).ConfigureAwait(false);
-        }
-
-        // Create per-session ContextCompactor
+        // Create per-session ContextCompactor with optional memory writer from request
         var contextCompactor = new ContextCompactor(
             _claudeClient,
             maxTokens: 200_000,
@@ -122,7 +109,7 @@ public sealed class SessionFactory : ISessionFactory
             auditLogger: _auditLogger,
             correlationContext: correlationContext,
             compactionClient: null,
-            memoryWriter: memoryWriter);
+            memoryWriter: request.MemoryWriter);
 
         // Create per-session AgentOrchestrator
         var orchestrator = new AgentOrchestrator(
