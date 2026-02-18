@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-18 (v0.4.5 Issue #184 Complete — 1,841 tests passing, 2 skipped)
+> **Last updated:** 2026-02-18 (v0.4.5 Issue #185 Complete — 1,850 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2497,7 +2497,7 @@ Implementation of v0.4.0 components will follow the complete issue breakdown in 
 
 ## v0.4.5 — Session Resilience, API Hardening & Context Intelligence (In Progress)
 
-> **Status:** 🟡 **In Progress** (Issues #181, #182, #183 Complete — 2026-02-18)  
+> **Status:** 🟡 **In Progress** (Issues #181, #182, #183, #184, #185 Complete — 2026-02-18)  
 > **Reference:** See `docs/versions/v0.4.5.md` for complete architecture design, failure modes, and implementation roadmap.
 
 ### Overview
@@ -2779,4 +2779,37 @@ Remaining v0.4.5 issues:
   - Proper layer ordering (after Layer 3b: Command Tier Information)
 - All 1,841 tests passing (2 skipped)
 - Eliminates Claude's trial-and-error file access attempts by providing upfront directory information
+
+**#185 - Add bootstrap file size caps to system prompt** (2026-02-18)
+- Added configurable character caps to `SystemPromptBuilder`:
+  - `MaxBootstrapCharsPerFile` = 20,000 (default) - per-file limit for AGENTS.md and MEMORY.md
+  - `MaxBootstrapTotalChars` = 150,000 (default) - total system prompt limit across all sections
+- Implemented per-file truncation in `LoadCoreIdentityAsync()` (Layer 1 - AGENTS.md):
+  - Checks content length after reading
+  - Truncates to limit if exceeded with marker: `[... truncated at 20,000 chars. Use read_file for full content ...]`
+- Implemented per-file truncation in `LoadMemoryFileAsync()` (Layer 5 - MEMORY.md):
+  - Same truncation logic as Layer 1
+  - Marker placed inside `<untrusted_content>` tags to maintain security wrapper
+- Implemented total cap enforcement in `BuildAsync()`:
+  - Calculates total length after assembling all sections
+  - Truncates backwards (Layer 6 → 5 → 4 → 3c → 3b → 3 → 1) if total exceeds limit
+  - Layer 2 (security instructions) NEVER truncated - immutable security boundary
+  - Marker: `[... truncated to fit 150,000 char total cap ...]`
+- Added comprehensive documentation to `GetSecurityInstructions()`:
+  - Documents that Layer 2 is hardcoded and must never be truncated
+  - Explains it forms immutable security boundary
+- Constructor now accepts optional `maxBootstrapCharsPerFile` and `maxBootstrapTotalChars` parameters
+- Added parameter validation: both caps must be > 0, throws `ArgumentOutOfRangeException` otherwise
+- Added 9 comprehensive tests in `SystemPromptBuilderTests.cs`:
+  - Test AGENTS.md per-file truncation with marker
+  - Test MEMORY.md per-file truncation with marker
+  - Test total cap enforcement with backward truncation
+  - Test Layer 2 security instructions never truncated regardless of caps
+  - Test small files not affected by caps
+  - Test custom per-file cap acceptance
+  - Test custom total cap acceptance
+  - Test constructor parameter validation for zero/negative values
+- All 1,850 tests passing (2 skipped) — 9 new tests added
+- Prevents system prompt bloat that wastes tokens (threat T4 from v0.4.5 spec)
+- Security: Layer 2 security instructions remain immutable and cannot be truncated
 
