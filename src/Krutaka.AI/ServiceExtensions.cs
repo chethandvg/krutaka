@@ -37,6 +37,11 @@ public static class ServiceExtensions
             var maxTokens = int.Parse(configuration["Claude:MaxTokens"] ?? "8192", CultureInfo.InvariantCulture);
             var temperature = double.Parse(configuration["Claude:Temperature"] ?? "0.7", CultureInfo.InvariantCulture);
 
+            // Read retry configuration from Agent section
+            var retryMaxAttempts = int.Parse(configuration["Agent:RetryMaxAttempts"] ?? "3", CultureInfo.InvariantCulture);
+            var retryInitialDelayMs = int.Parse(configuration["Agent:RetryInitialDelayMs"] ?? "1000", CultureInfo.InvariantCulture);
+            var retryMaxDelayMs = int.Parse(configuration["Agent:RetryMaxDelayMs"] ?? "30000", CultureInfo.InvariantCulture);
+
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClaudeClientWrapper>>();
 
             // Create Anthropic client with retry configuration
@@ -49,7 +54,15 @@ public static class ServiceExtensions
                 Timeout = TimeSpan.FromSeconds(120)
             };
 
-            return new ClaudeClientWrapper(client, logger, modelId, maxTokens, temperature);
+            return new ClaudeClientWrapper(
+                client, 
+                logger, 
+                modelId, 
+                maxTokens, 
+                temperature,
+                retryMaxAttempts,
+                retryInitialDelayMs,
+                retryMaxDelayMs);
         });
 
         // Configure HTTP resilience pipeline for general use
