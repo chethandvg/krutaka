@@ -2,6 +2,15 @@
   "version": 2,
   "dependencies": {
     "net10.0": {
+      "Anthropic": {
+        "type": "Direct",
+        "requested": "[12.4.0, )",
+        "resolved": "12.4.0",
+        "contentHash": "c7sfzLzOdLee3Xdx2gMUTAzCXclJ+VbSqOnxqdHR/XYKCnbKJJIA3xKD2isLwwGzl2cYRaZoNnbmisCRs1kpuA==",
+        "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "10.2.0"
+        }
+      },
       "coverlet.collector": {
         "type": "Direct",
         "requested": "[6.0.2, )",
@@ -1448,15 +1457,6 @@
       },
       "krutaka.core": {
         "type": "Project"
-      },
-      "Anthropic": {
-        "type": "CentralTransitive",
-        "requested": "[12.4.0, )",
-        "resolved": "12.4.0",
-        "contentHash": "c7sfzLzOdLee3Xdx2gMUTAzCXclJ+VbSqOnxqdHR/XYKCnbKJJIA3xKD2isLwwGzl2cYRaZoNnbmisCRs1kpuA==",
-        "dependencies": {
-          "Microsoft.Extensions.AI.Abstractions": "10.2.0"
-        }
       },
       "Microsoft.Extensions.AI": {
         "type": "CentralTransitive",
