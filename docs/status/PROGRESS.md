@@ -2668,17 +2668,17 @@ Added graceful error recovery in the Console main loop when `AnthropicBadRequest
 - Added `using Anthropic.Exceptions;` to access `AnthropicBadRequestException`
 
 **2. Created RecoveryOption enum** (`Program.cs`, bottom of file)
-- `RecoveryOption.ReloadSession` — Reload session using 3-step resume pattern
+- `RecoveryOption.ReloadSession` — Reload session using 2-step resume pattern
 - `RecoveryOption.StartNew` — Start a new session (same as `/new` command)
 
 **3. Added AnthropicBadRequestException catch block** (`Program.cs`, lines ~595-650)
 - Catches `AnthropicBadRequestException` specifically before generic catch
 - Displays user-friendly error message explaining API error
 - Offers two recovery options via `SelectionPrompt<RecoveryOption>`:
-  - **"Reload session"**: Executes 3-step resume pattern:
+  - **"Reload session"**: Executes 2-step resume pattern:
     1. `currentSessionStore.ReconstructMessagesAsync()` — loads and repairs messages from disk
     2. `currentSession.Orchestrator.RestoreConversationHistory(messages)` — replaces in-memory history
-    3. Displays success message with message count
+    - After restore, displays success message with message count
   - **"Start new session"**: Executes `/new` logic:
     1. Terminates current session via `sessionManager.TerminateSessionAsync()`
     2. Disposes current session store
@@ -2734,7 +2734,7 @@ Added graceful error recovery in the Console main loop when `AnthropicBadRequest
 ### Acceptance Criteria
 
 - ✅ `AnthropicBadRequestException` caught specifically with recovery options
-- ✅ "Reload session" option re-runs 3-step resume pattern (`ReconstructMessagesAsync` → `RestoreConversationHistory`)
+- ✅ "Reload session" option re-runs 2-step resume pattern (`ReconstructMessagesAsync` → `RestoreConversationHistory`)
 - ✅ "Start new session" option creates fresh session (executes `/new` logic)
 - ✅ Generic exceptions include hint about `/new` command
 - ✅ Telegram mode unaffected (no changes needed per issue design)

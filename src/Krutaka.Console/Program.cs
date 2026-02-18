@@ -232,6 +232,11 @@ try
     var sessionManager = host.Services.GetRequiredService<ISessionManager>();
     var auditLogger = host.Services.GetRequiredService<IAuditLogger>();
 
+    // Read session configuration from appsettings.json
+    var configuration = host.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+    var maxTokenBudget = configuration.GetValue<int>("Agent:MaxTokenBudget", 200_000);
+    var maxToolCallBudget = configuration.GetValue<int>("Agent:MaxToolCallBudget", 1000);
+
     // Helper function to create SystemPromptBuilder using session's tool registry
     static SystemPromptBuilder CreateSystemPromptBuilder(IToolRegistry toolRegistry, string workingDirectory, IServiceProvider serviceProvider)
     {
@@ -310,8 +315,8 @@ try
         
         var sessionRequest = new SessionRequest(
             ProjectPath: workingDirectory,
-            MaxTokenBudget: 200_000,
-            MaxToolCallBudget: 1000);
+            MaxTokenBudget: maxTokenBudget,
+            MaxToolCallBudget: maxToolCallBudget);
         
         // Use SessionFactory directly to create with preserved session ID
         var sessionFactory = host.Services.GetRequiredService<ISessionFactory>();
@@ -345,8 +350,8 @@ try
         Log.Information("No previous session found, creating new session");
         var sessionRequest = new SessionRequest(
             ProjectPath: workingDirectory,
-            MaxTokenBudget: 200_000,
-            MaxToolCallBudget: 1000);
+            MaxTokenBudget: maxTokenBudget,
+            MaxToolCallBudget: maxToolCallBudget);
         currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section
         currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
@@ -475,8 +480,8 @@ try
                 // Create new session via SessionManager
                 var sessionRequest = new SessionRequest(
                     ProjectPath: workingDirectory,
-                    MaxTokenBudget: 200_000,
-                    MaxToolCallBudget: 1000);
+                    MaxTokenBudget: maxTokenBudget,
+                    MaxToolCallBudget: maxToolCallBudget);
                 currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
                 currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
@@ -617,12 +622,15 @@ try
             {
                 try
                 {
-                    // Execute 3-step resume pattern: ResumeSessionAsync → ReconstructMessagesAsync → RestoreConversationHistory
+                    // Execute 2-step resume pattern: ReconstructMessagesAsync → RestoreConversationHistory (same as /resume)
                     AnsiConsole.MarkupLine("[yellow]Reloading session from disk...[/]");
                     var messages = await currentSessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
                     if (messages.Count == 0)
                     {
-                        AnsiConsole.MarkupLine("[yellow]Current session is empty.[/]");
+                        // Clear in-memory conversation to prevent re-hitting the same API error
+                        currentSession.Orchestrator.RestoreConversationHistory(messages);
+                        AnsiConsole.MarkupLine("[yellow]Current session is empty. Conversation history cleared.[/]");
+                        Log.Information("Session reloaded after API error with empty history - conversation cleared");
                     }
                     else
                     {
@@ -642,25 +650,36 @@ try
             }
             else // RecoveryOption.StartNew
             {
-                // Execute /new logic: terminate current session and create new one
-                await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
-                currentSessionStore.Dispose();
+                try
+                {
+                    // Execute /new logic: terminate current session and create new one
+                    await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
+                    currentSessionStore.Dispose();
 
-                var sessionRequest = new SessionRequest(
-                    ProjectPath: workingDirectory,
-                    MaxTokenBudget: 200_000,
-                    MaxToolCallBudget: 1000);
-                currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
+                    var sessionRequest = new SessionRequest(
+                        ProjectPath: workingDirectory,
+                        MaxTokenBudget: maxTokenBudget,
+                        MaxToolCallBudget: maxToolCallBudget);
+                    currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
-                currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
+                    currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
 #pragma warning restore CA2000
 
-                // Recreate SystemPromptBuilder with new session's tool registry
-                sessionToolRegistry = CreateSessionToolRegistry(currentSession);
-                systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
+                    // Recreate SystemPromptBuilder with new session's tool registry
+                    sessionToolRegistry = CreateSessionToolRegistry(currentSession);
+                    systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
 
-                AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
-                Log.Information("User started new session after API error {SessionId}", currentSession.SessionId);
+                    AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
+                    Log.Information("User started new session after API error {SessionId}", currentSession.SessionId);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Gracefully handle cancellation during recovery
+                    AnsiConsole.WriteLine();
+                    AnsiConsole.MarkupLine("[yellow]⚠ Session creation cancelled during recovery[/]");
+                    Log.Information("Session creation cancelled during error recovery");
+                    throw; // Re-throw to allow outer handler to process graceful shutdown
+                }
             }
 
             AnsiConsole.WriteLine();
@@ -792,7 +811,7 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
 /// </summary>
 internal enum RecoveryOption
 {
-    /// <summary>Reload the current session using the 3-step resume pattern.</summary>
+    /// <summary>Reload the current session using the 2-step resume pattern.</summary>
     ReloadSession,
     /// <summary>Start a new session.</summary>
     StartNew
