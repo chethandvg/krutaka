@@ -196,6 +196,11 @@ public sealed class SessionStore : ISessionStore, IDisposable
         // inject a synthetic tool_result to satisfy Claude API requirements
         RepairOrphanedToolUseBlocks(messages);
 
+        // Post-repair validation: verify the invariant holds
+        // Every tool_use block must have a matching tool_result block
+        // If the invariant still doesn't hold, drop orphaned assistant messages as last resort
+        ValidateAndRemoveOrphanedAssistantMessages(messages);
+
         return messages.AsReadOnly();
     }
 
@@ -355,7 +360,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
                         nextRoot.TryGetProperty("content", out var nextContentElement) &&
                         nextContentElement.ValueKind == JsonValueKind.Array)
                     {
-                        // User message exists - augment it with synthetic tool_results
+                         // User message exists - augment it with synthetic tool_results
                         // Parse existing content blocks
                         var existingBlocks = new List<object>();
                         foreach (var block in nextContentElement.EnumerateArray())
@@ -388,6 +393,12 @@ public sealed class SessionStore : ISessionStore, IDisposable
                                         type = "text",
                                         text = text ?? string.Empty
                                     });
+                                }
+                                else
+                                {
+                                    // Handle any other block types by preserving raw JSON
+                                    // This ensures forward compatibility with new Claude API content block types
+                                    existingBlocks.Add(JsonSerializer.Deserialize<Dictionary<string, object>>(block.GetRawText()) ?? new Dictionary<string, object>());
                                 }
                             }
                         }
@@ -431,6 +442,147 @@ public sealed class SessionStore : ISessionStore, IDisposable
                     insertOffset++; // Adjust for the newly inserted message
                 }
             }
+        }
+
+        // Safety check: verify all orphaned tool_use IDs were repaired
+        // Re-scan messages to check if any orphaned IDs still remain
+        var remainingToolResultIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var message in messages)
+        {
+            var messageJson = JsonSerializer.Serialize(message);
+            var messageDoc = JsonDocument.Parse(messageJson);
+            var root = messageDoc.RootElement;
+
+            if (root.TryGetProperty("role", out var roleElement) &&
+                roleElement.GetString() == "user" &&
+                root.TryGetProperty("content", out var contentElement) &&
+                contentElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var block in contentElement.EnumerateArray())
+                {
+                    if (block.TryGetProperty("type", out var typeElement) &&
+                        typeElement.GetString() == "tool_result" &&
+                        block.TryGetProperty("tool_use_id", out var toolUseIdElement))
+                    {
+                        var toolUseId = toolUseIdElement.GetString();
+                        if (!string.IsNullOrEmpty(toolUseId))
+                        {
+                            remainingToolResultIds.Add(toolUseId);
+                        }
+                    }
+                }
+            }
+        }
+
+        var stillOrphanedIds = orphanedToolUseIds.Except(remainingToolResultIds).ToList();
+        if (stillOrphanedIds.Count > 0)
+        {
+            // Log warning - this should not happen, but provides a safety net
+            // In production, this would go to structured logging
+            System.Diagnostics.Debug.WriteLine(
+                $"WARNING: RepairOrphanedToolUseBlocks failed to repair {stillOrphanedIds.Count} tool_use IDs: {string.Join(", ", stillOrphanedIds)}");
+        }
+    }
+
+    /// <summary>
+    /// Post-repair validation: ensures all tool_use blocks have matching tool_result blocks.
+    /// If any orphaned tool_use blocks remain after RepairOrphanedToolUseBlocks,
+    /// drops the orphaned assistant messages entirely as a last-resort safety net.
+    /// This prevents the Claude API from rejecting the conversation history.
+    /// </summary>
+    private static void ValidateAndRemoveOrphanedAssistantMessages(List<object> messages)
+    {
+        // Collect all tool_use IDs and tool_result IDs
+        var toolUseIds = new HashSet<string>(StringComparer.Ordinal);
+        var toolResultIds = new HashSet<string>(StringComparer.Ordinal);
+        var assistantMessageIndicesWithToolUse = new Dictionary<int, List<string>>();
+
+        for (int i = 0; i < messages.Count; i++)
+        {
+            var messageJson = JsonSerializer.Serialize(messages[i]);
+            var messageDoc = JsonDocument.Parse(messageJson);
+            var root = messageDoc.RootElement;
+
+            if (!root.TryGetProperty("role", out var roleElement) ||
+                !root.TryGetProperty("content", out var contentElement))
+            {
+                continue;
+            }
+
+            var role = roleElement.GetString();
+
+            if (role == "assistant" && contentElement.ValueKind == JsonValueKind.Array)
+            {
+                var toolUseIdsInMessage = new List<string>();
+                foreach (var block in contentElement.EnumerateArray())
+                {
+                    if (block.TryGetProperty("type", out var typeElement) &&
+                        typeElement.GetString() == "tool_use" &&
+                        block.TryGetProperty("id", out var idElement))
+                    {
+                        var id = idElement.GetString();
+                        if (!string.IsNullOrEmpty(id))
+                        {
+                            toolUseIds.Add(id);
+                            toolUseIdsInMessage.Add(id);
+                        }
+                    }
+                }
+
+                if (toolUseIdsInMessage.Count > 0)
+                {
+                    assistantMessageIndicesWithToolUse[i] = toolUseIdsInMessage;
+                }
+            }
+            else if (role == "user" && contentElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var block in contentElement.EnumerateArray())
+                {
+                    if (block.TryGetProperty("type", out var typeElement) &&
+                        typeElement.GetString() == "tool_result" &&
+                        block.TryGetProperty("tool_use_id", out var toolUseIdElement))
+                    {
+                        var toolUseId = toolUseIdElement.GetString();
+                        if (!string.IsNullOrEmpty(toolUseId))
+                        {
+                            toolResultIds.Add(toolUseId);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Find orphaned tool_use IDs (still without matching tool_result)
+        var orphanedIds = toolUseIds.Except(toolResultIds).ToList();
+
+        if (orphanedIds.Count == 0)
+        {
+            return; // All tool_use blocks have matching tool_result blocks
+        }
+
+        // Critical: orphaned tool_use blocks remain after repair
+        // Log critical warning and drop assistant messages with orphaned tool_use blocks
+        System.Diagnostics.Debug.WriteLine(
+            $"CRITICAL: {orphanedIds.Count} orphaned tool_use IDs remain after repair: {string.Join(", ", orphanedIds)}");
+
+        // Find assistant messages to remove
+        var indicesToRemove = new List<int>();
+        foreach (var (index, toolUseIdsInMessage) in assistantMessageIndicesWithToolUse)
+        {
+            if (toolUseIdsInMessage.Any(id => orphanedIds.Contains(id)))
+            {
+                indicesToRemove.Add(index);
+            }
+        }
+
+        // Remove messages in reverse order to preserve indices
+        indicesToRemove.Sort();
+        indicesToRemove.Reverse();
+        foreach (var index in indicesToRemove)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Removing orphaned assistant message at index {index}");
+            messages.RemoveAt(index);
         }
     }
 
