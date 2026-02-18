@@ -1,9 +1,11 @@
+using Krutaka.Core;
+
 namespace Krutaka.Tools;
 
 /// <summary>
 /// Configuration options for tool execution.
 /// </summary>
-public sealed class ToolOptions
+public sealed class ToolOptions : IToolOptions
 {
     /// <summary>
     /// Gets or sets the default working directory for command execution and file operations.

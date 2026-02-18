@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-18 (v0.4.5 Issue #183 Complete — 1,834 tests passing, 2 skipped)
+> **Last updated:** 2026-02-18 (v0.4.5 Issue #184 Complete — 1,841 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2755,8 +2755,28 @@ Added graceful error recovery in the Console main loop when `AnthropicBadRequest
 ### Next Steps
 
 Remaining v0.4.5 issues:
-- Directory awareness in system prompt
 - Pre-compaction memory flush
 - Tool result pruning
 - Bootstrap file caps
+
+### Completed Issues
+
+**#184 - Add directory awareness to system prompt** (2026-02-18)
+- Added `IToolOptions` interface in `Krutaka.Core` for dependency injection compatibility
+- Updated `SystemPromptBuilder` to accept optional `IToolOptions` parameter
+- Implemented Layer 3c (Environment Context) in system prompt with:
+  - Working directory information (`DefaultWorkingDirectory`)
+  - Ceiling directory boundary (`CeilingDirectory`)
+  - Auto-granted directory patterns (`AutoGrantPatterns`)
+  - Conditional IMPORTANT message based on available information
+- Wired up `IToolOptions` in DI container (`ServiceExtensions.cs`)
+- Wired up `IToolOptions` in `Program.cs` for SystemPromptBuilder instantiation
+- Added 7 comprehensive tests covering:
+  - Environment context inclusion when ToolOptions provided
+  - Graceful degradation when ToolOptions is null
+  - Individual directory component inclusion
+  - Section omission when all directories empty
+  - Proper layer ordering (after Layer 3b: Command Tier Information)
+- All 1,841 tests passing (2 skipped)
+- Eliminates Claude's trial-and-error file access attempts by providing upfront directory information
 

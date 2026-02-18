@@ -545,6 +545,190 @@ public sealed class SystemPromptBuilderTests : IDisposable
         result.Should().Contain("**Dangerous (always blocked):**");
         result.Should().Contain("Always blocked: cmd, powershell, wget");
     }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeEnvironmentContext_WhenToolOptionsProvided()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var toolOptions = new MockToolOptions
+        {
+            DefaultWorkingDirectory = @"C:\Projects\MyApp",
+            CeilingDirectory = @"C:\Projects",
+            AutoGrantPatterns = [@"C:\Projects\MyApp\**", @"C:\Projects\Shared\**"]
+        };
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            toolOptions: toolOptions);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("## Environment Context");
+        result.Should().Contain(@"Your working directory is: C:\Projects\MyApp");
+        result.Should().Contain(@"Your ceiling directory (cannot access above this): C:\Projects");
+        result.Should().Contain(@"Auto-granted directory patterns: C:\Projects\MyApp\**, C:\Projects\Shared\**");
+        result.Should().Contain("IMPORTANT: Always use paths within or below the working directory");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_OmitEnvironmentContext_WhenToolOptionsIsNull()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            toolOptions: null);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().NotContain("## Environment Context");
+        result.Should().NotContain("working directory");
+        result.Should().NotContain("ceiling directory");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeWorkingDirectory_InEnvironmentContext()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var toolOptions = new MockToolOptions
+        {
+            DefaultWorkingDirectory = @"C:\Projects\MyApp",
+            CeilingDirectory = "",
+            AutoGrantPatterns = []
+        };
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            toolOptions: toolOptions);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("## Environment Context");
+        result.Should().Contain(@"Your working directory is: C:\Projects\MyApp");
+        result.Should().NotContain("ceiling directory");
+        result.Should().NotContain("Auto-granted directory patterns");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeCeilingDirectory_InEnvironmentContext()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var toolOptions = new MockToolOptions
+        {
+            DefaultWorkingDirectory = "",
+            CeilingDirectory = @"C:\Projects",
+            AutoGrantPatterns = []
+        };
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            toolOptions: toolOptions);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("## Environment Context");
+        result.Should().Contain(@"Your ceiling directory (cannot access above this): C:\Projects");
+        result.Should().NotContain("working directory is:");
+        result.Should().NotContain("Auto-granted directory patterns");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_IncludeAutoGrantPatterns_InEnvironmentContext()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var toolOptions = new MockToolOptions
+        {
+            DefaultWorkingDirectory = "",
+            CeilingDirectory = "",
+            AutoGrantPatterns = [@"C:\Projects\**", @"C:\Temp\**"]
+        };
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            toolOptions: toolOptions);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("## Environment Context");
+        result.Should().Contain(@"Auto-granted directory patterns: C:\Projects\**, C:\Temp\**");
+        result.Should().NotContain("working directory is:");
+        result.Should().NotContain("ceiling directory (cannot access above this):");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_OmitEnvironmentContext_WhenAllDirectoriesAreEmpty()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var toolOptions = new MockToolOptions
+        {
+            DefaultWorkingDirectory = "",
+            CeilingDirectory = "",
+            AutoGrantPatterns = []
+        };
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            toolOptions: toolOptions);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().NotContain("## Environment Context");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_PlaceEnvironmentContext_AfterCommandTierInformation()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var classifier = new MockCommandRiskClassifier();
+        classifier.AddRule("git", ["status"], CommandRiskTier.Safe, "Safe operation");
+        var toolOptions = new MockToolOptions
+        {
+            DefaultWorkingDirectory = @"C:\Projects\MyApp",
+            CeilingDirectory = @"C:\Projects",
+            AutoGrantPatterns = [@"C:\Projects\**"]
+        };
+
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            commandRiskClassifier: classifier,
+            toolOptions: toolOptions);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - verify order by finding indexes
+        var commandTierIndex = result.IndexOf("## Command Execution Risk Tiers", StringComparison.Ordinal);
+        var environmentContextIndex = result.IndexOf("## Environment Context", StringComparison.Ordinal);
+
+        commandTierIndex.Should().BeGreaterThan(-1);
+        environmentContextIndex.Should().BeGreaterThan(-1);
+        commandTierIndex.Should().BeLessThan(environmentContextIndex);
+    }
 }
 
 // Mock implementations for testing
@@ -671,4 +855,13 @@ file sealed class MockCommandRiskClassifier : ICommandRiskClassifier
     {
         return _rules.AsReadOnly();
     }
+}
+
+file sealed class MockToolOptions : IToolOptions
+{
+    public string DefaultWorkingDirectory { get; set; } = string.Empty;
+    public string CeilingDirectory { get; set; } = string.Empty;
+#pragma warning disable CA1819 // Properties should not return arrays - this is test data
+    public string[] AutoGrantPatterns { get; set; } = [];
+#pragma warning restore CA1819
 }

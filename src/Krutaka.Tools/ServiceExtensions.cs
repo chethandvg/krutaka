@@ -67,6 +67,7 @@ public static class ServiceExtensions
 
         // Register options as singleton
         services.AddSingleton(options);
+        services.AddSingleton<IToolOptions>(options);
 
         // Note: ICommandApprovalCache is created per-session by SessionFactory (not registered globally)
         // v0.4.0: Per-session components are created by SessionFactory, not by global DI
