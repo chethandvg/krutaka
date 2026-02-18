@@ -17,6 +17,19 @@ public sealed class SystemPromptBuilder
     private readonly Func<CancellationToken, Task<string>>? _memoryFileReader;
 
     /// <summary>
+    /// Maximum characters per bootstrap file (AGENTS.md, MEMORY.md).
+    /// Files exceeding this limit are truncated with a marker.
+    /// </summary>
+    private readonly int _maxBootstrapCharsPerFile;
+
+    /// <summary>
+    /// Maximum total characters for the entire system prompt across all sections.
+    /// If exceeded, sections are truncated backwards (Layer 6 → 5 → 4 → 3 → 1).
+    /// Layer 2 (security instructions) is NEVER truncated.
+    /// </summary>
+    private readonly int _maxBootstrapTotalChars;
+
+    /// <summary>
     /// Initializes a new instance of the <see cref="SystemPromptBuilder"/> class.
     /// </summary>
     /// <param name="toolRegistry">Tool registry for Layer 3 (tool descriptions).</param>
@@ -26,6 +39,8 @@ public sealed class SystemPromptBuilder
     /// <param name="memoryFileReader">Optional delegate to read MEMORY.md for Layer 5.</param>
     /// <param name="commandRiskClassifier">Optional command risk classifier for Layer 3 (tier information in tool context).</param>
     /// <param name="toolOptions">Optional tool options for Layer 3c (environment context with directory information).</param>
+    /// <param name="maxBootstrapCharsPerFile">Optional maximum characters per bootstrap file (default: 20,000).</param>
+    /// <param name="maxBootstrapTotalChars">Optional maximum total characters for system prompt (default: 150,000).</param>
     public SystemPromptBuilder(
         IToolRegistry toolRegistry,
         string agentsPromptPath,
@@ -33,10 +48,22 @@ public sealed class SystemPromptBuilder
         IMemoryService? memoryService = null,
         Func<CancellationToken, Task<string>>? memoryFileReader = null,
         ICommandRiskClassifier? commandRiskClassifier = null,
-        IToolOptions? toolOptions = null)
+        IToolOptions? toolOptions = null,
+        int maxBootstrapCharsPerFile = 20_000,
+        int maxBootstrapTotalChars = 150_000)
     {
         ArgumentNullException.ThrowIfNull(toolRegistry);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentsPromptPath, nameof(agentsPromptPath));
+
+        if (maxBootstrapCharsPerFile <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxBootstrapCharsPerFile), "Must be greater than 0.");
+        }
+
+        if (maxBootstrapTotalChars <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxBootstrapTotalChars), "Must be greater than 0.");
+        }
 
         _toolRegistry = toolRegistry;
         _agentsPromptPath = agentsPromptPath;
@@ -45,6 +72,8 @@ public sealed class SystemPromptBuilder
         _memoryFileReader = memoryFileReader;
         _commandRiskClassifier = commandRiskClassifier;
         _toolOptions = toolOptions;
+        _maxBootstrapCharsPerFile = maxBootstrapCharsPerFile;
+        _maxBootstrapTotalChars = maxBootstrapTotalChars;
     }
 
     /// <summary>
@@ -67,7 +96,9 @@ public sealed class SystemPromptBuilder
         }
 
         // Layer 2: Anti-prompt-injection security instructions (hardcoded, cannot be overridden)
-        sections.Add(GetSecurityInstructions());
+        // CRITICAL: Layer 2 must NEVER be truncated - it contains immutable security boundaries
+        var securityInstructions = GetSecurityInstructions();
+        sections.Add(securityInstructions);
 
         // Layer 3: Tool descriptions (auto-generated from IToolRegistry)
         var toolDescriptions = GetToolDescriptions();
@@ -114,7 +145,16 @@ public sealed class SystemPromptBuilder
             }
         }
 
-        return string.Join("\n\n", sections);
+        // Enforce total character cap across all sections
+        // If total exceeds limit, truncate backwards (Layer 6 → 5 → 4 → 3 → 1)
+        // NEVER truncate Layer 2 (security instructions)
+        var prompt = string.Join("\n\n", sections);
+        if (prompt.Length > _maxBootstrapTotalChars)
+        {
+            prompt = EnforceTotalCap(sections, securityInstructions);
+        }
+
+        return prompt;
     }
 
     private async Task<string> LoadCoreIdentityAsync(CancellationToken cancellationToken)
@@ -133,7 +173,16 @@ public sealed class SystemPromptBuilder
             }
 
             var content = await File.ReadAllTextAsync(_agentsPromptPath, cancellationToken).ConfigureAwait(false);
-            return content.Trim();
+            content = content.Trim();
+
+            // Enforce per-file character cap for bootstrap files
+            if (content.Length > _maxBootstrapCharsPerFile)
+            {
+                content = content[.._maxBootstrapCharsPerFile] +
+                    FormattableString.Invariant($"\n\n[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]");
+            }
+
+            return content;
         }
 
         // Fallback to embedded resource when file is not found on disk
@@ -155,6 +204,11 @@ public sealed class SystemPromptBuilder
 
     private static string GetSecurityInstructions()
     {
+        // CRITICAL: This method returns hardcoded security instructions (Layer 2).
+        // These instructions MUST NEVER be truncated by bootstrap file caps or total caps.
+        // They form the immutable security boundary that cannot be overridden by any
+        // external file, configuration, or user input. All cap enforcement logic must
+        // explicitly preserve Layer 2 content.
         return """
 # Security Instructions
 
@@ -264,13 +318,30 @@ public sealed class SystemPromptBuilder
             return string.Empty;
         }
 
+        content = content.Trim();
+
+        // Enforce per-file character cap for bootstrap files
+        var wasTruncated = false;
+        if (content.Length > _maxBootstrapCharsPerFile)
+        {
+            content = content[.._maxBootstrapCharsPerFile];
+            wasTruncated = true;
+        }
+
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("# Persistent Memory");
         sb.AppendLine();
         sb.AppendLine("The following information has been saved from previous interactions:");
         sb.AppendLine();
         sb.AppendLine("<untrusted_content>");
-        sb.AppendLine(content.Trim());
+        sb.AppendLine(content);
+        
+        if (wasTruncated)
+        {
+            sb.AppendLine();
+            sb.Append(FormattableString.Invariant($"[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]"));
+        }
+        
         sb.AppendLine("</untrusted_content>");
 
         return sb.ToString().Trim();
@@ -464,5 +535,106 @@ public sealed class SystemPromptBuilder
         }
 
         return sb.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Enforces total character cap by truncating sections backwards.
+    /// Truncation order: Layer 6 → Layer 5 → Layer 4 → Layer 3c → Layer 3b → Layer 3 → Layer 1
+    /// Layer 2 (security instructions) is NEVER truncated.
+    /// </summary>
+    /// <param name="sections">All sections including Layer 2.</param>
+    /// <param name="securityInstructions">Layer 2 security instructions (immutable).</param>
+    /// <returns>Truncated prompt that respects total cap.</returns>
+    private string EnforceTotalCap(List<string> sections, string securityInstructions)
+    {
+        // Strategy: Track sections by index to preserve identity even after truncation
+        // Layer 2 (security) is always at index 1 if Layer 1 exists, or index 0 if not
+        
+        const int minimumMeaningfulSectionLength = 200; // Minimum content size to justify including a partial section
+        var truncationMarker = FormattableString.Invariant($"\n\n[... truncated to fit {_maxBootstrapTotalChars:N0} char total cap ...]");
+        
+        // Find Layer 2 index
+        var layer2Index = -1;
+        for (var i = 0; i < sections.Count; i++)
+        {
+            if (sections[i] == securityInstructions)
+            {
+                layer2Index = i;
+                break;
+            }
+        }
+
+        if (layer2Index == -1)
+        {
+            // Should never happen, but handle gracefully
+            return string.Join("\n\n", sections);
+        }
+
+        // Reserve space for security instructions and its separator
+        var securityInstructionsLength = securityInstructions.Length + (layer2Index > 0 || sections.Count > 1 ? 2 : 0);
+        var budgetRemaining = _maxBootstrapTotalChars - securityInstructionsLength;
+
+        // Track which sections to include (by index) and their potentially truncated content
+        var sectionsToInclude = new Dictionary<int, string>();
+
+        // Process sections in reverse order (backwards truncation), skipping Layer 2
+        for (var i = sections.Count - 1; i >= 0; i--)
+        {
+            if (i == layer2Index)
+            {
+                continue; // Skip Layer 2 - it's always included at full length
+            }
+
+            var section = sections[i];
+            var separatorLength = sectionsToInclude.Count > 0 || i < layer2Index ? 2 : 0; // Need separator if not first section
+            var sectionLength = section.Length + separatorLength;
+
+            if (budgetRemaining >= sectionLength)
+            {
+                // Section fits completely
+                sectionsToInclude[i] = section;
+                budgetRemaining -= sectionLength;
+            }
+            else if (budgetRemaining >= minimumMeaningfulSectionLength + truncationMarker.Length + separatorLength)
+            {
+                // Truncate this section to fit remaining budget
+                var contentBudget = budgetRemaining - truncationMarker.Length - separatorLength;
+                
+                // Ensure we don't slice beyond section length
+                if (contentBudget > 0 && contentBudget < section.Length)
+                {
+                    var truncatedSection = section[..contentBudget] + truncationMarker;
+                    sectionsToInclude[i] = truncatedSection;
+                    budgetRemaining = 0;
+                }
+
+                break; // No more budget left
+            }
+            else
+            {
+                // No meaningful space left, skip remaining sections
+                break;
+            }
+        }
+
+        // Reassemble sections in correct order
+        var finalSections = new List<string>();
+
+        for (var i = 0; i < sections.Count; i++)
+        {
+            if (i == layer2Index)
+            {
+                // Always include Layer 2 at its correct position
+                finalSections.Add(securityInstructions);
+            }
+            else if (sectionsToInclude.TryGetValue(i, out var sectionContent))
+            {
+                // Include this section (possibly truncated)
+                finalSections.Add(sectionContent);
+            }
+            // Otherwise skip this section (not enough budget)
+        }
+
+        return string.Join("\n\n", finalSections);
     }
 }
