@@ -14,8 +14,6 @@ public class TelegramAuthGuardAdversarialTests
 {
     private readonly TelegramSecurityConfig _config;
     private readonly IAuditLogger _auditLogger;
-    private readonly ICorrelationContextAccessor _correlationAccessor;
-    private readonly CorrelationContext _correlationContext;
 
     public TelegramAuthGuardAdversarialTests()
     {
@@ -31,16 +29,13 @@ public class TelegramAuthGuardAdversarialTests
         );
 
         _auditLogger = Substitute.For<IAuditLogger>();
-        _correlationContext = new CorrelationContext();
-        _correlationAccessor = Substitute.For<ICorrelationContextAccessor>();
-        _correlationAccessor.Current.Returns(_correlationContext);
     }
 
     [Fact]
     public async Task Should_SilentlyDropAllRequests_WhenUnknownUserSends100RequestsRapidly()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
         var unknownUserId = 99999999L;
         var validUserId = 12345678L;
         var deniedCount = 0;
@@ -91,7 +86,7 @@ public class TelegramAuthGuardAdversarialTests
             MaxInputMessageLength: _config.MaxInputMessageLength
         );
         
-        var authGuard = new TelegramAuthGuard(configWithHighLockout, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(configWithHighLockout, _auditLogger);
         var validUserId = 12345678L;
         var unknownUserId = 88888888L;
         var validAllowedCount = 0;
@@ -150,7 +145,7 @@ public class TelegramAuthGuardAdversarialTests
     public async Task Should_UseLockoutExpiryFromMonotonicClock()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
         var userId = 12345678L;
 
         // Trigger lockout by exceeding max failed auth attempts
@@ -183,7 +178,7 @@ public class TelegramAuthGuardAdversarialTests
     public void Should_ThrowArgumentNullException_WhenUpdateIsNull()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
 
         // Act
         var action = async () => await authGuard.ValidateAsync(null!, CancellationToken.None);
@@ -197,7 +192,7 @@ public class TelegramAuthGuardAdversarialTests
     public async Task Should_BlockRequest_WhenUserIdNotInAllowlist()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
         var unauthorizedUserId = 77777777L;
 
         // Act
@@ -221,7 +216,7 @@ public class TelegramAuthGuardAdversarialTests
     public async Task Should_NotGrowMemoryUnbounded_AfterManyUnknownUserIds()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
         var baseUserId = 50000000L;
 
         // Get initial memory usage (approximate)
@@ -258,7 +253,7 @@ public class TelegramAuthGuardAdversarialTests
     public async Task Should_HandleGracefully_WhenMessageIsNull()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
 
         var update = new Update
         {
@@ -277,7 +272,7 @@ public class TelegramAuthGuardAdversarialTests
     public async Task Should_HandleGracefully_WhenMessageFromIsNull()
     {
         // Arrange
-        var authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        var authGuard = new TelegramAuthGuard(_config, _auditLogger);
 
         var update = new Update
         {

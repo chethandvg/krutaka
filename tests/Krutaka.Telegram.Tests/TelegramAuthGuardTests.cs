@@ -9,9 +9,7 @@ public class TelegramAuthGuardTests
 {
     private readonly TelegramSecurityConfig _config;
     private readonly IAuditLogger _auditLogger;
-    private readonly ICorrelationContextAccessor _correlationAccessor;
     private readonly TelegramAuthGuard _authGuard;
-    private readonly CorrelationContext _correlationContext;
 
     public TelegramAuthGuardTests()
     {
@@ -29,11 +27,8 @@ public class TelegramAuthGuardTests
         );
 
         _auditLogger = Substitute.For<IAuditLogger>();
-        _correlationContext = new CorrelationContext();
-        _correlationAccessor = Substitute.For<ICorrelationContextAccessor>();
-        _correlationAccessor.Current.Returns(_correlationContext);
 
-        _authGuard = new TelegramAuthGuard(_config, _auditLogger, _correlationAccessor);
+        _authGuard = new TelegramAuthGuard(_config, _auditLogger);
     }
 
     [Fact]
@@ -213,7 +208,7 @@ public class TelegramAuthGuardTests
             MaxInputMessageLength: _config.MaxInputMessageLength
         );
 
-        var guard = new TelegramAuthGuard(shortLockoutConfig, _auditLogger, _correlationAccessor);
+        var guard = new TelegramAuthGuard(shortLockoutConfig, _auditLogger);
 
         var userId = 12345678L;
         var chatId = 111L;
@@ -469,7 +464,7 @@ public class TelegramAuthGuardTests
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
-            new TelegramAuthGuard(null!, _auditLogger, _correlationAccessor));
+            new TelegramAuthGuard(null!, _auditLogger));
     }
 
     [Fact]
@@ -477,15 +472,7 @@ public class TelegramAuthGuardTests
     {
         // Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
-            new TelegramAuthGuard(_config, null!, _correlationAccessor));
-    }
-
-    [Fact]
-    public void Constructor_Should_ThrowArgumentNullException_WhenCorrelationAccessorIsNull()
-    {
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() =>
-            new TelegramAuthGuard(_config, _auditLogger, null!));
+            new TelegramAuthGuard(_config, null!));
     }
 
     [Fact]

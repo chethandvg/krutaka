@@ -12,7 +12,6 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
 {
     private readonly TelegramSecurityConfig _config;
     private readonly IAuditLogger _auditLogger;
-    private readonly ICorrelationContextAccessor _correlationAccessor;
 
     // User allowlist for O(1) lookup
     private readonly HashSet<long> _allowedUserIds;
@@ -40,19 +39,15 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
     /// </summary>
     /// <param name="config">The Telegram security configuration.</param>
     /// <param name="auditLogger">The audit logger.</param>
-    /// <param name="correlationAccessor">The correlation context accessor.</param>
     public TelegramAuthGuard(
         TelegramSecurityConfig config,
-        IAuditLogger auditLogger,
-        ICorrelationContextAccessor correlationAccessor)
+        IAuditLogger auditLogger)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(auditLogger);
-        ArgumentNullException.ThrowIfNull(correlationAccessor);
 
         _config = config;
         _auditLogger = auditLogger;
-        _correlationAccessor = correlationAccessor;
 
         // Build allowlist and user config lookup
         _allowedUserIds = [.. config.AllowedUsers.Select(u => u.UserId)];
@@ -76,8 +71,9 @@ public sealed class TelegramAuthGuard : ITelegramAuthGuard
         var chatId = update.Message?.Chat?.Id ?? update.CallbackQuery?.Message?.Chat?.Id ?? 0;
         var updateId = update.Id;
 
-        // Get correlation context (or create a temporary one if not available)
-        var correlationContext = _correlationAccessor.Current ?? new CorrelationContext();
+        // Create a local correlation context for audit logging
+        // Note: TelegramAuthGuard is called before session creation, so no session context exists yet
+        var correlationContext = new CorrelationContext();
 
         // Check 1: User allowlist
         if (!_allowedUserIds.Contains(userId))
