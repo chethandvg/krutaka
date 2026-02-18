@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents (GitHub Copilot, etc.) work
 
 Krutaka is an OpenClaw-inspired AI agent built in C#/.NET 10 for Windows. It is a console application that uses the Claude API to perform agentic tasks (read/write files, execute commands, search code) with human-in-the-loop approval for destructive operations.
 
-**Implementation Status:** ✅ **v0.4.0 Telegram Integration & Multi-Session Architecture Complete** — v0.4.0 is complete with 1,765 tests passing (2 skipped). Adds Telegram bot interface, multi-session architecture, dual-mode host support (Console, Telegram, or Both), and comprehensive security controls. The project is ready for production use with both local console and remote Telegram access. See `docs/status/PROGRESS.md` for details.
+**Implementation Status:** 🚧 **v0.4.5 Session Resilience, API Hardening & Context Intelligence In-Progress** — v0.4.0 is complete with 1,765 tests passing (2 skipped). v0.4.5 adds session resume crash fixes, API retry/backoff, directory awareness, pre-compaction memory flush, tool result pruning, and bootstrap file caps. The project is ready for production use with both local console and remote Telegram access. See `docs/status/PROGRESS.md` for details.
 
 **Important:** We use the official `Anthropic` NuGet package (v12.4.0), NOT the community `Anthropic.SDK` package. Always refer to it as the "official Anthropic package" or "Anthropic NuGet package" to avoid confusion. See ADR-003 in `docs/architecture/DECISIONS.md` for details.
 
@@ -29,6 +29,7 @@ After every task, update the following files **only with necessary changes**:
 3. **Do NOT create new documentation files** unless the issue explicitly says to.
 4. **Do NOT update `README.md`** unless the issue explicitly says to.
 5. **For v0.4.0 issues**, new documentation files ARE permitted when the issue explicitly requests their creation.
+6. **For v0.4.5 issues**, verify that existing test suites pass before adding new tests.
 
 ## Build and Test Commands
 
@@ -125,4 +126,5 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `docs/versions/v0.2.0.md` | v0.2.0 dynamic directory scoping architecture design |
 | `docs/versions/v0.3.0.md` | v0.3.0 graduated command execution architecture design |
 | `docs/versions/v0.4.0.md` | v0.4.0 Telegram integration and multi-session architecture design |
+| `docs/versions/v0.4.5.md` | v0.4.5 Session Resilience, API Hardening & Context Intelligence design |
 | `CHANGELOG.md` | Release notes following Keep a Changelog format |

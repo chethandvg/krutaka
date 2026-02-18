@@ -4,7 +4,7 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
-**Implementation Status:** ✅ **v0.4.0 Telegram Integration & Multi-Session Architecture Complete** — v0.4.0 is complete with 1,765 tests passing (2 skipped). Adds Telegram bot interface, multi-session architecture, and dual-mode host support (Console, Telegram, or Both). See `docs/status/PROGRESS.md` for detailed status.
+**Implementation Status:** 🚧 **v0.4.5 Session Resilience, API Hardening & Context Intelligence In-Progress** — v0.4.0 is complete with 1,765 tests passing (2 skipped). v0.4.5 adds session resume crash fixes, API retry/backoff, directory awareness, pre-compaction memory flush, tool result pruning, and bootstrap file caps. See `docs/status/PROGRESS.md` for detailed status.
 
 **Host Modes:** The application supports three operating modes via `appsettings.json` `"Mode"` setting or `--mode` CLI argument:
 - **Console** (default): Single-session local console UI, no Telegram services loaded
@@ -52,6 +52,10 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - ALWAYS validate Telegram inline keyboard callbacks with HMAC-SHA256 before processing
 - NEVER log sensitive data — use the log redaction filter
 - NEVER store Telegram bot tokens in `appsettings.json` — use `ISecretsProvider` (Windows Credential Manager) or environment variables
+- Synthetic `tool_result` blocks injected by `RepairOrphanedToolUseBlocks` MUST always have `is_error = true` — never fabricate successful results
+- Tool result pruning MUST NOT modify JSONL session files — only modify in-memory snapshots before API calls
+- Pre-compaction memory flush MUST wrap conversation content in `<untrusted_content>` tags
+- Bootstrap file caps MUST NOT truncate Layer 2 security instructions (hardcoded in `GetSecurityInstructions()`)
 
 ### Dependencies
 - Use only packages declared in `Directory.Packages.props`
@@ -68,6 +72,7 @@ Before making changes, read:
 - `docs/versions/v0.2.0.md` — v0.2.0 dynamic directory scoping architecture design
 - `docs/versions/v0.3.0.md` — v0.3.0 graduated command execution architecture design
 - `docs/versions/v0.4.0.md` — v0.4.0 Telegram integration and multi-session architecture design
+- `docs/versions/v0.4.5.md` — v0.4.5 Session Resilience, API Hardening & Context Intelligence design
 - `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
 - `docs/architecture/TELEGRAM.md` — Telegram security architecture
 - `docs/architecture/DECISIONS.md` — Architecture Decision Records (ADR-013 for graduated command execution)

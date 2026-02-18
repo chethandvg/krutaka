@@ -163,6 +163,29 @@
       // swallowed
   }
   ```
+- Wrap `CompactIfNeededAsync()` in try-catch — compaction failure MUST NOT crash the agentic loop
+- For recoverable API errors, log and offer recovery; for unrecoverable errors, start new session
+
+### Retry/Resilience Patterns
+- Use exponential backoff with jitter for API rate limit retries
+- Max 3 retries with exponential backoff (1s, 2s, 4s, 8s, ...) capped at 30s, jitter ±25%
+- Parse `retry-after` header from Anthropic responses when available
+- After max retries exhausted, propagate the original exception
+- Example:
+  ```csharp
+  for (int attempt = 0; attempt <= maxRetries; attempt++)
+  {
+      try
+      {
+          return await ExecuteAsync(cancellationToken);
+      }
+      catch (AnthropicRateLimitException ex) when (attempt < maxRetries)
+      {
+          var delay = CalculateBackoffWithJitter(attempt);
+          await Task.Delay(delay, cancellationToken);
+      }
+  }
+  ```
 
 ### Dependency Injection
 - Use constructor injection for all dependencies
