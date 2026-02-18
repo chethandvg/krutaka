@@ -360,7 +360,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
                         nextRoot.TryGetProperty("content", out var nextContentElement) &&
                         nextContentElement.ValueKind == JsonValueKind.Array)
                     {
-                         // User message exists - augment it with synthetic tool_results
+                        // User message exists - augment it with synthetic tool_results
                         // Parse existing content blocks
                         var existingBlocks = new List<object>();
                         foreach (var block in nextContentElement.EnumerateArray())
@@ -398,7 +398,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
                                 {
                                     // Handle any other block types by preserving raw JSON
                                     // This ensures forward compatibility with new Claude API content block types
-                                    existingBlocks.Add(JsonSerializer.Deserialize<Dictionary<string, object>>(block.GetRawText()) ?? new Dictionary<string, object>());
+                                    existingBlocks.Add(JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(block.GetRawText()) ?? new Dictionary<string, JsonElement>());
                                 }
                             }
                         }
@@ -488,6 +488,7 @@ public sealed class SessionStore : ISessionStore, IDisposable
     /// Post-repair validation: ensures all tool_use blocks have matching tool_result blocks.
     /// If any orphaned tool_use blocks remain after RepairOrphanedToolUseBlocks,
     /// drops the orphaned assistant messages entirely as a last-resort safety net.
+    /// Also removes any tool_result blocks that would become orphaned by this removal.
     /// This prevents the Claude API from rejecting the conversation history.
     /// </summary>
     private static void ValidateAndRemoveOrphanedAssistantMessages(List<object> messages)
@@ -567,11 +568,19 @@ public sealed class SessionStore : ISessionStore, IDisposable
 
         // Find assistant messages to remove
         var indicesToRemove = new List<int>();
+        var toolUseIdsToRemove = new HashSet<string>(StringComparer.Ordinal);
+        
         foreach (var (index, toolUseIdsInMessage) in assistantMessageIndicesWithToolUse)
         {
             if (toolUseIdsInMessage.Any(id => orphanedIds.Contains(id)))
             {
                 indicesToRemove.Add(index);
+                // Track ALL tool_use IDs from this message (including non-orphaned ones)
+                // because we're removing the entire message
+                foreach (var id in toolUseIdsInMessage)
+                {
+                    toolUseIdsToRemove.Add(id);
+                }
             }
         }
 
@@ -583,6 +592,99 @@ public sealed class SessionStore : ISessionStore, IDisposable
             System.Diagnostics.Debug.WriteLine(
                 $"Removing orphaned assistant message at index {index}");
             messages.RemoveAt(index);
+        }
+
+        // Now remove any tool_result blocks that reference the removed tool_use IDs
+        // to prevent orphaned tool_result blocks
+        if (toolUseIdsToRemove.Count > 0)
+        {
+            for (int i = messages.Count - 1; i >= 0; i--)
+            {
+                var messageJson = JsonSerializer.Serialize(messages[i]);
+                var messageDoc = JsonDocument.Parse(messageJson);
+                var root = messageDoc.RootElement;
+
+                if (!root.TryGetProperty("role", out var roleElement) ||
+                    roleElement.GetString() != "user" ||
+                    !root.TryGetProperty("content", out var contentElement) ||
+                    contentElement.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                // Filter out tool_result blocks that reference removed tool_use IDs
+                var filteredBlocks = new List<object>();
+                var hasRemovedBlocks = false;
+
+                foreach (var block in contentElement.EnumerateArray())
+                {
+                    if (block.TryGetProperty("type", out var typeElement) &&
+                        typeElement.GetString() == "tool_result" &&
+                        block.TryGetProperty("tool_use_id", out var toolUseIdElement))
+                    {
+                        var toolUseId = toolUseIdElement.GetString();
+                        if (!string.IsNullOrEmpty(toolUseId) && toolUseIdsToRemove.Contains(toolUseId))
+                        {
+                            hasRemovedBlocks = true;
+                            continue; // Skip this tool_result block
+                        }
+                    }
+
+                    // Preserve all other blocks
+                    if (block.TryGetProperty("type", out var blockTypeElement))
+                    {
+                        var blockType = blockTypeElement.GetString();
+                        if (blockType == "tool_result")
+                        {
+                            var toolUseId = block.TryGetProperty("tool_use_id", out var idElem) ? idElem.GetString() : "";
+                            var content = block.TryGetProperty("content", out var contentElem) ? contentElem.GetString() : "";
+                            var isError = block.TryGetProperty("is_error", out var errorElem) && errorElem.GetBoolean();
+                            
+                            filteredBlocks.Add(new
+                            {
+                                type = "tool_result",
+                                tool_use_id = toolUseId,
+                                content = content ?? string.Empty,
+                                is_error = isError
+                            });
+                        }
+                        else if (blockType == "text")
+                        {
+                            var text = block.TryGetProperty("text", out var textElem) ? textElem.GetString() : "";
+                            filteredBlocks.Add(new
+                            {
+                                type = "text",
+                                text = text ?? string.Empty
+                            });
+                        }
+                        else
+                        {
+                            // Preserve unknown block types
+                            filteredBlocks.Add(JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(block.GetRawText()) ?? new Dictionary<string, JsonElement>());
+                        }
+                    }
+                }
+
+                if (hasRemovedBlocks)
+                {
+                    if (filteredBlocks.Count == 0)
+                    {
+                        // If the user message now has no content blocks, remove it entirely
+                        System.Diagnostics.Debug.WriteLine(
+                            $"Removing empty user message at index {i} after tool_result cleanup");
+                        messages.RemoveAt(i);
+                    }
+                    else
+                    {
+                        // Replace with filtered version
+                        messages[i] = new
+                        {
+                            role = "user",
+                            content = filteredBlocks.ToArray()
+                        };
+                    }
+                }
+            }
         }
     }
 

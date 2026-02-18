@@ -404,13 +404,18 @@ public sealed class AgentOrchestrator : IDisposable
                 {
                     await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
                 }
-#pragma warning disable CA1031 // Intentionally catch all exceptions — compaction failure must not crash the agentic loop
-                catch (Exception)
+                catch (OperationCanceledException)
+                {
+                    // Rethrow cancellation to allow proper shutdown
+                    throw;
+                }
+#pragma warning disable CA1031 // Intentionally catch all non-cancellation exceptions — compaction failure must not crash the agentic loop
+                catch (Exception ex)
 #pragma warning restore CA1031
                 {
+                    // Log compaction failure for diagnostics
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Context compaction failed: {ex.Message}");
                     // Compaction is optimization, not correctness — continue without it
-                    // The failure will be surfaced through other means (e.g., Claude API errors later)
-                    // Detailed logging can be added here if needed
                 }
             }
 

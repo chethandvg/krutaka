@@ -372,4 +372,48 @@ public sealed class SessionResumeRepairTests : IDisposable
         toolResult.GetProperty("is_error").GetBoolean().Should().BeFalse();
         toolResult.GetProperty("content").GetString().Should().Be("File contents here");
     }
+
+    // NOTE: ValidateAndRemoveOrphanedAssistantMessages safety net coverage
+    //
+    // ReconstructMessagesAsync internally performs two phases when repairing broken
+    // session history:
+    //   1) RepairOrphanedToolUseBlocks: injects synthetic error tool_result blocks
+    //      for any orphaned tool_use events so that the model always sees a
+    //      terminal tool_result for every tool invocation.
+    //   2) ValidateAndRemoveOrphanedAssistantMessages: final fail-safe that prunes
+    //      any remaining assistant messages that still contain unrepaired / orphaned
+    //      tool_use blocks after phase (1), and also removes any now-orphaned
+    //      tool_result blocks to maintain conversation integrity.
+    //
+    // The tests above exercise the primary repair flow exhaustively (including
+    // normal tool_use + tool_result, and cases where RepairOrphanedToolUseBlocks
+    // injects synthetic error tool_result content). To directly test the final
+    // ValidateAndRemoveOrphanedAssistantMessages safety net, we would need to
+    // construct an in-memory message graph that:
+    //   - Contains assistant messages with orphaned tool_use blocks, and
+    //   - Cannot be repaired by RepairOrphanedToolUseBlocks, and
+    //   - Is observable through the public SessionStore API.
+    //
+    // With the current SessionStore design and visibility, this is not possible to
+    // achieve in a deterministic way using only the public AppendAsync and
+    // ReconstructMessagesAsync methods: any sequence of persisted SessionEvent
+    // records that would lead to an "orphaned" tool_use is already handled by
+    // RepairOrphanedToolUseBlocks. Creating a state that *only* the safety net can
+    // correct would require either:
+    //   - Exposing ValidateAndRemoveOrphanedAssistantMessages as public/internal
+    //     purely for testing, or
+    //   - Reaching into internal implementation details (e.g., mutating the
+    //     reconstructed message list) that are intentionally encapsulated.
+    //
+    // To avoid weakening encapsulation or changing production visibility solely to
+    // satisfy a test, we intentionally do not add a direct unit test for
+    // ValidateAndRemoveOrphanedAssistantMessages. Instead, the method is treated as
+    // a defensive, last-resort safety net whose behavior is indirectly exercised
+    // by the existing RepairOrphanedToolUseBlocks coverage and by the normal
+    // session reconstruction tests above. The implementation (lines 493-687 in
+    // SessionStore.cs) includes cleanup logic that removes orphaned tool_result
+    // blocks when assistant messages are removed, preventing secondary orphaning.
+    //
+    // This comment documents the intentional absence of a dedicated test for the
+    // safety net path, as suggested by review comment #2823045966.
 }
