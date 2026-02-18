@@ -829,6 +829,16 @@ public sealed class SystemPromptBuilderTests : IDisposable
         result.Should().Contain("Prompt injection defense");
         result.Should().Contain("Safety controls");
         
+        // Verify layer ordering is maintained - Security should come before Tools if Tools is present
+        var securityIndex = result.IndexOf("# Security Instructions", StringComparison.Ordinal);
+        var toolsIndex = result.IndexOf("# Available Tools", StringComparison.Ordinal);
+        
+        securityIndex.Should().BeGreaterThanOrEqualTo(0, "security instructions layer should be present");
+        if (toolsIndex >= 0)
+        {
+            securityIndex.Should().BeLessThan(toolsIndex, "Layer 2 (Security) should come before Layer 3 (Tools)");
+        }
+        
         // Should NOT contain the full large content due to total cap
         var aCount = result.Count(c => c == 'A');
         aCount.Should().BeLessThan(140_000);
@@ -861,9 +871,21 @@ public sealed class SystemPromptBuilderTests : IDisposable
         var result = await builder.BuildAsync("test query");
 
         // Assert
-        result.Length.Should().BeLessThanOrEqualTo(10_000 + 1000); // Allow some margin for formatting
+        result.Length.Should().BeLessThanOrEqualTo(10_000 + 500); // Allow margin for truncation markers
         result.Should().Contain("# Security Instructions"); // Layer 2 always present
         result.Should().Contain("truncated to fit"); // Total cap marker
+        
+        // Verify layer ordering is maintained after truncation - if Tools layer is present
+        var securityIndex = result.IndexOf("# Security Instructions", StringComparison.Ordinal);
+        var toolsIndex = result.IndexOf("# Available Tools", StringComparison.Ordinal);
+        
+        securityIndex.Should().BeGreaterThanOrEqualTo(0, "security instructions layer should be present in the system prompt");
+        
+        // If Tools layer is included, it should come after Security
+        if (toolsIndex >= 0)
+        {
+            securityIndex.Should().BeLessThan(toolsIndex, "Layer 2 (Security Instructions) should always come before Layer 3 (Available Tools)");
+        }
     }
 
     [Fact]
@@ -947,6 +969,67 @@ public sealed class SystemPromptBuilderTests : IDisposable
         act.Should().Throw<ArgumentOutOfRangeException>()
             .WithParameterName("maxBootstrapTotalChars")
             .WithMessage("*Must be greater than 0*");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_PreserveLayerOrderingWhenLayer1IsTruncated()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.Register(new MockTool("read_file", "Reads a file from disk"));
+        
+        // Create large Layer 1 content that will be truncated
+        var largeAgentsContent = new string('A', 8_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeAgentsContent);
+
+        // Use small total cap to force Layer 1 truncation but keep Layer 2
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: 5_000);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - Verify correct ordering: Layer 1 → Layer 2 → Layer 3
+        var layer1StartIndex = result.IndexOf(new string('A', 10), StringComparison.Ordinal); // Find some A's from Layer 1
+        var securityIndex = result.IndexOf("# Security Instructions", StringComparison.Ordinal);
+        var toolsIndex = result.IndexOf("# Available Tools", StringComparison.Ordinal);
+        
+        layer1StartIndex.Should().BeGreaterThanOrEqualTo(0, "Layer 1 content should be present (even if truncated)");
+        securityIndex.Should().BeGreaterThanOrEqualTo(0, "Layer 2 (Security) should be present");
+        toolsIndex.Should().BeGreaterThanOrEqualTo(0, "Layer 3 (Tools) should be present");
+        
+        // Verify ordering: Layer 1 < Layer 2 < Layer 3
+        layer1StartIndex.Should().BeLessThan(securityIndex, "Layer 1 should come before Layer 2");
+        securityIndex.Should().BeLessThan(toolsIndex, "Layer 2 should come before Layer 3");
+        
+        // Verify truncation occurred
+        result.Should().Contain("truncated");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_HandleEdgeCaseWhenBudgetEqualsContentLength()
+    {
+        // Arrange - This tests the edge case where budgetRemaining could equal section.Length
+        var toolRegistry = new MockToolRegistry();
+        
+        // Create content sized to trigger the edge case
+        var content = new string('A', 100);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, content);
+
+        // Calculate a total cap that would create the edge case
+        // Security instructions are ~500 chars, so budget for others = totalCap - 500
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: 650); // Small enough to force tight budget
+
+        // Act - Should not throw ArgumentOutOfRangeException
+        var act = async () => await builder.BuildAsync();
+
+        // Assert
+        await act.Should().NotThrowAsync("budgetRemaining should never cause out-of-range slicing");
     }
 }
 

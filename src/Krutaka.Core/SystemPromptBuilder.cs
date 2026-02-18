@@ -179,7 +179,7 @@ public sealed class SystemPromptBuilder
             if (content.Length > _maxBootstrapCharsPerFile)
             {
                 content = content[.._maxBootstrapCharsPerFile] +
-                    $"\n\n[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]";
+                    FormattableString.Invariant($"\n\n[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]");
             }
 
             return content;
@@ -339,7 +339,7 @@ public sealed class SystemPromptBuilder
         if (wasTruncated)
         {
             sb.AppendLine();
-            sb.AppendLine(CultureInfo.InvariantCulture, $"[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]");
+            sb.Append(FormattableString.Invariant($"[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]"));
         }
         
         sb.AppendLine("</untrusted_content>");
@@ -547,46 +547,67 @@ public sealed class SystemPromptBuilder
     /// <returns>Truncated prompt that respects total cap.</returns>
     private string EnforceTotalCap(List<string> sections, string securityInstructions)
     {
-        // Build a prompt ensuring Layer 2 is never touched
-        // We need to identify which sections to truncate working backwards
-        // Section indices (approximately):
-        // 0: Layer 1 (core identity)
-        // 1: Layer 2 (security - immutable)
-        // 2+: Layer 3, 3b, 3c, 4, 5, 6 (order depends on what's present)
+        // Strategy: Track sections by index to preserve identity even after truncation
+        // Layer 2 (security) is always at index 1 if Layer 1 exists, or index 0 if not
+        
+        const int minimumMeaningfulSectionLength = 200; // Minimum content size to justify including a partial section
+        var truncationMarker = FormattableString.Invariant($"\n\n[... truncated to fit {_maxBootstrapTotalChars:N0} char total cap ...]");
+        
+        // Find Layer 2 index
+        var layer2Index = -1;
+        for (var i = 0; i < sections.Count; i++)
+        {
+            if (sections[i] == securityInstructions)
+            {
+                layer2Index = i;
+                break;
+            }
+        }
 
-        // Strategy: Keep Layer 2 intact, truncate others backwards from the end
-        var truncatedSections = new List<string>();
-        var securityInstructionsLength = securityInstructions.Length + 2; // +2 for "\n\n" separator
+        if (layer2Index == -1)
+        {
+            // Should never happen, but handle gracefully
+            return string.Join("\n\n", sections);
+        }
 
-        // Reserve space for security instructions
+        // Reserve space for security instructions and its separator
+        var securityInstructionsLength = securityInstructions.Length + (layer2Index > 0 || sections.Count > 1 ? 2 : 0);
         var budgetRemaining = _maxBootstrapTotalChars - securityInstructionsLength;
 
-        // Process sections in reverse order, but keep Layer 2 position fixed
+        // Track which sections to include (by index) and their potentially truncated content
+        var sectionsToInclude = new Dictionary<int, string>();
+
+        // Process sections in reverse order (backwards truncation), skipping Layer 2
         for (var i = sections.Count - 1; i >= 0; i--)
         {
-            var section = sections[i];
-            
-            // Skip Layer 2 (security instructions) - it's handled separately
-            if (section == securityInstructions)
+            if (i == layer2Index)
             {
-                continue;
+                continue; // Skip Layer 2 - it's always included at full length
             }
 
-            var sectionLength = section.Length + 2; // +2 for "\n\n" separator
+            var section = sections[i];
+            var separatorLength = sectionsToInclude.Count > 0 || i < layer2Index ? 2 : 0; // Need separator if not first section
+            var sectionLength = section.Length + separatorLength;
 
             if (budgetRemaining >= sectionLength)
             {
-                // Section fits within budget
-                truncatedSections.Insert(0, section);
+                // Section fits completely
+                sectionsToInclude[i] = section;
                 budgetRemaining -= sectionLength;
             }
-            else if (budgetRemaining > 100) // Only include partial section if we have meaningful space
+            else if (budgetRemaining >= minimumMeaningfulSectionLength + truncationMarker.Length + separatorLength)
             {
                 // Truncate this section to fit remaining budget
-                var truncatedSection = section[..budgetRemaining] +
-                    $"\n\n[... truncated to fit {_maxBootstrapTotalChars:N0} char total cap ...]";
-                truncatedSections.Insert(0, truncatedSection);
-                budgetRemaining = 0;
+                var contentBudget = budgetRemaining - truncationMarker.Length - separatorLength;
+                
+                // Ensure we don't slice beyond section length
+                if (contentBudget > 0 && contentBudget < section.Length)
+                {
+                    var truncatedSection = section[..contentBudget] + truncationMarker;
+                    sectionsToInclude[i] = truncatedSection;
+                    budgetRemaining = 0;
+                }
+
                 break; // No more budget left
             }
             else
@@ -596,25 +617,23 @@ public sealed class SystemPromptBuilder
             }
         }
 
-        // Now reassemble with Layer 2 in its correct position (after Layer 1)
+        // Reassemble sections in correct order
         var finalSections = new List<string>();
-        
-        // Add Layer 1 if present
-        if (sections.Count > 0 && sections[0] != securityInstructions)
+
+        for (var i = 0; i < sections.Count; i++)
         {
-            var layer1 = truncatedSections.FirstOrDefault(s => s == sections[0]);
-            if (layer1 != null)
+            if (i == layer2Index)
             {
-                finalSections.Add(layer1);
-                truncatedSections.Remove(layer1);
+                // Always include Layer 2 at its correct position
+                finalSections.Add(securityInstructions);
             }
+            else if (sectionsToInclude.TryGetValue(i, out var sectionContent))
+            {
+                // Include this section (possibly truncated)
+                finalSections.Add(sectionContent);
+            }
+            // Otherwise skip this section (not enough budget)
         }
-
-        // Add Layer 2 (security instructions - always present, never truncated)
-        finalSections.Add(securityInstructions);
-
-        // Add remaining sections in order
-        finalSections.AddRange(truncatedSections);
 
         return string.Join("\n\n", finalSections);
     }
