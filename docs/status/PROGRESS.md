@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-18 (v0.4.5 Issue #185 Complete — 1,850 tests passing, 2 skipped)
+> **Last updated:** 2026-02-18 (v0.4.5 Issue #186 Complete — 1,855 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2812,4 +2812,151 @@ Remaining v0.4.5 issues:
 - All 1,850 tests passing (2 skipped) — 9 new tests added
 - Prevents system prompt bloat that wastes tokens (threat T4 from v0.4.5 spec)
 - Security: Layer 2 security instructions remain immutable and cannot be truncated
+
+---
+
+## Issue #186: Add pre-compaction memory flush to MEMORY.md — ✅ Complete (2026-02-18)
+
+**Status:** Complete  
+**Type:** Enhancement — Context Intelligence  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence  
+**Depends on:** Issue #181 (compaction try-catch must be in place) — ✅ Complete
+
+### Summary
+
+Before context compaction triggers, the system now extracts critical decisions, file paths, and progress from the conversation and writes them to MEMORY.md. This preserves context that would otherwise be lost during summarization, addressing threat T2 from the v0.4.5 specification.
+
+### Changes Implemented
+
+1. **Configuration (appsettings.json)**
+   - Added `EnablePreCompactionFlush` to `Agent` section (default: `true`)
+   - Feature can be disabled by setting to `false`
+
+2. **ToolOptions Extension**
+   - Added `EnablePreCompactionFlush` property to `ToolOptions.cs`
+   - Default value: `true`
+   - Enables configuration-driven control of the feature
+
+3. **ContextCompactor Enhancement**
+   - Added optional `Func<string, CancellationToken, Task>` delegate to constructor for writing to MEMORY.md
+   - Follows existing `memoryFileReader` pattern in `SystemPromptBuilder`
+   - Added `FlushContextToMemoryAsync()` private method
+   - Extraction happens BEFORE `GenerateSummaryAsync()` is called
+
+4. **Memory Extraction Logic**
+   - Sends "memory extraction" prompt to `_compactionClient` (cheaper model)
+   - Asks Claude to extract:
+     - Key decisions made
+     - File paths created, modified, or discussed
+     - User preferences expressed
+     - Progress on tasks (what's done, what's pending)
+   - Wraps conversation content in `<untrusted_content>` tags (existing security pattern)
+   - Best-effort operation: failures logged, compaction continues
+
+5. **MemoryFileService Enhancement**
+   - Added `AppendRawMarkdownAsync()` method
+   - Accepts raw markdown content (preserves structure)
+   - Used for pre-compaction flush where Claude generates the markdown
+   - Thread-safe via existing `SemaphoreSlim` lock
+   - Atomic writes (temp file → move pattern)
+
+6. **SessionFactory Wiring**
+   - Added `MemoryFileService?` parameter to constructor
+   - Creates memory writer delegate if:
+     - `MemoryFileService` is available
+     - `EnablePreCompactionFlush` is `true`
+   - Passes delegate to `ContextCompactor` constructor
+   - Delegate wraps `MemoryFileService.AppendRawMarkdownAsync()`
+
+7. **ServiceExtensions Update**
+   - Modified `AddAgentTools()` to inject `MemoryFileService` into `SessionFactory`
+   - Added using directive for `Krutaka.Memory` namespace
+
+8. **Project References**
+   - Added `Krutaka.Memory` project reference to `Krutaka.Tools.csproj`
+   - Enables SessionFactory to access MemoryFileService
+
+### Test Coverage
+
+- **5 new tests** in `ContextCompactorTests.cs`:
+  - `PreCompactionFlush_Should_CallMemoryWriterWithExtractedContent` — Verifies extraction content is written
+  - `PreCompactionFlush_Should_SkipWhenDelegateIsNull` — Verifies null delegate handling
+  - `PreCompactionFlush_Should_WrapContentInUntrustedTags` — Verifies security pattern
+  - `PreCompactionFlush_Should_ContinueOnFailure` — Verifies best-effort behavior
+  - `PreCompactionFlush_Should_SkipWhenNoMessagesToSummarize` — Verifies short-circuit logic
+
+- **All tests pass:**
+  - 27 ContextCompactor tests (22 original + 5 new)
+  - 138 Memory tests (all pass)
+  - 847 Tools tests (all pass, 1 skipped)
+
+### Security
+
+- **Threat T2 Mitigation (Memory Flush Prompt Injection):**
+  - Conversation content wrapped in `<untrusted_content>` tags before sending to Claude
+  - Follows existing pattern from `GenerateSummaryAsync()`
+  - MEMORY.md content is treated as advisory, not instructional
+  - Extraction failures do not prevent compaction (best-effort)
+
+- **Best-Effort Design:**
+  - API errors, timeouts, or write failures are caught and logged
+  - Compaction proceeds normally even if memory flush fails
+  - Try-catch with `CA1031` suppression (intentional catch-all for non-critical operation)
+
+- **Configuration Control:**
+  - Feature can be disabled via `EnablePreCompactionFlush = false`
+  - Memory writer delegate is `null` if MemoryFileService is unavailable
+  - No changes to behavior when feature is disabled
+
+### Files Modified
+
+- `src/Krutaka.Console/appsettings.json` — Added `EnablePreCompactionFlush` setting
+- `src/Krutaka.Core/ContextCompactor.cs` — Added memory writer delegate, `FlushContextToMemoryAsync()` method
+- `src/Krutaka.Memory/MemoryFileService.cs` — Added `AppendRawMarkdownAsync()` method
+- `src/Krutaka.Tools/ToolOptions.cs` — Added `EnablePreCompactionFlush` property
+- `src/Krutaka.Tools/SessionFactory.cs` — Added MemoryFileService parameter, wire up memory writer delegate
+- `src/Krutaka.Tools/ServiceExtensions.cs` — Inject MemoryFileService into SessionFactory
+- `src/Krutaka.Tools/Krutaka.Tools.csproj` — Added Krutaka.Memory project reference
+- `tests/Krutaka.Core.Tests/ContextCompactorTests.cs` — Added 5 comprehensive tests
+
+### Usage Example
+
+When compaction triggers (conversation > 80% of 200K tokens), the system:
+
+1. Extracts critical context from messages to be summarized
+2. Writes extracted content to MEMORY.md under "## Session Context (auto-saved)"
+3. Proceeds with normal compaction (summarization)
+4. If extraction fails, logs warning and continues with compaction
+
+Extracted content might look like:
+
+```markdown
+## Session Context (auto-saved)
+- User asked to implement pre-compaction memory flush feature
+- Created file at /home/runner/work/krutaka/krutaka/src/Krutaka.Memory/MemoryFileService.cs
+- Added AppendRawMarkdownAsync method for raw markdown writing
+- Modified ContextCompactor to accept memory writer delegate
+- All tests passing (27 ContextCompactor, 138 Memory, 847 Tools)
+```
+
+### Acceptance Criteria
+
+- ✅ Pre-compaction flush extracts key context from conversation
+- ✅ Extracted context written to MEMORY.md
+- ✅ Flush failure does not prevent compaction (best-effort)
+- ✅ Conversation content wrapped in `<untrusted_content>` tags
+- ✅ Configurable via `EnablePreCompactionFlush`
+- ✅ All new tests pass (5 new tests in ContextCompactorTests.cs)
+- ✅ All existing tests continue to pass (27 ContextCompactor, 138 Memory, 847 Tools)
+- ✅ `docs/status/PROGRESS.md` updated with completion details
+
+**Ready for:** Production use — context intelligence enhancement with configurable memory flush, preserving critical decisions and progress across compaction events
+
+### Next Steps
+
+Remaining v0.4.5 issues:
+- Tool result pruning (#185)
+- Compaction events to JSONL (#187)
+- Adversarial tests (#188)
+- Release documentation (#189)
 
