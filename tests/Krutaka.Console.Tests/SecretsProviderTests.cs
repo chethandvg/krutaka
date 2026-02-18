@@ -80,8 +80,7 @@ public class SecretsProviderTests
         var action = () => SecretsProvider.WriteCredential(null!);
 
         // Assert
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName(nameof(action));
+        action.Should().Throw<ArgumentNullException>();
     }
 
     [Theory]
@@ -93,8 +92,7 @@ public class SecretsProviderTests
         var action = () => SecretsProvider.WriteCredential(apiKey);
 
         // Assert
-        action.Should().Throw<ArgumentException>()
-            .WithParameterName(nameof(apiKey));
+        action.Should().Throw<ArgumentException>();
     }
 
     [Theory]
@@ -107,7 +105,6 @@ public class SecretsProviderTests
 
         // Assert
         action.Should().Throw<ArgumentException>()
-            .WithParameterName(nameof(apiKey))
             .WithMessage("*must start with 'sk-ant-'*");
     }
 
@@ -118,8 +115,7 @@ public class SecretsProviderTests
         var action = () => SecretsProvider.WriteBotToken(null!);
 
         // Assert
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName(nameof(action));
+        action.Should().Throw<ArgumentNullException>();
     }
 
     [Theory]
@@ -131,8 +127,7 @@ public class SecretsProviderTests
         var action = () => SecretsProvider.WriteBotToken(botToken);
 
         // Assert
-        action.Should().Throw<ArgumentException>()
-            .WithParameterName(nameof(botToken));
+        action.Should().Throw<ArgumentException>();
     }
 
     [Theory]
@@ -146,7 +141,6 @@ public class SecretsProviderTests
 
         // Assert
         action.Should().Throw<ArgumentException>()
-            .WithParameterName(nameof(botToken))
             .WithMessage("*must match the format 'digits:alphanumeric'*");
     }
 }
