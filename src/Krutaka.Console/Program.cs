@@ -273,6 +273,7 @@ try
         var memoryService = serviceProvider.GetService<IMemoryService>();
         var memoryFileService = serviceProvider.GetService<MemoryFileService>();
         var commandRiskClassifier = serviceProvider.GetService<ICommandRiskClassifier>();
+        var toolOptions = serviceProvider.GetService<IToolOptions>();
 
         Func<CancellationToken, Task<string>>? memoryFileReader = null;
         if (memoryFileService != null)
@@ -286,7 +287,8 @@ try
             skillRegistry,
             memoryService,
             memoryFileReader,
-            commandRiskClassifier);
+            commandRiskClassifier,
+            toolOptions);
     }
 
     // Three-step resume pattern for disk sessions: Create with preserved ID + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory

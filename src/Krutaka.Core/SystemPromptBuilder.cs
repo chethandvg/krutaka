@@ -12,6 +12,7 @@ public sealed class SystemPromptBuilder
     private readonly ISkillRegistry? _skillRegistry;
     private readonly IMemoryService? _memoryService;
     private readonly ICommandRiskClassifier? _commandRiskClassifier;
+    private readonly IToolOptions? _toolOptions;
     private readonly string _agentsPromptPath;
     private readonly Func<CancellationToken, Task<string>>? _memoryFileReader;
 
@@ -24,13 +25,15 @@ public sealed class SystemPromptBuilder
     /// <param name="memoryService">Optional memory service for Layer 6 (past memories via hybrid search).</param>
     /// <param name="memoryFileReader">Optional delegate to read MEMORY.md for Layer 5.</param>
     /// <param name="commandRiskClassifier">Optional command risk classifier for Layer 3 (tier information in tool context).</param>
+    /// <param name="toolOptions">Optional tool options for Layer 3c (environment context with directory information).</param>
     public SystemPromptBuilder(
         IToolRegistry toolRegistry,
         string agentsPromptPath,
         ISkillRegistry? skillRegistry = null,
         IMemoryService? memoryService = null,
         Func<CancellationToken, Task<string>>? memoryFileReader = null,
-        ICommandRiskClassifier? commandRiskClassifier = null)
+        ICommandRiskClassifier? commandRiskClassifier = null,
+        IToolOptions? toolOptions = null)
     {
         ArgumentNullException.ThrowIfNull(toolRegistry);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentsPromptPath, nameof(agentsPromptPath));
@@ -41,6 +44,7 @@ public sealed class SystemPromptBuilder
         _memoryService = memoryService;
         _memoryFileReader = memoryFileReader;
         _commandRiskClassifier = commandRiskClassifier;
+        _toolOptions = toolOptions;
     }
 
     /// <summary>
@@ -77,6 +81,13 @@ public sealed class SystemPromptBuilder
         if (!string.IsNullOrWhiteSpace(commandTierInfo))
         {
             sections.Add(commandTierInfo);
+        }
+
+        // Layer 3c: Environment context (if tool options available)
+        var environmentContext = GetEnvironmentContext();
+        if (!string.IsNullOrWhiteSpace(environmentContext))
+        {
+            sections.Add(environmentContext);
         }
 
         // Layer 4: Skill metadata (names + descriptions only, progressive disclosure)
@@ -394,6 +405,50 @@ public sealed class SystemPromptBuilder
 
         // Add footer note about unknown commands
         sb.AppendLine("Unknown commands are blocked. If you need a specific tool, ask the user.");
+
+        return sb.ToString().Trim();
+    }
+
+    private string GetEnvironmentContext()
+    {
+        if (_toolOptions == null)
+        {
+            return string.Empty;
+        }
+
+        // Only include section if we have valid directory information
+        var hasWorkingDirectory = !string.IsNullOrWhiteSpace(_toolOptions.DefaultWorkingDirectory);
+        var hasCeilingDirectory = !string.IsNullOrWhiteSpace(_toolOptions.CeilingDirectory);
+        var hasAutoGrantPatterns = _toolOptions.AutoGrantPatterns != null && _toolOptions.AutoGrantPatterns.Length > 0;
+
+        // If no directory information is available, omit the section
+        if (!hasWorkingDirectory && !hasCeilingDirectory && !hasAutoGrantPatterns)
+        {
+            return string.Empty;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("## Environment Context");
+        sb.AppendLine();
+
+        if (hasWorkingDirectory)
+        {
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Your working directory is: {_toolOptions.DefaultWorkingDirectory}");
+        }
+
+        if (hasCeilingDirectory)
+        {
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Your ceiling directory (cannot access above this): {_toolOptions.CeilingDirectory}");
+        }
+
+        if (hasAutoGrantPatterns)
+        {
+            var patterns = string.Join(", ", _toolOptions.AutoGrantPatterns ?? []);
+            sb.AppendLine(CultureInfo.InvariantCulture, $"Auto-granted directory patterns: {patterns}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("IMPORTANT: Always use paths within or below the working directory. You cannot access paths above the ceiling directory.");
 
         return sb.ToString().Trim();
     }
