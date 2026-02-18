@@ -168,7 +168,7 @@
 
 ### Retry/Resilience Patterns
 - Use exponential backoff with jitter for API rate limit retries
-- Max 3 retries, initial delay 1s, max delay 30s, jitter ±25%
+- Max 3 retries with exponential backoff (1s, 2s, 4s, 8s, ...) capped at 30s, jitter ±25%
 - Parse `retry-after` header from Anthropic responses when available
 - After max retries exhausted, propagate the original exception
 - Example:
