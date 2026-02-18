@@ -2691,7 +2691,17 @@ Added graceful error recovery in the Console main loop when `AnthropicBadRequest
 - Added hint: `"Tip: If this error persists, try /new to start a fresh session"`
 - Preserves existing error logging and display behavior
 
-**5. No changes to Telegram mode**
+**5. Added configuration values** (`appsettings.json`)
+- Added `MaxTokenBudget: 200000` to Agent section
+- Added `MaxToolCallBudget: 1000` to Agent section
+- Updated all `SessionRequest` creations to read from configuration instead of hardcoded values
+
+**6. Fixed edge cases from code review**
+- Clear in-memory history when `ReconstructMessagesAsync` returns empty list (prevents re-hitting same API error)
+- Added try-catch for `OperationCanceledException` in "Start new" recovery path to handle graceful cancellation during recovery
+- Fixed all "3-step" references to "2-step" in code comments, enum docs, and documentation
+
+**7. No changes to Telegram mode**
 - `TelegramBotService` has its own error handling with consecutive failure tracking and exponential backoff
 - Issue #181 (session repair) and #182 (rate limit retry) automatically benefit Telegram mode
 
