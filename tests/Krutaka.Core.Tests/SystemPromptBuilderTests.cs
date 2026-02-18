@@ -729,6 +729,225 @@ public sealed class SystemPromptBuilderTests : IDisposable
         environmentContextIndex.Should().BeGreaterThan(-1);
         commandTierIndex.Should().BeLessThan(environmentContextIndex);
     }
+
+    [Fact]
+    public async Task BuildAsync_Should_TruncateAgentsMd_WhenExceedsPerFileLimit()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        
+        // Create an AGENTS.md file that exceeds the per-file limit
+        var largeContent = new string('A', 25_000); // Exceeds default 20,000
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        var builder = new SystemPromptBuilder(toolRegistry, _testAgentsPromptPath);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("truncated at 20,000 chars");
+        result.Should().Contain("Use read_file for full content");
+        // The truncated content should not contain all 25,000 'A's
+        var aCount = result.Count(c => c == 'A');
+        aCount.Should().BeLessThan(25_000);
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_TruncateMemoryMd_WhenExceedsPerFileLimit()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        var largeMemoryContent = new string('M', 25_000); // Exceeds default 20,000
+        
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            "/nonexistent/path.md",
+            memoryFileReader: _ => Task.FromResult(largeMemoryContent));
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("# Persistent Memory");
+        result.Should().Contain("truncated at 20,000 chars");
+        result.Should().Contain("Use read_file for full content");
+        // The truncated content should not contain all 25,000 'M's
+        var mCount = result.Count(c => c == 'M');
+        mCount.Should().BeLessThan(25_000);
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NotTruncateSmallFiles()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        
+        var smallContent = "# Core Identity\n\nYou are a helpful assistant.";
+        await File.WriteAllTextAsync(_testAgentsPromptPath, smallContent);
+
+        var smallMemoryContent = "## User Preferences\n- Likes TypeScript";
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            memoryFileReader: _ => Task.FromResult(smallMemoryContent));
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().NotContain("truncated at");
+        result.Should().Contain("You are a helpful assistant");
+        result.Should().Contain("Likes TypeScript");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NeverTruncateSecurityInstructions()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        
+        // Create content that would push total over cap if security instructions were truncatable
+        var largeContent = new string('A', 140_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        // Use very small total cap to force truncation
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: 5_000);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - Security instructions should ALWAYS be present in full
+        result.Should().Contain("# Security Instructions");
+        result.Should().Contain("CRITICAL RULES");
+        result.Should().Contain("Untrusted content handling");
+        result.Should().Contain("System prompt protection");
+        result.Should().Contain("Tool restrictions");
+        result.Should().Contain("Prompt injection defense");
+        result.Should().Contain("Safety controls");
+        
+        // Should NOT contain the full large content due to total cap
+        var aCount = result.Count(c => c == 'A');
+        aCount.Should().BeLessThan(140_000);
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_EnforceTotalCap_ByTruncatingBackwards()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        
+        // Create large content in multiple layers
+        var largeAgentsContent = new string('A', 50_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeAgentsContent);
+
+        var largeMemoryContent = new string('M', 50_000);
+        
+        var memoryService = new MockMemoryService();
+        memoryService.AddMemory(new string('R', 50_000), "session-1", 1.0);
+
+        // Use small total cap to force backward truncation
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            memoryService: memoryService,
+            memoryFileReader: _ => Task.FromResult(largeMemoryContent),
+            maxBootstrapTotalChars: 10_000);
+
+        // Act
+        var result = await builder.BuildAsync("test query");
+
+        // Assert
+        result.Length.Should().BeLessThanOrEqualTo(10_000 + 1000); // Allow some margin for formatting
+        result.Should().Contain("# Security Instructions"); // Layer 2 always present
+        result.Should().Contain("truncated to fit"); // Total cap marker
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_AcceptCustomPerFileCap()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        
+        var content = new string('A', 15_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, content);
+
+        // Use custom per-file cap of 10,000
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapCharsPerFile: 10_000);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Should().Contain("truncated at 10,000 chars");
+        var aCount = result.Count(c => c == 'A');
+        aCount.Should().BeLessThan(15_000);
+        // The count should be exactly 10,000 (the cap) - slight variance is OK due to formatting
+        aCount.Should().BeCloseTo(10_000, 10);
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_AcceptCustomTotalCap()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+        
+        var largeContent = new string('A', 50_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        // Use custom total cap of 8,000
+        var builder = new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: 8_000);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert
+        result.Length.Should().BeLessThanOrEqualTo(8_000 + 1000); // Allow margin for formatting
+        result.Should().Contain("# Security Instructions"); // Always present
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenMaxBootstrapCharsPerFileIsZero()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+
+        // Act & Assert
+        var act = () => new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapCharsPerFile: 0);
+        
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("maxBootstrapCharsPerFile")
+            .WithMessage("*Must be greater than 0*");
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenMaxBootstrapTotalCharsIsNegative()
+    {
+        // Arrange
+        var toolRegistry = new MockToolRegistry();
+
+        // Act & Assert
+        var act = () => new SystemPromptBuilder(
+            toolRegistry,
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: -1);
+        
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("maxBootstrapTotalChars")
+            .WithMessage("*Must be greater than 0*");
+    }
 }
 
 // Mock implementations for testing
