@@ -2585,22 +2585,53 @@ Added exponential backoff with jitter for Anthropic API rate limit responses (HT
 
 ### Test Coverage
 
-- **8 new tests** in `ClaudeClientRetryTests.cs`:
-  - Configuration defaults and custom values
-  - Serialization/deserialization of retry settings
-  - ClaudeClientWrapper constructor accepts retry configuration
-  - Exponential backoff calculation verified
-  - Max delay cap respected
-  - Jitter applied within ±25% range
-  - Jitter produces varying delays (non-deterministic)
+- **20 new tests** in `ClaudeClientRetryTests.cs`:
+  - Configuration defaults and custom values (3 tests)
+  - Serialization/deserialization of retry settings (1 test)
+  - ClaudeClientWrapper constructor accepts retry configuration (3 tests)
+  - Exponential backoff calculation verified (2 tests)
+  - Max delay cap respected (1 test)
+  - Jitter applied within ±25% range (1 test)
+  - Jitter produces varying delays (non-deterministic) (1 test)
+  - **Parameter validation** (11 new tests):
+    - Null checks for client and logger
+    - Reject invalid retry configuration
+    - Accept valid boundary values
+    - Dispose idempotency and resource cleanup
 
-- **All existing tests pass:** 20 total (12 existing + 8 new)
+- **All tests pass:** 30 total (12 original + 8 initial + 10 validation tests)
 
 ### Security
 
 - **Cryptographically secure RNG:** Uses `System.Security.Cryptography.RandomNumberGenerator` for jitter (CA5394 compliance)
+- **Thread safety:** Lock on RNG access to prevent race conditions
+- **Resource disposal:** Implements IDisposable to properly clean up RNG and AnthropicClient
 - **No sensitive data exposure:** Retry logic does not log API request/response content
 - **DoS mitigation:** Max 3 retries with capped delay (30s) prevents infinite retry loops
+- **Single retry layer:** SDK retries disabled (MaxRetries = 0) to prevent multiplicative retry behavior
+- **Cancellation support:** Explicit cancellation check before each retry attempt
+
+### Code Review Fixes
+
+Post-implementation review identified and fixed critical issues:
+
+1. **Multiplicative Retries (CRITICAL)**: SDK MaxRetries was 3, wrapper retries was 3 → potential 9 attempts per logical request
+   - **Fix:** Set SDK `MaxRetries = 0`, use wrapper retry logic only
+   
+2. **Off-by-one Error**: Loop executed 4 attempts instead of 3
+   - **Fix:** Changed `attempt <= _retryMaxAttempts` to `attempt < _retryMaxAttempts`
+   
+3. **Thread Safety**: RandomNumberGenerator.GetBytes() not thread-safe
+   - **Fix:** Added lock around RNG access
+   
+4. **Resource Leaks**: RNG and AnthropicClient not disposed
+   - **Fix:** Implemented IDisposable with proper cleanup
+   
+5. **Missing Validation**: No parameter validation
+   - **Fix:** Added comprehensive validation for all retry parameters
+   
+6. **Cancellation Handling**: No explicit cancellation check
+   - **Fix:** Added `cancellationToken.ThrowIfCancellationRequested()` before each attempt
 
 ### Retry-After Header Support
 
@@ -2611,13 +2642,13 @@ Added exponential backoff with jitter for Anthropic API rate limit responses (HT
 ### Files Modified
 
 - `src/Krutaka.Core/AgentConfiguration.cs` — Added retry configuration properties
-- `src/Krutaka.AI/ServiceExtensions.cs` — Bind retry config to ClaudeClientWrapper
-- `src/Krutaka.AI/ClaudeClientWrapper.cs` — Implement retry logic with exponential backoff and jitter
+- `src/Krutaka.AI/ServiceExtensions.cs` — Bind retry config to ClaudeClientWrapper, disable SDK retries
+- `src/Krutaka.AI/ClaudeClientWrapper.cs` — Implement retry logic, IDisposable, validation, thread safety
 - `src/Krutaka.AI/Krutaka.AI.csproj` — Added `InternalsVisibleTo` for test project
 - `src/Krutaka.Console/appsettings.json` — Added retry configuration
-- `tests/Krutaka.AI.Tests/ClaudeClientRetryTests.cs` — New comprehensive test suite
+- `tests/Krutaka.AI.Tests/ClaudeClientRetryTests.cs` — Comprehensive test suite (30 tests)
 
-**Ready for:** Production use — rate limit resilience with configurable retry strategy
+**Ready for:** Production use — rate limit resilience with proper retry semantics, thread safety, and resource management
 
 ### Next Steps
 
