@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-17 (v0.4.0 Telegram Integration & Multi-Session Architecture complete — 1,765 tests passing, 2 skipped)
+> **Last updated:** 2026-02-18 (v0.4.5 Issue #181 Complete — 1,816 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2492,4 +2492,58 @@ Krutaka.Console.exe --mode both
 ### Next Steps
 
 Implementation of v0.4.0 components will follow the complete issue breakdown in `docs/versions/v0.4.0.md`.
+
+---
+
+## v0.4.5 — Session Resilience, API Hardening & Context Intelligence (In Progress)
+
+> **Status:** 🟡 **In Progress** (Issue #181 Complete — 2026-02-18)  
+> **Reference:** See `docs/versions/v0.4.5.md` for complete architecture design, failure modes, and implementation roadmap.
+
+### Overview
+
+v0.4.5 is a **stability, resilience, and intelligence** release that addresses real-world failure modes discovered during v0.3.0+ usage and identified through OpenClaw gap analysis. It focuses on three pillars:
+
+1. **Session Resilience**: Fix the orphaned `tool_use` crash on session resume, improve `RepairOrphanedToolUseBlocks`, and add compaction event tracking
+2. **API Hardening**: Add retry/backoff for Anthropic rate limits, graceful error recovery in the main loop, and directory-awareness in system prompts
+3. **Context Intelligence**: Pre-compaction memory flush, tool result pruning for older turns, and bootstrap file size caps to control system prompt bloat
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|
+| 181 | Fix orphaned tool_use session resume crash | Bug | 🟢 Complete | 2026-02-18 |
+
+**Issue #181 Details:**
+- **Problem:** Resuming a session with orphaned `tool_use` blocks (no matching `tool_result`) caused `AnthropicBadRequestException` in `CompactIfNeededAsync()`, which propagated unhandled and crashed the main loop. Root cause: `CreateAssistantMessage()` stored `toolCall.Input` as string → double-escaped JSON after JSONL round-trip → malformed history sent to Claude API → 400 error → unhandled exception.
+- **Solution Implemented:**
+  1. **Fix 1 - Normalize input type in `CreateAssistantMessage`**: Parse `toolCall.Input` (string) to `JsonElement` using `JsonDocument.Parse()` before storing. Fall back to `{}` if parsing fails. Prevents double-serialization issues.
+  2. **Fix 2 - Harden `RepairOrphanedToolUseBlocks`**: Added graceful handling of unknown content block types (forward compatibility). Added safety check that logs warning if orphaned IDs remain after repair.
+  3. **Fix 3 - Post-repair validation in `ReconstructMessagesAsync`**: Added `ValidateAndRemoveOrphanedAssistantMessages()` as last-resort safety net. Re-scans all messages after repair to verify invariant (every `tool_use` has matching `tool_result`). Drops orphaned assistant messages entirely if invariant still doesn't hold.
+  4. **Fix 4 - Wrap `CompactIfNeededAsync` in try-catch**: Added try-catch in `RunAgenticLoopAsync()` around compaction call. Compaction failure now continues the loop (compaction is optimization, not correctness). Suppressed CA1031 analyzer warning with pragma (intentional catch-all).
+- **Testing:** Created `SessionResumeRepairTests.cs` with 7 comprehensive tests (all passing):
+  - `Should_RepairOrphanedToolUseAtEnd`
+  - `Should_RepairOrphanedToolUseInMiddle`
+  - `Should_RepairMultipleOrphanedToolUseIds`
+  - `Should_HandleDoubleSerializedInputString`
+  - `Should_AugmentExistingUserMessageWithSyntheticResults`
+  - `Should_HandleUnknownContentBlockTypes`
+  - `Should_NotRepairWhenToolResultExists`
+- **Regression Testing:** All 1,816 tests passing (2 skipped) — 51 more tests than v0.4.0 baseline
+- **Security:** No new security concerns introduced. All changes are defensive improvements to existing logic.
+- **Files Modified:**
+  - `src/Krutaka.Core/AgentOrchestrator.cs` — Fix 1 (input normalization) and Fix 4 (compaction resilience)
+  - `src/Krutaka.Memory/SessionStore.cs` — Fix 2 (harden repair), Fix 3 (post-repair validation)
+  - `tests/Krutaka.Memory.Tests/SessionResumeRepairTests.cs` — New comprehensive test suite
+
+**Ready for:** Production use — critical crash fixed with comprehensive test coverage
+
+### Next Steps
+
+Remaining v0.4.5 issues:
+- API retry/backoff for Anthropic rate limits
+- Directory awareness in system prompt
+- Pre-compaction memory flush
+- Tool result pruning
+- Bootstrap file caps
 

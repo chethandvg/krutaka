@@ -397,9 +397,26 @@ public sealed class AgentOrchestrator : IDisposable
         {
             // Check if context compaction is needed before each Claude request
             // This ensures compaction is evaluated even after tool-call rounds grow the history
+            // Wrap in try-catch to prevent compaction failures from crashing the agentic loop
             if (_contextCompactor != null)
             {
-                await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Rethrow cancellation to allow proper shutdown
+                    throw;
+                }
+#pragma warning disable CA1031 // Intentionally catch all non-cancellation exceptions — compaction failure must not crash the agentic loop
+                catch (Exception ex)
+#pragma warning restore CA1031
+                {
+                    // Log compaction failure for diagnostics
+                    System.Diagnostics.Debug.WriteLine($"WARNING: Context compaction failed: {ex.Message}");
+                    // Compaction is optimization, not correctness — continue without it
+                }
             }
 
             // Track tool calls from this response
@@ -852,12 +869,28 @@ public sealed class AgentOrchestrator : IDisposable
         // Add tool use blocks
         foreach (var toolCall in toolCalls)
         {
+            // Parse the input string to JsonElement to avoid double-serialization issues
+            // When stored as a string, the round-trip through JSONL causes double-escaping
+            // that breaks RepairOrphanedToolUseBlocks and Claude API validation
+            JsonElement inputElement;
+            try
+            {
+                using var doc = JsonDocument.Parse(toolCall.Input);
+                inputElement = doc.RootElement.Clone();
+            }
+            catch (JsonException)
+            {
+                // Fall back to empty JSON object if parsing fails
+                using var fallbackDoc = JsonDocument.Parse("{}");
+                inputElement = fallbackDoc.RootElement.Clone();
+            }
+
             contentBlocks.Add(new
             {
                 type = "tool_use",
                 id = toolCall.Id,
                 name = toolCall.Name,
-                input = toolCall.Input
+                input = inputElement
             });
         }
 
