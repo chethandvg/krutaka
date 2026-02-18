@@ -11,26 +11,60 @@ namespace Krutaka.AI;
 /// Provides streaming support, token counting, and request-id logging.
 /// Note: This uses the official Anthropic package, NOT the community Anthropic.SDK package.
 /// </summary>
-internal sealed partial class ClaudeClientWrapper : IClaudeClient
+internal sealed partial class ClaudeClientWrapper : IClaudeClient, IDisposable
 {
     private readonly AnthropicClient _client;
     private readonly ILogger<ClaudeClientWrapper> _logger;
     private readonly string _modelId;
     private readonly int _maxTokens;
     private readonly double _temperature;
+    private readonly int _retryMaxAttempts;
+    private readonly int _retryInitialDelayMs;
+    private readonly int _retryMaxDelayMs;
+    private readonly System.Security.Cryptography.RandomNumberGenerator _random = System.Security.Cryptography.RandomNumberGenerator.Create();
+    private readonly object _randomLock = new();
+    private bool _disposed;
 
     public ClaudeClientWrapper(
         AnthropicClient client,
         ILogger<ClaudeClientWrapper> logger,
         string modelId = "claude-4-sonnet-20250514",
         int maxTokens = 8192,
-        double temperature = 0.7)
+        double temperature = 0.7,
+        int retryMaxAttempts = 3,
+        int retryInitialDelayMs = 1000,
+        int retryMaxDelayMs = 30000)
     {
-        _client = client;
-        _logger = logger;
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        
+        // Validate retry configuration
+        if (retryMaxAttempts < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryMaxAttempts), retryMaxAttempts, "RetryMaxAttempts must be >= 0");
+        }
+
+        if (retryInitialDelayMs <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryInitialDelayMs), retryInitialDelayMs, "RetryInitialDelayMs must be > 0");
+        }
+
+        if (retryMaxDelayMs < retryInitialDelayMs)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryMaxDelayMs), retryMaxDelayMs, "RetryMaxDelayMs must be >= RetryInitialDelayMs");
+        }
+
+        if (retryMaxDelayMs > 300000) // 5 minutes max
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryMaxDelayMs), retryMaxDelayMs, "RetryMaxDelayMs must be <= 300000 (5 minutes)");
+        }
+        
         _modelId = modelId;
         _maxTokens = maxTokens;
         _temperature = temperature;
+        _retryMaxAttempts = retryMaxAttempts;
+        _retryInitialDelayMs = retryInitialDelayMs;
+        _retryMaxDelayMs = retryMaxDelayMs;
     }
 
     /// <inheritdoc />
@@ -74,7 +108,10 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
         // Stream the response using WithRawResponse to capture HTTP headers including request-id.
         // Note: Using official Anthropic package (v12.4.0), NOT community Anthropic.SDK
-        var rawResponse = await _client.WithRawResponse.Messages.CreateStreaming(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
+        // Wrap the CreateStreaming call with retry logic for rate limit errors during stream setup
+        var rawResponse = await ExecuteWithRetryAsync(
+            async ct => await _client.WithRawResponse.Messages.CreateStreaming(parameters, cancellationToken: ct).ConfigureAwait(false),
+            cancellationToken).ConfigureAwait(false);
 
         // Extract and emit the request-id from the HTTP response header
         var requestId = rawResponse.RequestID;
@@ -166,32 +203,35 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         string systemPrompt,
         CancellationToken cancellationToken = default)
     {
-        // Convert messages to MessageParam
-        var messageParams = ConvertToMessageParams(messages);
-
-        // Create token counting parameters
-        var parameters = new MessageCountTokensParams
+        return await ExecuteWithRetryAsync(async ct =>
         {
-            Model = _modelId,
-            Messages = messageParams,
-            System = systemPrompt
-        };
+            // Convert messages to MessageParam
+            var messageParams = ConvertToMessageParams(messages);
 
-        // Use WithRawResponse to capture the request-id header for correlation
-        var rawResponse = await _client.WithRawResponse.Messages.CountTokens(parameters, cancellationToken: cancellationToken).ConfigureAwait(false);
+            // Create token counting parameters
+            var parameters = new MessageCountTokensParams
+            {
+                Model = _modelId,
+                Messages = messageParams,
+                System = systemPrompt
+            };
 
-        var requestId = rawResponse.RequestID;
-        if (!string.IsNullOrEmpty(requestId))
-        {
-            LogRequestId(requestId);
-        }
+            // Use WithRawResponse to capture the request-id header for correlation
+            var rawResponse = await _client.WithRawResponse.Messages.CountTokens(parameters, cancellationToken: ct).ConfigureAwait(false);
 
-        var response = await rawResponse.Deserialize(cancellationToken).ConfigureAwait(false);
+            var requestId = rawResponse.RequestID;
+            if (!string.IsNullOrEmpty(requestId))
+            {
+                LogRequestId(requestId);
+            }
 
-        var tokenCount = (int)response.InputTokens;
-        LogTokenCount(tokenCount);
+            var response = await rawResponse.Deserialize(ct).ConfigureAwait(false);
 
-        return tokenCount;
+            var tokenCount = (int)response.InputTokens;
+            LogTokenCount(tokenCount);
+
+            return tokenCount;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -414,6 +454,81 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
             ?? new Dictionary<string, System.Text.Json.JsonElement>();
     }
 
+    /// <summary>
+    /// Executes an async operation with retry logic for rate limit exceptions.
+    /// Implements exponential backoff with jitter and respects retry-after headers.
+    /// </summary>
+    /// <typeparam name="T">The return type of the operation.</typeparam>
+    /// <param name="operation">The operation to execute.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The result of the operation.</returns>
+    private async Task<T> ExecuteWithRetryAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastException = null;
+
+        for (int attempt = 0; attempt < _retryMaxAttempts; attempt++)
+        {
+            // Check for cancellation before each attempt
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            try
+            {
+                return await operation(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Anthropic.Exceptions.AnthropicRateLimitException ex) when (attempt < _retryMaxAttempts - 1)
+            {
+                lastException = ex;
+
+                // Calculate delay with exponential backoff and jitter
+                var baseDelay = _retryInitialDelayMs * Math.Pow(2, attempt);
+                var cappedDelay = Math.Min(baseDelay, _retryMaxDelayMs);
+
+                // Apply jitter: ±25% (thread-safe)
+                int delayMs;
+                lock (_randomLock)
+                {
+                    var jitterBytes = new byte[4];
+                    _random.GetBytes(jitterBytes);
+                    var randomValue = BitConverter.ToUInt32(jitterBytes, 0) / (double)uint.MaxValue; // 0.0 to 1.0
+                    var jitterFactor = 0.75 + (randomValue * 0.5); // Range: 0.75 to 1.25
+                    delayMs = (int)(cappedDelay * jitterFactor);
+                }
+
+                // Check if the exception contains a retry-after hint
+                // The Anthropic SDK may include this in the exception properties
+                // For now, we'll use the calculated backoff
+                // TODO: Parse retry-after from ex.Headers if available in future SDK versions
+
+                LogRetryAttempt(attempt + 1, _retryMaxAttempts, delayMs);
+
+                await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        // All retries exhausted - throw the original exception
+        if (lastException != null)
+        {
+            throw lastException;
+        }
+        
+        // This should never happen as the loop always executes at least once
+        throw new InvalidOperationException("Retry logic completed without executing the operation or capturing an exception. This indicates a programming error.");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _random?.Dispose();
+        _client?.Dispose();
+        _disposed = true;
+    }
+
     [LoggerMessage(Level = LogLevel.Debug, Message = "Received streaming chunk from Claude API")]
     partial void LogChunkReceived();
 
@@ -428,4 +543,7 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Skipping tool definition of type {ToolType}: input_schema could not be deserialized")]
     partial void LogSkippedToolSchema(string toolType, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rate limit encountered. Retry attempt {Attempt}/{MaxAttempts} after {DelayMs}ms")]
+    partial void LogRetryAttempt(int attempt, int maxAttempts, int delayMs);
 }

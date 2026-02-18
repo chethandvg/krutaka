@@ -16,6 +16,9 @@ namespace Krutaka.Core;
 /// <param name="ConfigDirectory">The agent configuration directory (defaults to ~/.krutaka).</param>
 /// <param name="SessionDirectory">Directory for session JSONL files.</param>
 /// <param name="SkillsDirectory">Directory containing skill markdown files.</param>
+/// <param name="RetryMaxAttempts">Maximum retry attempts for API rate limits.</param>
+/// <param name="RetryInitialDelayMs">Initial backoff delay in milliseconds for rate limit retries.</param>
+/// <param name="RetryMaxDelayMs">Maximum backoff delay in milliseconds for rate limit retries.</param>
 [method: JsonConstructor]
 public sealed record AgentConfiguration(
     [property: JsonPropertyName("model_id")] string ModelId = "claude-4-sonnet-20250514",
@@ -27,7 +30,10 @@ public sealed record AgentConfiguration(
     [property: JsonPropertyName("project_root")] string? ProjectRoot = null,
     [property: JsonPropertyName("config_directory")] string? ConfigDirectory = null,
     [property: JsonPropertyName("session_directory")] string? SessionDirectory = null,
-    [property: JsonPropertyName("skills_directory")] string? SkillsDirectory = null
+    [property: JsonPropertyName("skills_directory")] string? SkillsDirectory = null,
+    [property: JsonPropertyName("retry_max_attempts")] int RetryMaxAttempts = 3,
+    [property: JsonPropertyName("retry_initial_delay_ms")] int RetryInitialDelayMs = 1000,
+    [property: JsonPropertyName("retry_max_delay_ms")] int RetryMaxDelayMs = 30000
 )
 {
     /// <summary>

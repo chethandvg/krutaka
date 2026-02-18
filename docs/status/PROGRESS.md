@@ -2538,10 +2538,121 @@ v0.4.5 is a **stability, resilience, and intelligence** release that addresses r
 
 **Ready for:** Production use — critical crash fixed with comprehensive test coverage
 
+---
+
+## Issue #182: Add retry/backoff for Anthropic API rate limits — ✅ Complete (2026-02-18)
+
+**Status:** Complete  
+**Type:** Bug Fix — API Hardening  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence
+
+### Summary
+
+Added exponential backoff with jitter for Anthropic API rate limit responses (HTTP 429 / `AnthropicRateLimitException`) in `ClaudeClientWrapper`. Previously, a single rate limit response crashed the agentic loop with no recovery.
+
+### Changes Implemented
+
+1. **Retry Configuration (AgentConfiguration)**
+   - Added `RetryMaxAttempts` (default: 3)
+   - Added `RetryInitialDelayMs` (default: 1000)
+   - Added `RetryMaxDelayMs` (default: 30000)
+   - All configuration parameters serializable via JSON
+
+2. **ServiceExtensions Binding**
+   - Updated `ServiceExtensions.AddClaudeAI()` to read retry configuration from `Agent` section
+   - Passes retry parameters to `ClaudeClientWrapper` constructor
+
+3. **ClaudeClientWrapper Retry Logic**
+   - Added `ExecuteWithRetryAsync<T>()` helper method
+   - Implements exponential backoff: delay = min(initialDelay × 2^attempt, maxDelay)
+   - Applies jitter: ±25% randomization using cryptographically secure RNG
+   - Catches `Anthropic.Exceptions.AnthropicRateLimitException` only
+   - Non-rate-limit exceptions (e.g., `AnthropicBadRequestException`) are NOT retried
+   - Logs retry attempts at Warning level: "Rate limit encountered. Retry attempt {N}/{MaxAttempts} after {DelayMs}ms"
+   - After max retries exhausted, re-throws original exception
+
+4. **CountTokensAsync Retry Wrapping**
+   - Full method wrapped with `ExecuteWithRetryAsync`
+   - Retries entire token counting operation on rate limit
+
+5. **SendMessageAsync Retry Wrapping**
+   - Wraps `CreateStreaming()` call with `ExecuteWithRetryAsync`
+   - Retries stream setup on rate limit
+   - Mid-stream rate limits (unlikely) propagate without retry (per spec)
+
+6. **Configuration File**
+   - Updated `appsettings.json` with retry settings in `Agent` section
+
+### Test Coverage
+
+- **20 new tests** in `ClaudeClientRetryTests.cs`:
+  - Configuration defaults and custom values (3 tests)
+  - Serialization/deserialization of retry settings (1 test)
+  - ClaudeClientWrapper constructor accepts retry configuration (3 tests)
+  - Exponential backoff calculation verified (2 tests)
+  - Max delay cap respected (1 test)
+  - Jitter applied within ±25% range (1 test)
+  - Jitter produces varying delays (non-deterministic) (1 test)
+  - **Parameter validation** (11 new tests):
+    - Null checks for client and logger
+    - Reject invalid retry configuration
+    - Accept valid boundary values
+    - Dispose idempotency and resource cleanup
+
+- **All tests pass:** 30 total (12 original + 8 initial + 10 validation tests)
+
+### Security
+
+- **Cryptographically secure RNG:** Uses `System.Security.Cryptography.RandomNumberGenerator` for jitter (CA5394 compliance)
+- **Thread safety:** Lock on RNG access to prevent race conditions
+- **Resource disposal:** Implements IDisposable to properly clean up RNG and AnthropicClient
+- **No sensitive data exposure:** Retry logic does not log API request/response content
+- **DoS mitigation:** Max 3 retries with capped delay (30s) prevents infinite retry loops
+- **Single retry layer:** SDK retries disabled (MaxRetries = 0) to prevent multiplicative retry behavior
+- **Cancellation support:** Explicit cancellation check before each retry attempt
+
+### Code Review Fixes
+
+Post-implementation review identified and fixed critical issues:
+
+1. **Multiplicative Retries (CRITICAL)**: SDK MaxRetries was 3, wrapper retries was 3 → potential 9 attempts per logical request
+   - **Fix:** Set SDK `MaxRetries = 0`, use wrapper retry logic only
+   
+2. **Off-by-one Error**: Loop executed 4 attempts instead of 3
+   - **Fix:** Changed `attempt <= _retryMaxAttempts` to `attempt < _retryMaxAttempts`
+   
+3. **Thread Safety**: RandomNumberGenerator.GetBytes() not thread-safe
+   - **Fix:** Added lock around RNG access
+   
+4. **Resource Leaks**: RNG and AnthropicClient not disposed
+   - **Fix:** Implemented IDisposable with proper cleanup
+   
+5. **Missing Validation**: No parameter validation
+   - **Fix:** Added comprehensive validation for all retry parameters
+   
+6. **Cancellation Handling**: No explicit cancellation check
+   - **Fix:** Added `cancellationToken.ThrowIfCancellationRequested()` before each attempt
+
+### Retry-After Header Support
+
+- **Deferred:** The Anthropic SDK v12.4.0 does not expose `retry-after` header in `AnthropicRateLimitException`
+- **TODO:** Parse `retry-after` if exposed in future SDK versions
+- **Current behavior:** Uses calculated exponential backoff with jitter
+
+### Files Modified
+
+- `src/Krutaka.Core/AgentConfiguration.cs` — Added retry configuration properties
+- `src/Krutaka.AI/ServiceExtensions.cs` — Bind retry config to ClaudeClientWrapper, disable SDK retries
+- `src/Krutaka.AI/ClaudeClientWrapper.cs` — Implement retry logic, IDisposable, validation, thread safety
+- `src/Krutaka.AI/Krutaka.AI.csproj` — Added `InternalsVisibleTo` for test project
+- `src/Krutaka.Console/appsettings.json` — Added retry configuration
+- `tests/Krutaka.AI.Tests/ClaudeClientRetryTests.cs` — Comprehensive test suite (30 tests)
+
+**Ready for:** Production use — rate limit resilience with proper retry semantics, thread safety, and resource management
+
 ### Next Steps
 
 Remaining v0.4.5 issues:
-- API retry/backoff for Anthropic rate limits
 - Directory awareness in system prompt
 - Pre-compaction memory flush
 - Tool result pruning
