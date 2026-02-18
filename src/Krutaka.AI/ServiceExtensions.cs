@@ -64,7 +64,12 @@ public static class ServiceExtensions
                 options.Retry.UseJitter = true;
 
                 // Circuit breaker for sustained failures
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(30);
+                // IMPORTANT: Polly requires SamplingDuration >= 2 * AttemptTimeout to avoid configuration errors
+                // SamplingDuration: Time window for collecting failure rate samples (300s)
+                // AttemptTimeout: Maximum time allowed per attempt (120s)
+                // Constraint: 300s >= 2 * 120s = 240s ✓
+                // TODO: Review these timeouts if Polly pipeline is actually used in production
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(300);
                 options.CircuitBreaker.MinimumThroughput = 5;
                 options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(30);
 
