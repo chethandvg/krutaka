@@ -1,4 +1,5 @@
 using System.Globalization;
+using Anthropic.Exceptions;
 using Krutaka.AI;
 using Krutaka.Console;
 using Krutaka.Console.Logging;
@@ -592,6 +593,78 @@ try
             AnsiConsole.MarkupLine("[yellow]⚠ Operation cancelled[/]");
             AnsiConsole.WriteLine();
         }
+        catch (AnthropicBadRequestException ex)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[red]Error: The API returned a bad request error[/]");
+            AnsiConsole.MarkupLine($"[dim]{Markup.Escape(ex.Message)}[/]");
+            Log.Error(ex, "AnthropicBadRequestException in main loop");
+            AnsiConsole.WriteLine();
+
+            // Offer recovery options
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<RecoveryOption>()
+                    .Title("How would you like to proceed?")
+                    .AddChoices(RecoveryOption.ReloadSession, RecoveryOption.StartNew)
+                    .UseConverter(option => option switch
+                    {
+                        RecoveryOption.ReloadSession => "[yellow][[R]]eload session - Repair and reload from disk[/]",
+                        RecoveryOption.StartNew => "[green][[N]]ew session - Start fresh[/]",
+                        _ => option.ToString()
+                    }));
+
+            if (choice == RecoveryOption.ReloadSession)
+            {
+                try
+                {
+                    // Execute 3-step resume pattern: ResumeSessionAsync → ReconstructMessagesAsync → RestoreConversationHistory
+                    AnsiConsole.MarkupLine("[yellow]Reloading session from disk...[/]");
+                    var messages = await currentSessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
+                    if (messages.Count == 0)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]Current session is empty.[/]");
+                    }
+                    else
+                    {
+                        currentSession.Orchestrator.RestoreConversationHistory(messages);
+                        AnsiConsole.MarkupLine($"[green]✓ Reloaded {messages.Count} messages from disk[/]");
+                        Log.Information("Session reloaded after API error with {MessageCount} messages", messages.Count);
+                    }
+                }
+#pragma warning disable CA1031 // Do not catch general exception types
+                catch (Exception reloadEx)
+#pragma warning restore CA1031
+                {
+                    AnsiConsole.MarkupLine($"[red]Error reloading session: {Markup.Escape(reloadEx.Message)}[/]");
+                    AnsiConsole.MarkupLine("[yellow]Consider using /new to start a fresh session[/]");
+                    Log.Error(reloadEx, "Failed to reload session after API error");
+                }
+            }
+            else // RecoveryOption.StartNew
+            {
+                // Execute /new logic: terminate current session and create new one
+                await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
+                currentSessionStore.Dispose();
+
+                var sessionRequest = new SessionRequest(
+                    ProjectPath: workingDirectory,
+                    MaxTokenBudget: 200_000,
+                    MaxToolCallBudget: 1000);
+                currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
+#pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
+                currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
+#pragma warning restore CA2000
+
+                // Recreate SystemPromptBuilder with new session's tool registry
+                sessionToolRegistry = CreateSessionToolRegistry(currentSession);
+                systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
+
+                AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
+                Log.Information("User started new session after API error {SessionId}", currentSession.SessionId);
+            }
+
+            AnsiConsole.WriteLine();
+        }
 #pragma warning disable CA1031 // Do not catch general exception types
         catch (Exception ex)
 #pragma warning restore CA1031
@@ -599,6 +672,7 @@ try
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
             Log.Error(ex, "Unhandled exception in main loop");
+            AnsiConsole.MarkupLine("[dim]Tip: If this error persists, try /new to start a fresh session[/]");
             AnsiConsole.WriteLine();
         }
     }
@@ -707,5 +781,20 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
 
         yield return evt;
     }
+}
+
+// ========================================
+// Recovery Options Enum
+// ========================================
+
+/// <summary>
+/// Represents recovery options when an API error occurs.
+/// </summary>
+internal enum RecoveryOption
+{
+    /// <summary>Reload the current session using the 3-step resume pattern.</summary>
+    ReloadSession,
+    /// <summary>Start a new session.</summary>
+    StartNew
 }
 
