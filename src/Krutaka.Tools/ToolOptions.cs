@@ -95,4 +95,21 @@ public sealed class ToolOptions : IToolOptions
     /// v0.4.5 Session Resilience, API Hardening &amp; Context Intelligence feature.
     /// </summary>
     public bool EnablePreCompactionFlush { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the number of conversation turns after which large tool results are pruned
+    /// from the conversation snapshot sent to the Claude API.
+    /// Only tool results older than this many turns are eligible for pruning.
+    /// Default is 6 turns.
+    /// v0.4.5 Session Resilience, API Hardening &amp; Context Intelligence feature.
+    /// </summary>
+    public int PruneToolResultsAfterTurns { get; set; } = 6;
+
+    /// <summary>
+    /// Gets or sets the minimum character count for tool result pruning.
+    /// Tool results with fewer characters than this threshold are never pruned, regardless of age.
+    /// Default is 1000 characters.
+    /// v0.4.5 Session Resilience, API Hardening &amp; Context Intelligence feature.
+    /// </summary>
+    public int PruneToolResultMinChars { get; set; } = 1000;
 }
