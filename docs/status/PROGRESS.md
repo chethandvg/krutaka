@@ -2538,10 +2538,90 @@ v0.4.5 is a **stability, resilience, and intelligence** release that addresses r
 
 **Ready for:** Production use — critical crash fixed with comprehensive test coverage
 
+---
+
+## Issue #182: Add retry/backoff for Anthropic API rate limits — ✅ Complete (2026-02-18)
+
+**Status:** Complete  
+**Type:** Bug Fix — API Hardening  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence
+
+### Summary
+
+Added exponential backoff with jitter for Anthropic API rate limit responses (HTTP 429 / `AnthropicRateLimitException`) in `ClaudeClientWrapper`. Previously, a single rate limit response crashed the agentic loop with no recovery.
+
+### Changes Implemented
+
+1. **Retry Configuration (AgentConfiguration)**
+   - Added `RetryMaxAttempts` (default: 3)
+   - Added `RetryInitialDelayMs` (default: 1000)
+   - Added `RetryMaxDelayMs` (default: 30000)
+   - All configuration parameters serializable via JSON
+
+2. **ServiceExtensions Binding**
+   - Updated `ServiceExtensions.AddClaudeAI()` to read retry configuration from `Agent` section
+   - Passes retry parameters to `ClaudeClientWrapper` constructor
+
+3. **ClaudeClientWrapper Retry Logic**
+   - Added `ExecuteWithRetryAsync<T>()` helper method
+   - Implements exponential backoff: delay = min(initialDelay × 2^attempt, maxDelay)
+   - Applies jitter: ±25% randomization using cryptographically secure RNG
+   - Catches `Anthropic.Exceptions.AnthropicRateLimitException` only
+   - Non-rate-limit exceptions (e.g., `AnthropicBadRequestException`) are NOT retried
+   - Logs retry attempts at Warning level: "Rate limit encountered. Retry attempt {N}/{MaxAttempts} after {DelayMs}ms"
+   - After max retries exhausted, re-throws original exception
+
+4. **CountTokensAsync Retry Wrapping**
+   - Full method wrapped with `ExecuteWithRetryAsync`
+   - Retries entire token counting operation on rate limit
+
+5. **SendMessageAsync Retry Wrapping**
+   - Wraps `CreateStreaming()` call with `ExecuteWithRetryAsync`
+   - Retries stream setup on rate limit
+   - Mid-stream rate limits (unlikely) propagate without retry (per spec)
+
+6. **Configuration File**
+   - Updated `appsettings.json` with retry settings in `Agent` section
+
+### Test Coverage
+
+- **8 new tests** in `ClaudeClientRetryTests.cs`:
+  - Configuration defaults and custom values
+  - Serialization/deserialization of retry settings
+  - ClaudeClientWrapper constructor accepts retry configuration
+  - Exponential backoff calculation verified
+  - Max delay cap respected
+  - Jitter applied within ±25% range
+  - Jitter produces varying delays (non-deterministic)
+
+- **All existing tests pass:** 20 total (12 existing + 8 new)
+
+### Security
+
+- **Cryptographically secure RNG:** Uses `System.Security.Cryptography.RandomNumberGenerator` for jitter (CA5394 compliance)
+- **No sensitive data exposure:** Retry logic does not log API request/response content
+- **DoS mitigation:** Max 3 retries with capped delay (30s) prevents infinite retry loops
+
+### Retry-After Header Support
+
+- **Deferred:** The Anthropic SDK v12.4.0 does not expose `retry-after` header in `AnthropicRateLimitException`
+- **TODO:** Parse `retry-after` if exposed in future SDK versions
+- **Current behavior:** Uses calculated exponential backoff with jitter
+
+### Files Modified
+
+- `src/Krutaka.Core/AgentConfiguration.cs` — Added retry configuration properties
+- `src/Krutaka.AI/ServiceExtensions.cs` — Bind retry config to ClaudeClientWrapper
+- `src/Krutaka.AI/ClaudeClientWrapper.cs` — Implement retry logic with exponential backoff and jitter
+- `src/Krutaka.AI/Krutaka.AI.csproj` — Added `InternalsVisibleTo` for test project
+- `src/Krutaka.Console/appsettings.json` — Added retry configuration
+- `tests/Krutaka.AI.Tests/ClaudeClientRetryTests.cs` — New comprehensive test suite
+
+**Ready for:** Production use — rate limit resilience with configurable retry strategy
+
 ### Next Steps
 
 Remaining v0.4.5 issues:
-- API retry/backoff for Anthropic rate limits
 - Directory awareness in system prompt
 - Pre-compaction memory flush
 - Tool result pruning
