@@ -44,13 +44,13 @@ public static class ServiceExtensions
 
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClaudeClientWrapper>>();
 
-            // Create Anthropic client with retry configuration
-            // Note: The SDK has built-in retry logic (2 retries by default)
-            // We configure it to use 3 retries and 120s timeout
+            // Create Anthropic client with SDK retries DISABLED
+            // We use ClaudeClientWrapper's retry logic for full control over rate limit handling
+            // Setting MaxRetries = 0 prevents multiplicative retries (SDK retries × wrapper retries)
             var client = new AnthropicClient
             {
                 ApiKey = apiKey,
-                MaxRetries = 3,
+                MaxRetries = 0,  // Disable SDK retries - use wrapper retry logic only
                 Timeout = TimeSpan.FromSeconds(120)
             };
 

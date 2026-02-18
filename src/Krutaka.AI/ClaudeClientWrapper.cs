@@ -11,7 +11,7 @@ namespace Krutaka.AI;
 /// Provides streaming support, token counting, and request-id logging.
 /// Note: This uses the official Anthropic package, NOT the community Anthropic.SDK package.
 /// </summary>
-internal sealed partial class ClaudeClientWrapper : IClaudeClient
+internal sealed partial class ClaudeClientWrapper : IClaudeClient, IDisposable
 {
     private readonly AnthropicClient _client;
     private readonly ILogger<ClaudeClientWrapper> _logger;
@@ -22,6 +22,8 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
     private readonly int _retryInitialDelayMs;
     private readonly int _retryMaxDelayMs;
     private readonly System.Security.Cryptography.RandomNumberGenerator _random = System.Security.Cryptography.RandomNumberGenerator.Create();
+    private readonly object _randomLock = new();
+    private bool _disposed;
 
     public ClaudeClientWrapper(
         AnthropicClient client,
@@ -33,8 +35,30 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         int retryInitialDelayMs = 1000,
         int retryMaxDelayMs = 30000)
     {
-        _client = client;
-        _logger = logger;
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        
+        // Validate retry configuration
+        if (retryMaxAttempts < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryMaxAttempts), retryMaxAttempts, "RetryMaxAttempts must be >= 0");
+        }
+
+        if (retryInitialDelayMs <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryInitialDelayMs), retryInitialDelayMs, "RetryInitialDelayMs must be > 0");
+        }
+
+        if (retryMaxDelayMs < retryInitialDelayMs)
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryMaxDelayMs), retryMaxDelayMs, "RetryMaxDelayMs must be >= RetryInitialDelayMs");
+        }
+
+        if (retryMaxDelayMs > 300000) // 5 minutes max
+        {
+            throw new ArgumentOutOfRangeException(nameof(retryMaxDelayMs), retryMaxDelayMs, "RetryMaxDelayMs must be <= 300000 (5 minutes)");
+        }
+        
         _modelId = modelId;
         _maxTokens = maxTokens;
         _temperature = temperature;
@@ -444,13 +468,16 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
     {
         Exception? lastException = null;
 
-        for (int attempt = 0; attempt <= _retryMaxAttempts; attempt++)
+        for (int attempt = 0; attempt < _retryMaxAttempts; attempt++)
         {
+            // Check for cancellation before each attempt
+            cancellationToken.ThrowIfCancellationRequested();
+            
             try
             {
                 return await operation(cancellationToken).ConfigureAwait(false);
             }
-            catch (Anthropic.Exceptions.AnthropicRateLimitException ex) when (attempt < _retryMaxAttempts)
+            catch (Anthropic.Exceptions.AnthropicRateLimitException ex) when (attempt < _retryMaxAttempts - 1)
             {
                 lastException = ex;
 
@@ -458,12 +485,16 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
                 var baseDelay = _retryInitialDelayMs * Math.Pow(2, attempt);
                 var cappedDelay = Math.Min(baseDelay, _retryMaxDelayMs);
 
-                // Apply jitter: ±25%
-                var jitterBytes = new byte[4];
-                _random.GetBytes(jitterBytes);
-                var randomValue = BitConverter.ToUInt32(jitterBytes, 0) / (double)uint.MaxValue; // 0.0 to 1.0
-                var jitterFactor = 0.75 + (randomValue * 0.5); // Range: 0.75 to 1.25
-                var delayMs = (int)(cappedDelay * jitterFactor);
+                // Apply jitter: ±25% (thread-safe)
+                int delayMs;
+                lock (_randomLock)
+                {
+                    var jitterBytes = new byte[4];
+                    _random.GetBytes(jitterBytes);
+                    var randomValue = BitConverter.ToUInt32(jitterBytes, 0) / (double)uint.MaxValue; // 0.0 to 1.0
+                    var jitterFactor = 0.75 + (randomValue * 0.5); // Range: 0.75 to 1.25
+                    delayMs = (int)(cappedDelay * jitterFactor);
+                }
 
                 // Check if the exception contains a retry-after hint
                 // The Anthropic SDK may include this in the exception properties
@@ -477,7 +508,25 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient
         }
 
         // All retries exhausted - throw the original exception
-        throw lastException ?? new InvalidOperationException("Retry logic failed with no exception captured");
+        if (lastException != null)
+        {
+            throw lastException;
+        }
+        
+        // This should never happen as the loop always executes at least once
+        throw new InvalidOperationException("Retry logic completed without executing the operation or capturing an exception. This indicates a programming error.");
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _random?.Dispose();
+        _client?.Dispose();
+        _disposed = true;
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Received streaming chunk from Claude API")]

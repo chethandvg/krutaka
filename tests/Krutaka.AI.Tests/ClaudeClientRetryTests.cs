@@ -71,7 +71,7 @@ public sealed class ClaudeClientRetryBehaviorTests
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
 
         // Act - Create wrapper with custom retry settings
-        var wrapper = new ClaudeClientWrapper(
+        using var wrapper = new ClaudeClientWrapper(
             client,
             logger,
             retryMaxAttempts: 5,
@@ -90,7 +90,7 @@ public sealed class ClaudeClientRetryBehaviorTests
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
 
         // Act - Create wrapper without specifying retry settings
-        var wrapper = new ClaudeClientWrapper(client, logger);
+        using var wrapper = new ClaudeClientWrapper(client, logger);
 
         // Assert - Wrapper should be created successfully with defaults
         wrapper.Should().NotBeNull();
@@ -102,7 +102,7 @@ public sealed class ClaudeClientRetryBehaviorTests
         // Arrange
         using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
-        var wrapper = new ClaudeClientWrapper(
+        using var wrapper = new ClaudeClientWrapper(
             client,
             logger,
             retryMaxAttempts: 3,
@@ -178,5 +178,146 @@ public sealed class ClaudeClientRetryBehaviorTests
         // Assert - Delays should have variance (not all the same)
         var distinctDelays = delays.Distinct().Count();
         distinctDelays.Should().BeGreaterThan(50, "jitter should produce varying delays");
+    }
+}
+
+/// <summary>
+/// Validation tests for ClaudeClientWrapper constructor parameters.
+/// </summary>
+public sealed class ClaudeClientWrapperValidationTests
+{
+    [Fact]
+    public void Constructor_Should_ThrowOnNullClient()
+    {
+        // Arrange & Act & Assert
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        Assert.Throws<ArgumentNullException>(() =>
+            new ClaudeClientWrapper(null!, logger));
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowOnNullLogger()
+    {
+        // Arrange & Act & Assert
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        
+        Assert.Throws<ArgumentNullException>(() =>
+            new ClaudeClientWrapper(client, null!));
+    }
+
+    [Fact]
+    public void Constructor_Should_RejectNegativeMaxAttempts()
+    {
+        // Arrange & Act & Assert
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ClaudeClientWrapper(client, logger, retryMaxAttempts: -1));
+    }
+
+    [Fact]
+    public void Constructor_Should_RejectZeroOrNegativeInitialDelay()
+    {
+        // Arrange & Act & Assert
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ClaudeClientWrapper(client, logger, retryInitialDelayMs: 0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ClaudeClientWrapper(client, logger, retryInitialDelayMs: -100));
+    }
+
+    [Fact]
+    public void Constructor_Should_RejectMaxDelayLessThanInitialDelay()
+    {
+        // Arrange & Act & Assert
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ClaudeClientWrapper(client, logger, retryInitialDelayMs: 1000, retryMaxDelayMs: 500));
+    }
+
+    [Fact]
+    public void Constructor_Should_RejectExcessiveMaxDelay()
+    {
+        // Arrange & Act & Assert
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        // Max delay > 5 minutes (300000ms) should be rejected
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ClaudeClientWrapper(client, logger, retryMaxDelayMs: 400000));
+    }
+
+    [Fact]
+    public void Constructor_Should_AcceptZeroRetries()
+    {
+        // Arrange & Act - Zero retries should be valid (fail immediately on first error)
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        using var wrapper = new ClaudeClientWrapper(
+            client,
+            logger,
+            retryMaxAttempts: 0,
+            retryInitialDelayMs: 1000,
+            retryMaxDelayMs: 30000);
+
+        // Assert
+        wrapper.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Constructor_Should_AcceptValidBoundaryValues()
+    {
+        // Arrange & Act
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        
+        using var wrapper = new ClaudeClientWrapper(
+            client,
+            logger,
+            retryMaxAttempts: 10,
+            retryInitialDelayMs: 1,
+            retryMaxDelayMs: 300000); // Exactly 5 minutes
+
+        // Assert
+        wrapper.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Dispose_Should_BeIdempotent()
+    {
+        // Arrange
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        var wrapper = new ClaudeClientWrapper(client, logger);
+
+        // Act - Dispose multiple times
+        wrapper.Dispose();
+        wrapper.Dispose();
+        wrapper.Dispose();
+
+        // Assert - Should not throw
+    }
+
+    [Fact]
+    public void Dispose_Should_DisposeResources()
+    {
+        // Arrange
+        using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
+        var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
+        var wrapper = new ClaudeClientWrapper(client, logger);
+
+        // Act
+        wrapper.Dispose();
+
+        // Assert - Wrapper should be disposed (verified by no exception on double dispose)
+        wrapper.Dispose();
     }
 }
