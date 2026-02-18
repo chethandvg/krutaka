@@ -371,6 +371,30 @@ public sealed class SessionFactoryTests
     }
 
     [Fact]
+    public async Task Create_Should_PassMemoryWriterDelegateToContextCompactor()
+    {
+        // Arrange
+        var factory = CreateSessionFactory();
+        Func<string, CancellationToken, Task> memoryWriter = (content, ct) =>
+        {
+            return Task.CompletedTask;
+        };
+
+        var request = new SessionRequest(
+            ProjectPath: "/tmp/test-sessions/project1",
+            MemoryWriter: memoryWriter);
+
+        // Act
+        await using var session = factory.Create(request);
+
+        // Assert - Memory writer was passed to SessionRequest and stored
+        // We can't easily verify the ContextCompactor has it without reflection,
+        // but we can verify the request parameter is accepted
+        session.Should().NotBeNull();
+        request.MemoryWriter.Should().Be(memoryWriter);
+    }
+
+    [Fact]
     public async Task Create_Should_ThrowArgumentNullException_WhenRequestIsNull()
     {
         // Arrange

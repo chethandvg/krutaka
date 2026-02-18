@@ -229,6 +229,264 @@ public sealed class ContextCompactorTests
     }
 
     [Fact]
+    public async Task PreCompactionFlush_Should_CallMemoryWriterWithExtractedContent()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+        var currentTokenCount = 165_000;
+
+        // Mock memory writer to capture the content
+        string? capturedContent = null;
+        Func<string, CancellationToken, Task> memoryWriter = (content, ct) =>
+        {
+            capturedContent = content;
+            return Task.CompletedTask;
+        };
+
+        var compactorWithMemory = new ContextCompactor(
+            _mockClaudeClient,
+            maxTokens: 200_000,
+            compactionThreshold: 0.80,
+            messagesToKeep: 6,
+            memoryWriter: memoryWriter);
+
+        // Mock the memory extraction response
+        var extractionEvents = new List<AgentEvent>
+        {
+            new TextDelta("## Session Context (auto-saved)\n- User asked about file operations\n- Created file at /path/to/file.txt"),
+            new FinalResponse("## Session Context (auto-saved)\n- User asked about file operations\n- Created file at /path/to/file.txt", "end_turn")
+        };
+
+        // Setup mock to return extraction for first call, then summary for second call
+        var callCount = 0;
+        _mockClaudeClient.SendMessageAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<object?>(),
+            Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    // First call: memory extraction
+                    return extractionEvents.ToAsyncEnumerable();
+                }
+                else
+                {
+                    // Second call: summarization
+                    var summaryEvents = new List<AgentEvent>
+                    {
+                        new TextDelta("Summary of conversation"),
+                        new FinalResponse("Summary of conversation", "end_turn")
+                    };
+                    return summaryEvents.ToAsyncEnumerable();
+                }
+            });
+
+        _mockClaudeClient.CountTokensAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(80_000));
+
+        // Act
+        await compactorWithMemory.CompactAsync(messages, systemPrompt, currentTokenCount);
+
+        // Assert
+        capturedContent.Should().NotBeNull();
+        capturedContent.Should().Contain("Session Context (auto-saved)");
+        capturedContent.Should().Contain("User asked about file operations");
+    }
+
+    [Fact]
+    public async Task PreCompactionFlush_Should_SkipWhenDelegateIsNull()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+        var currentTokenCount = 165_000;
+
+        var compactorWithoutMemory = new ContextCompactor(
+            _mockClaudeClient,
+            maxTokens: 200_000,
+            compactionThreshold: 0.80,
+            messagesToKeep: 6,
+            memoryWriter: null);
+
+        SetupMockForSummarization("Summary text");
+        _mockClaudeClient.CountTokensAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(80_000));
+
+        // Act
+        var result = await compactorWithoutMemory.CompactAsync(messages, systemPrompt, currentTokenCount);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Summary.Should().Be("Summary text");
+
+        // Should have called SendMessageAsync only once (for summarization, not for extraction)
+        _ = _mockClaudeClient.Received(1).SendMessageAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<object?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PreCompactionFlush_Should_WrapContentInUntrustedTags()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+        var currentTokenCount = 165_000;
+
+        // Track the extraction request to verify untrusted_content wrapping
+        IEnumerable<object>? extractionRequest = null;
+        var callCount = 0;
+
+        _mockClaudeClient.SendMessageAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<object?>(),
+            Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    // Capture the extraction request
+                    extractionRequest = callInfo.Arg<IEnumerable<object>>();
+
+                    var extractionEvents = new List<AgentEvent>
+                    {
+                        new TextDelta("## Session Context (auto-saved)\n- Some context"),
+                        new FinalResponse("## Session Context (auto-saved)\n- Some context", "end_turn")
+                    };
+                    return extractionEvents.ToAsyncEnumerable();
+                }
+                else
+                {
+                    var summaryEvents = new List<AgentEvent>
+                    {
+                        new TextDelta("Summary"),
+                        new FinalResponse("Summary", "end_turn")
+                    };
+                    return summaryEvents.ToAsyncEnumerable();
+                }
+            });
+
+        _mockClaudeClient.CountTokensAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(80_000));
+
+        Func<string, CancellationToken, Task> memoryWriter = (content, ct) => Task.CompletedTask;
+
+        var compactorWithMemory = new ContextCompactor(
+            _mockClaudeClient,
+            maxTokens: 200_000,
+            memoryWriter: memoryWriter);
+
+        // Act
+        await compactorWithMemory.CompactAsync(messages, systemPrompt, currentTokenCount);
+
+        // Assert
+        extractionRequest.Should().NotBeNull();
+        var firstMessage = extractionRequest!.First();
+        var content = GetMessageContent(firstMessage);
+        content.Should().Contain("<untrusted_content>");
+        content.Should().Contain("</untrusted_content>");
+        content.Should().Contain("<conversation_to_extract>");
+        content.Should().Contain("</conversation_to_extract>");
+    }
+
+    [Fact]
+    public async Task PreCompactionFlush_Should_ContinueOnFailure()
+    {
+        // Arrange
+        var messages = CreateMessageList(10);
+        var systemPrompt = "You are a helpful assistant.";
+        var currentTokenCount = 165_000;
+
+        // Memory writer that throws an exception
+        Func<string, CancellationToken, Task> faultyMemoryWriter = (content, ct) =>
+        {
+            throw new InvalidOperationException("Memory write failed");
+        };
+
+        var compactorWithFaultyMemory = new ContextCompactor(
+            _mockClaudeClient,
+            maxTokens: 200_000,
+            memoryWriter: faultyMemoryWriter);
+
+        // Mock extraction response (will succeed, but writing will fail)
+        var callCount = 0;
+        _mockClaudeClient.SendMessageAsync(
+            Arg.Any<IEnumerable<object>>(),
+            Arg.Any<string>(),
+            Arg.Any<object?>(),
+            Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                if (callCount == 1)
+                {
+                    var extractionEvents = new List<AgentEvent>
+                    {
+                        new TextDelta("## Session Context (auto-saved)\n- Some context"),
+                        new FinalResponse("## Session Context (auto-saved)\n- Some context", "end_turn")
+                    };
+                    return extractionEvents.ToAsyncEnumerable();
+                }
+                else
+                {
+                    var summaryEvents = new List<AgentEvent>
+                    {
+                        new TextDelta("Summary"),
+                        new FinalResponse("Summary", "end_turn")
+                    };
+                    return summaryEvents.ToAsyncEnumerable();
+                }
+            });
+
+        _mockClaudeClient.CountTokensAsync(Arg.Any<IEnumerable<object>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(80_000));
+
+        // Act & Assert - should not throw, compaction should proceed
+        var result = await compactorWithFaultyMemory.CompactAsync(messages, systemPrompt, currentTokenCount);
+
+        result.Should().NotBeNull();
+        result.Summary.Should().Be("Summary");
+        result.CompactedMessages.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task PreCompactionFlush_Should_SkipWhenNoMessagesToSummarize()
+    {
+        // Arrange
+        var messages = CreateMessageList(4); // Less than messagesToKeep (6)
+        var systemPrompt = "You are a helpful assistant.";
+        var currentTokenCount = 165_000;
+
+        var memoryWriterCalled = false;
+        Func<string, CancellationToken, Task> memoryWriter = (content, ct) =>
+        {
+            memoryWriterCalled = true;
+            return Task.CompletedTask;
+        };
+
+        var compactorWithMemory = new ContextCompactor(
+            _mockClaudeClient,
+            maxTokens: 200_000,
+            memoryWriter: memoryWriter);
+
+        // Act
+        var result = await compactorWithMemory.CompactAsync(messages, systemPrompt, currentTokenCount);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.CompactedMessages.Should().HaveCount(4); // No compaction performed
+        memoryWriterCalled.Should().BeFalse(); // Memory writer should not be called
+    }
+
+    [Fact]
     public async Task TruncateToFitAsync_Should_DropOldestMessagesUntilUnderLimit()
     {
         // Arrange

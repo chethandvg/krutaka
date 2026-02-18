@@ -237,6 +237,20 @@ try
     var maxTokenBudget = configuration.GetValue<int>("Agent:MaxTokenBudget", 200_000);
     var maxToolCallBudget = configuration.GetValue<int>("Agent:MaxToolCallBudget", 1000);
 
+    // Helper function to create memory writer delegate for pre-compaction flush
+    static Func<string, CancellationToken, Task>? CreateMemoryWriter(IServiceProvider serviceProvider)
+    {
+        var memoryFileService = serviceProvider.GetService<MemoryFileService>();
+        var toolOptions = serviceProvider.GetService<IToolOptions>();
+        
+        if (memoryFileService != null && toolOptions?.EnablePreCompactionFlush == true)
+        {
+            return async (content, ct) => await memoryFileService.AppendRawMarkdownAsync(content, ct).ConfigureAwait(false);
+        }
+        
+        return null;
+    }
+
     // Helper function to create SystemPromptBuilder using session's tool registry
     static SystemPromptBuilder CreateSystemPromptBuilder(IToolRegistry toolRegistry, string workingDirectory, IServiceProvider serviceProvider)
     {
@@ -315,10 +329,12 @@ try
         // so we use SessionFactory directly to create with the preserved ID
         Log.Information("Found existing session {SessionId}, creating with preserved ID", existingSessionId.Value);
         
+        var memoryWriter = CreateMemoryWriter(host.Services);
         var sessionRequest = new SessionRequest(
             ProjectPath: workingDirectory,
             MaxTokenBudget: maxTokenBudget,
-            MaxToolCallBudget: maxToolCallBudget);
+            MaxToolCallBudget: maxToolCallBudget,
+            MemoryWriter: memoryWriter);
         
         // Use SessionFactory directly to create with preserved session ID
         var sessionFactory = host.Services.GetRequiredService<ISessionFactory>();
@@ -350,10 +366,12 @@ try
     {
         // Create new session
         Log.Information("No previous session found, creating new session");
+        var memoryWriter = CreateMemoryWriter(host.Services);
         var sessionRequest = new SessionRequest(
             ProjectPath: workingDirectory,
             MaxTokenBudget: maxTokenBudget,
-            MaxToolCallBudget: maxToolCallBudget);
+            MaxToolCallBudget: maxToolCallBudget,
+            MemoryWriter: memoryWriter);
         currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section
         currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
@@ -480,10 +498,12 @@ try
                 currentSessionStore.Dispose();
 
                 // Create new session via SessionManager
+                var memoryWriter = CreateMemoryWriter(host.Services);
                 var sessionRequest = new SessionRequest(
                     ProjectPath: workingDirectory,
                     MaxTokenBudget: maxTokenBudget,
-                    MaxToolCallBudget: maxToolCallBudget);
+                    MaxToolCallBudget: maxToolCallBudget,
+                    MemoryWriter: memoryWriter);
                 currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
                 currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
@@ -658,10 +678,12 @@ try
                     await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
                     currentSessionStore.Dispose();
 
+                    var memoryWriter = CreateMemoryWriter(host.Services);
                     var sessionRequest = new SessionRequest(
                         ProjectPath: workingDirectory,
                         MaxTokenBudget: maxTokenBudget,
-                        MaxToolCallBudget: maxToolCallBudget);
+                        MaxToolCallBudget: maxToolCallBudget,
+                        MemoryWriter: memoryWriter);
                     currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
 #pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
                     currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);

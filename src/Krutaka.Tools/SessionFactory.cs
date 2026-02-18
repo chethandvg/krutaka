@@ -100,7 +100,7 @@ public sealed class SessionFactory : ISessionFactory
         // Create per-session IToolRegistry with tools scoped to ProjectPath
         var toolRegistry = CreateSessionToolRegistry(request.ProjectPath, sessionAccessPolicyEngine, commandApprovalCache, correlationContext);
 
-        // Create per-session ContextCompactor
+        // Create per-session ContextCompactor with optional memory writer from request
         var contextCompactor = new ContextCompactor(
             _claudeClient,
             maxTokens: 200_000,
@@ -108,7 +108,8 @@ public sealed class SessionFactory : ISessionFactory
             messagesToKeep: 6,
             auditLogger: _auditLogger,
             correlationContext: correlationContext,
-            compactionClient: null);
+            compactionClient: null,
+            memoryWriter: request.MemoryWriter);
 
         // Create per-session AgentOrchestrator
         var orchestrator = new AgentOrchestrator(

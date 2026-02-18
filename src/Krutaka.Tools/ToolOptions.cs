@@ -86,4 +86,13 @@ public sealed class ToolOptions : IToolOptions
     /// If set to 0, the value will be derived from MaxTokens configuration (4 × MaxTokens, minimum 100,000).
     /// </summary>
     public int MaxToolResultCharacters { get; set; } = 200_000;
+
+    /// <summary>
+    /// Gets or sets whether to enable pre-compaction memory flush to MEMORY.md.
+    /// When enabled, critical context is extracted from the conversation and written to MEMORY.md
+    /// before context compaction triggers, preserving decisions and progress that would otherwise be lost.
+    /// Default is true.
+    /// v0.4.5 Session Resilience, API Hardening &amp; Context Intelligence feature.
+    /// </summary>
+    public bool EnablePreCompactionFlush { get; set; } = true;
 }

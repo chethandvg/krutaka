@@ -21,4 +21,9 @@ public interface IToolOptions
 #pragma warning disable CA1819 // Properties should not return arrays - this is configuration data
     string[] AutoGrantPatterns { get; }
 #pragma warning restore CA1819
+
+    /// <summary>
+    /// Gets whether pre-compaction memory flush is enabled.
+    /// </summary>
+    bool EnablePreCompactionFlush { get; }
 }
