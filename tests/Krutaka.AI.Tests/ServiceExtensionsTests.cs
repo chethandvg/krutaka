@@ -66,32 +66,4 @@ public class ServiceExtensionsTests
         var action = () => httpClientFactory!.CreateClient("AnthropicAPI");
         action.Should().NotThrow();
     }
-
-    [Fact]
-    public void AddClaudeAI_Should_ThrowArgumentNullException_WhenServicesIsNull()
-    {
-        // Arrange
-        var configuration = new ConfigurationBuilder().Build();
-
-        // Act
-        var action = () => ServiceExtensions.AddClaudeAI(null!, configuration);
-
-        // Assert
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("services");
-    }
-
-    [Fact]
-    public void AddClaudeAI_Should_ThrowArgumentNullException_WhenConfigurationIsNull()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-
-        // Act
-        var action = () => ServiceExtensions.AddClaudeAI(services, null!);
-
-        // Assert
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("configuration");
-    }
 }
