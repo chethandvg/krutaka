@@ -131,5 +131,4 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `docs/versions/v0.4.5.md` | v0.4.5 Session Resilience, API Hardening & Context Intelligence design |
 | `docs/versions/v0.4.6.md` | v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites design |
 | `docs/roadmap/ROADMAP.md` | Forward-looking roadmap through v1.3.0+ |
-| `src/Krutaka.Core/README.md` | Core project structure and key types |
 | `CHANGELOG.md` | Release notes following Keep a Changelog format |
