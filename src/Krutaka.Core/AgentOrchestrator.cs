@@ -1044,12 +1044,19 @@ public sealed class AgentOrchestrator : IDisposable
             cancellationToken).ConfigureAwait(false);
 
         var compactedMessages = result.CompactedMessages;
+        var finalTokenCount = result.CompactedTokenCount;
 
         // Safety net: if compaction didn't bring tokens under the hard limit,
         // perform emergency truncation to prevent API errors
         if (_contextCompactor.ExceedsHardLimit(result.CompactedTokenCount))
         {
             compactedMessages = await _contextCompactor.TruncateToFitAsync(
+                compactedMessages,
+                systemPrompt,
+                cancellationToken).ConfigureAwait(false);
+
+            // Recompute token count after emergency truncation for accurate metadata
+            finalTokenCount = await _claudeClient.CountTokensAsync(
                 compactedMessages,
                 systemPrompt,
                 cancellationToken).ConfigureAwait(false);
@@ -1069,7 +1076,7 @@ public sealed class AgentOrchestrator : IDisposable
         return new CompactionCompleted(
             summary,
             result.OriginalTokenCount,
-            result.CompactedTokenCount,
+            finalTokenCount,
             result.MessagesRemoved);
     }
 

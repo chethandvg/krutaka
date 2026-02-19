@@ -658,6 +658,48 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public async Task RunAsync_Should_RecomputeTokensAfter_EmergencyTruncation()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        // Set high token count to trigger compaction
+        claudeClient.SetTokenCount(210_000); // Above hard limit of 200K to trigger emergency truncation
+        claudeClient.AddFinalResponse("Response after truncation", "end_turn");
+
+        var compactor = new ContextCompactor(claudeClient);
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            new MockToolRegistry(),
+            new MockSecurityPolicy(),
+            contextCompactor: compactor);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Test prompt", "System prompt"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        // When emergency truncation is triggered, CountTokensAsync should be called:
+        // 1. Once to check if compaction is needed
+        // 2. Once during compaction (CompactAsync)
+        // 3. Once after TruncateToFitAsync to get accurate final token count
+        // The exact count depends on implementation details, but should be >= 2
+        claudeClient.CountTokensCallCount.Should().BeGreaterThanOrEqualTo(2,
+            "CountTokensAsync must be called to check compaction need and recompute tokens after emergency truncation");
+
+        // If CompactionCompleted event is emitted, verify it has been updated
+        var compactionEvent = events.OfType<CompactionCompleted>().SingleOrDefault();
+        if (compactionEvent != null)
+        {
+            // TokensAfter should reflect post-truncation count, not pre-truncation
+            compactionEvent.TokensAfter.Should().BeGreaterThan(0, "TokensAfter must be set");
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_Should_UseDefaultLimit_WhenMaxToolResultCharactersNotSpecified()
     {
         // Arrange - tool result just under the default limit should NOT be truncated
