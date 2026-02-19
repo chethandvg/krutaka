@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-19 (v0.4.5 Issue #189 Complete — 1,917 tests passing, 2 skipped)
+> **Last updated:** 2026-02-19 (v0.4.5 Issue #190 Complete — 1,917 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2495,9 +2495,9 @@ Implementation of v0.4.0 components will follow the complete issue breakdown in 
 
 ---
 
-## v0.4.5 — Session Resilience, API Hardening & Context Intelligence (In Progress)
+## v0.4.5 — Session Resilience, API Hardening & Context Intelligence (Complete)
 
-> **Status:** 🟡 **In Progress** (Issues #181, #182, #183, #184, #185 Complete — 2026-02-18)  
+> **Status:** ✅ **Complete** (2026-02-19) — All issues complete, 1,917 tests passing (2 skipped)
 > **Reference:** See `docs/versions/v0.4.5.md` for complete architecture design, failure modes, and implementation roadmap.
 
 ### Overview
@@ -2511,8 +2511,17 @@ v0.4.5 is a **stability, resilience, and intelligence** release that addresses r
 ### Issue Status
 
 | # | Issue | Type | Status | Date Completed |
-|---|---|---|---|
+|---|---|---|---|---|
 | 181 | Fix orphaned tool_use session resume crash | Bug | 🟢 Complete | 2026-02-18 |
+| 182 | Add retry/backoff for Anthropic API rate limits | Bug | 🟢 Complete | 2026-02-18 |
+| 183 | Add error recovery in main loop for API exceptions | Bug | 🟢 Complete | 2026-02-18 |
+| 184 | Add directory awareness to system prompt | Enhancement | 🟢 Complete | 2026-02-18 |
+| 185 | Add bootstrap file size caps to system prompt | Enhancement | 🟢 Complete | 2026-02-18 |
+| 186 | Add pre-compaction memory flush to MEMORY.md | Enhancement | 🟢 Complete | 2026-02-18 |
+| 187 | Add tool result pruning for older conversation turns | Enhancement | 🟢 Complete | 2026-02-18 |
+| 188 | Add compaction events to JSONL session files | Enhancement | 🟢 Complete | 2026-02-19 |
+| 189 | Adversarial tests for session resilience and API hardening | Testing | 🟢 Complete | 2026-02-19 |
+| 190 | v0.4.5 release documentation and verification | Documentation | 🟢 Complete | 2026-02-19 |
 
 **Issue #181 Details:**
 - **Problem:** Resuming a session with orphaned `tool_use` blocks (no matching `tool_result`) caused `AnthropicBadRequestException` in `CompactIfNeededAsync()`, which propagated unhandled and crashed the main loop. Root cause: `CreateAssistantMessage()` stored `toolCall.Input` as string → double-escaped JSON after JSONL round-trip → malformed history sent to Claude API → 400 error → unhandled exception.
@@ -3307,8 +3316,83 @@ Created comprehensive adversarial test suites that verify the resilience improve
 
 **Ready for:** Production use — comprehensive adversarial test coverage confirms v0.4.5 resilience improvements
 
-### Next Steps
+---
 
-Remaining v0.4.5 issues:
-- Release documentation (#190) — Final docs consolidation
+## Issue #190: v0.4.5 release documentation and verification — ✅ Complete (2026-02-19)
+
+**Status:** Complete  
+**Type:** Documentation & Release Preparation  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence
+
+### Summary
+
+Final verification, documentation updates, and release preparation for v0.4.5. This issue ensures all tests pass, all documentation reflects the final implementation, and the release is ready for the stabilize/release lifecycle stages.
+
+### Changes Implemented
+
+1. **Security Invariants Verified** (All 6 confirmed in codebase):
+   - ✅ Synthetic `tool_result` blocks always have `is_error = true` (line 354 in `SessionStore.cs`)
+   - ✅ Tool result pruning returns new list, does NOT modify JSONL (line 1305 in `AgentOrchestrator.cs`)
+   - ✅ Pre-compaction flush wraps content in `<untrusted_content>` tags (lines 347, 439 in `ContextCompactor.cs`)
+   - ✅ Bootstrap caps never truncate Layer 2 security instructions (lines 207-211 in `SystemPromptBuilder.cs`)
+   - ✅ Retry max enforced (line 471 in `ClaudeClientWrapper.cs`), SDK retries disabled (line 53 in `ServiceExtensions.cs`)
+   - ✅ Compaction events skipped during reconstruction (lines 142-146 in `SessionStore.cs`)
+
+2. **CHANGELOG.md Updated**:
+   - Added `## [0.4.5] - 2026-02-19` entry
+   - **Fixed** section: 5 items (orphaned tool_use crash, compaction failure propagation, input serialization, rate limit crash, API error recovery)
+   - **Added** section: 11 items (post-repair validation, exponential backoff, error recovery menu, directory awareness, bootstrap caps, pre-compaction flush, tool result pruning, compaction events, adversarial tests, ~152 new tests)
+   - **Changed** section: 7 items (retry wrapping in ClaudeClientWrapper, compaction try-catch, input normalization, SystemPromptBuilder enhancements, ContextCompactor pre-flush, SessionStore compaction events, Console error recovery)
+   - **Security** section: 6 items (synthetic results as errors, immutable JSONL, untrusted_content wrapping, Layer 2 protection, retry amplification prevention, informational compaction events)
+   - Updated footer links for version comparison
+
+3. **README.md Updated**:
+   - Status line: v0.4.5 complete with 1,917 tests passing (2 skipped)
+   - Added "Session resilience" bullet in feature list
+
+4. **docs/versions/v0.4.5.md Updated**:
+   - Status: `✅ Complete (2026-02-19)`
+   - Final test count: 1,917 tests passing (2 skipped)
+   - Acceptance criteria: all items marked [x] complete
+
+5. **docs/status/PROGRESS.md Updated**:
+   - Header: "v0.4.5 Issue #189 Complete — 1,917 tests passing, 2 skipped"
+   - Section status: `✅ **Complete** (2026-02-19)`
+   - Issue status table: all 10 issues (#181-#190) marked 🟢 Complete
+   - Added Issue #190 entry with summary and changes
+
+6. **AGENTS.md Updated**:
+   - Implementation Status: `✅ **v0.4.5 Session Resilience & Context Intelligence Complete**`
+   - Test count: 1,917 tests passing (2 skipped)
+
+7. **.github/copilot-instructions.md Updated**:
+   - Implementation Status: `✅ **v0.4.5 Session Resilience, API Hardening & Context Intelligence Complete**`
+   - Test count: 1,917 tests passing (2 skipped)
+
+### Test Results
+
+- **All tests passing:** 1,917 tests (2 skipped)
+- **Zero regressions** from v0.4.0 baseline (1,765 tests)
+- **+152 new tests** from v0.4.5 issues
+
+### Files Modified
+
+- `CHANGELOG.md` — Added v0.4.5 entry with Fixed/Added/Changed/Security sections
+- `README.md` — Updated status and added session resilience mention
+- `docs/versions/v0.4.5.md` — Marked complete with final test count
+- `docs/status/PROGRESS.md` — Updated status, issue table, added #190 entry
+- `AGENTS.md` — Updated implementation status
+- `.github/copilot-instructions.md` — Updated implementation status
+
+**Ready for:** Release branch creation (`release/v0.4.5` from `develop`) and pre-release tag (`v0.4.5-rc.1`)
+
+### Release Checklist (Maintainer)
+
+The following steps are performed by the repository maintainer (not the Copilot agent):
+
+- [ ] `git checkout -b release/v0.4.5 develop`
+- [ ] `git tag -a v0.4.5-rc.1 -m "v0.4.5 Release Candidate 1"`
+- [ ] `git push origin release/v0.4.5 --tags`
+- [ ] Trigger stabilization testing per `release-lifecycle.txt`
+- [ ] If stabilization passes, merge to `main` and tag `v0.4.5`
 

@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-02-19
+
+### Fixed
+- **Orphaned `tool_use` blocks causing `AnthropicBadRequestException` crash on session resume** (#181): Session resume with orphaned `tool_use` blocks (tool calls without matching `tool_result`) caused unhandled API error and crashed main loop. Fixed by:
+  - Normalizing `tool_use` input serialization in `CreateAssistantMessage()` — parse string to `JsonElement` to prevent double-serialization during JSONL round-trip
+  - Hardening `RepairOrphanedToolUseBlocks()` with graceful handling of unknown content block types (forward compatibility)
+  - Adding post-repair validation in `ReconstructMessagesAsync()` — drops orphaned assistant messages if invariant still doesn't hold after repair
+- **`CompactIfNeededAsync` failure propagating as unhandled exception** (#181): Compaction failure (e.g., during token counting with malformed history) crashed the agentic loop. Fixed by wrapping compaction call in try-catch — compaction is optimization, not correctness requirement. Loop continues on failure.
+- **`tool_use` input stored as string instead of `JsonElement`** (#181): `CreateAssistantMessage()` stored `toolCall.Input` (string) as-is, causing JSON round-trip corruption. Fixed by parsing to `JsonElement` before storing (fall back to `{}` if parsing fails).
+- **Rate limit (HTTP 429) from Anthropic API crashing agentic loop** (#182): Single rate limit response crashed loop with no retry. Fixed by implementing exponential backoff with jitter (max 3 retries, 1s–30s delay) in `ClaudeClientWrapper.SendMessageAsync()` and `CountTokensAsync()`.
+- **`AnthropicBadRequestException` in main loop leaving session corrupted with no recovery** (#183): API errors left session in corrupted state with no user-facing recovery options. Fixed by adding error recovery in Console main loop — offers "Reload session" and "Start new session" options on API errors.
+
+### Added
+- **Post-repair validation for session message history** (#181): After `RepairOrphanedToolUseBlocks()` runs, `ValidateAndRemoveOrphanedAssistantMessages()` re-scans all messages to verify invariant (every `tool_use` has matching `tool_result`). Drops orphaned assistant messages entirely if repair fails.
+- **Exponential backoff with jitter for Anthropic API rate limits** (#182): Configurable retry logic with max 3 attempts, 1s–30s delay cap, ±25% jitter using cryptographically secure RNG. Prevents thundering herd and API exhaustion.
+- **`retry-after` header parsing readiness** (#182): Code structure supports parsing `retry-after` header from Anthropic rate limit responses (deferred until SDK exposes header in `AnthropicRateLimitException`).
+- **Error recovery in Console main loop** (#183): Specific `AnthropicBadRequestException` handler offers "Reload session" (re-read JSONL + run repair) and "Start new session" (clear history) options. Prevents session loss on API errors.
+- **Directory awareness in system prompt** (#184): Claude knows `DefaultWorkingDirectory`, `CeilingDirectory`, and `AutoGrantPatterns` via Layer 3c (Environment Context) in `SystemPromptBuilder`. Eliminates working directory confusion.
+- **Bootstrap file size caps** (#185): Per-file limit (20K chars) and total limit (150K chars) with truncation markers `[... truncated at 20,000 chars. Use read_file for full content ...]`. Layer 2 (security instructions) always full-length, never truncated.
+- **Pre-compaction memory flush to MEMORY.md** (#186): Before compaction triggers, `ContextCompactor` extracts key decisions, file paths, and progress from conversation and writes to MEMORY.md via `MemoryFileService`. Preserves context that would be lost during summarization.
+- **Tool result pruning for older conversation turns** (#187): Trims large tool results (>1K chars) older than 6 turns in API calls only. Replaces with `[Previous tool result truncated — {X} chars. Use read_file to re-read if needed.]`. Reduces token waste without modifying JSONL.
+- **Compaction events recorded in JSONL session files** (#188): `SessionStore` writes compaction metadata (summary, tokensBefore, tokensAfter, messagesRemoved, timestamp) to JSONL after `CompactAsync()`. Skipped during message reconstruction — informational only for debugging.
+- **Adversarial test suites for session resilience, rate limiting, and tool result pruning** (#189):
+  - `SessionResumeAdversarialTests.cs` — Mass orphan scenario, worst-case double-serialization, empty conversation edge cases (7 tests)
+  - `RateLimitAdversarialTests.cs` — Configuration validation, boundary conditions, jitter variance, cancellation handling (27 tests)
+  - `ConversationPrunerTests.cs` — Boundary pruning, mixed content, error flag preservation, immutability verification (13 adversarial tests)
+- **~152 new tests across Memory, Core, AI, and Console test projects** — Brings total to **1,917 tests passing (2 skipped)**. Key test additions include:
+  - 7 in `SessionResumeRepairTests.cs`
+  - 30 in `ClaudeClientRetryTests.cs` (includes 10 validation tests)
+  - 10 in `ErrorRecoveryTests.cs`
+  - 8 in `DirectoryAwarenessTests.cs`
+  - 7 in `BootstrapFileCapsTests.cs`
+  - 13 in `PreCompactionFlushTests.cs`
+  - 10 in `ConversationPrunerTests.cs`
+  - 10 in `CompactionEventTests.cs`
+  - 7 in `SessionResumeAdversarialTests.cs`
+  - 27 in `RateLimitAdversarialTests.cs` (includes 4 ExecuteWithRetryAsync validation tests)
+  - 13 adversarial additions to `ConversationPrunerTests.cs`
+  - Plus additional test modifications and enhancements across existing test suites
+
+### Changed
+- **`ClaudeClientWrapper.SendMessageAsync()` and `CountTokensAsync()` now retry on rate limits**: Both methods wrapped with `ExecuteWithRetryAsync()` helper. Retries only `AnthropicRateLimitException`, not other API errors (e.g., `AnthropicBadRequestException`). Mid-stream rate limits (unlikely) propagate without retry.
+- **`AgentOrchestrator.CompactIfNeededAsync()` wrapped in try-catch**: Compaction failure logs error and skips compaction. Agentic loop continues without crashing. Suppressed CA1031 analyzer warning with pragma (intentional catch-all).
+- **`AgentOrchestrator.CreateAssistantMessage()` stores `tool_use` input as `JsonElement` instead of string**: Parse `toolCall.Input` (string) to `JsonElement` using `JsonDocument.Parse()`. Fall back to `{}` if parsing fails. Prevents double-serialization during JSONL round-trip.
+- **`SystemPromptBuilder.BuildAsync()` includes Layer 3c (Environment Context) and enforces bootstrap file caps**: Layer 3c injected after Layer 3b (Command Tier Information), includes working directory paths and auto-grant patterns. Bootstrap caps applied to Layer 1 (core identity) and Layer 5 (MEMORY.md), never Layer 2 (security).
+- **`ContextCompactor.CompactAsync()` performs pre-compaction memory flush before summarization**: If `_memoryWriter` delegate provided, extracts critical context from conversation and writes to MEMORY.md. Then proceeds with normal compaction. Console shows brief "📝 Saving context..." indicator; Telegram silent.
+- **`SessionStore` writes compaction events to JSONL and skips them during message reconstruction**: New event type `"compaction"` written after `CompactAsync()` completes. `ReconstructMessagesAsync()` skips compaction events (lines 142–146) — informational only, not part of conversation sent to Claude.
+- **Console main loop has specific `AnthropicBadRequestException` handler with recovery options**: Catches `AnthropicBadRequestException` separately from generic exceptions. Displays error message and interactive menu: "Reload session" (1) or "Start new session" (2). Prevents session loss on API errors.
+
+### Security
+- **Synthetic `tool_result` blocks always have `is_error = true`** (T1 mitigation): `RepairOrphanedToolUseBlocks` injects synthetic results marked as errors — cannot fabricate successful results that influence Claude behavior (verified line 354 in `SessionStore.cs`).
+- **Tool result pruning modifies only in-memory snapshots** (T3 mitigation): `PruneOldToolResults()` returns new list (line 1305 in `AgentOrchestrator.cs`), original JSONL files never modified. Permanent history intact for audit trail.
+- **Pre-compaction memory flush wraps conversation content in `<untrusted_content>` tags** (T2 mitigation): Conversation content wrapped in `<untrusted_content>` tags (lines 347, 439 in `ContextCompactor.cs`) before sending to Claude for extraction. Prevents prompt injection via conversation history.
+- **Bootstrap file caps never truncate Layer 2 hardcoded security instructions** (T4 mitigation): `GetSecurityInstructions()` returns hardcoded string (lines 207–211 in `SystemPromptBuilder.cs`), never loaded from files. Cap enforcement logic explicitly skips Layer 2 (line 585).
+- **Max 3 retries with exponential backoff prevents retry amplification** (T5 mitigation): Retry loop capped at 3 attempts (line 471 in `ClaudeClientWrapper.cs`), SDK retries disabled (`MaxRetries = 0` line 53 in `ServiceExtensions.cs`). Prevents DoS via forced retries.
+- **Compaction events are informational only** (T6 mitigation): `ReconstructMessagesAsync()` skips compaction events (lines 142–146 in `SessionStore.cs`). Tampered events cannot affect message reconstruction.
+
 ## [0.4.0] - 2026-02-17
 
 ### Added
@@ -255,7 +312,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/chethandvg/krutaka/compare/v0.4.0...v0.4.5
 [0.4.0]: https://github.com/chethandvg/krutaka/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/chethandvg/krutaka/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/chethandvg/krutaka/compare/v0.1.1...v0.2.0

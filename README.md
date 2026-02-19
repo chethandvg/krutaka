@@ -5,7 +5,7 @@
 
 An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations. Access your agent via local console or remotely through Telegram.
 
-> **Status:** ✅ v0.4.0 — Multi-session architecture with Telegram integration. 1,765 tests passing (2 skipped), ready for use. See [Progress Tracker](docs/status/PROGRESS.md).
+> **Status:** ✅ v0.4.5 — Session Resilience, API Hardening & Context Intelligence complete. 1,917 tests passing (2 skipped), ready for production use. See [Progress Tracker](docs/status/PROGRESS.md).
 
 ## Why Krutaka?
 
@@ -22,6 +22,7 @@ Krutaka is built to avoid those mistakes:
 - **Graduated command execution** — Commands classified into risk tiers (Safe/Moderate/Elevated/Dangerous) for context-appropriate approval instead of blanket prompting.
 - **Dynamic directory scoping** — Multi-directory access with layered policy engine (hard deny → auto-grant → session grants → user prompts).
 - **Path hardening** — Segment-by-segment symlink resolution, ADS blocking, device name blocking, ceiling enforcement.
+- **Session resilience** — Automatic repair of orphaned tool calls on resume, retry/backoff for API rate limits, graceful error recovery.
 - **Prompt injection defense** — Untrusted content (file contents, command output, Telegram messages) is tagged with XML delimiters and the model is instructed to treat it as data only.
 
 ## Architecture
