@@ -820,6 +820,20 @@ static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
                 // Reset for next response in the same turn (multi-turn tool calls)
                 textAccumulator.Clear();
                 break;
+
+            case CompactionCompleted compaction:
+                // Persist compaction event with metadata for debugging
+                await sessionStore.AppendAsync(
+                    new SessionEvent(
+                        Type: "compaction",
+                        Role: null,
+                        Content: compaction.Summary,
+                        Timestamp: compaction.Timestamp,
+                        TokensBefore: compaction.TokensBefore,
+                        TokensAfter: compaction.TokensAfter,
+                        MessagesRemoved: compaction.MessagesRemoved),
+                    cancellationToken).ConfigureAwait(false);
+                break;
         }
 
         yield return evt;

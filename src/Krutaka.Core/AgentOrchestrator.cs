@@ -416,11 +416,12 @@ public sealed class AgentOrchestrator : IDisposable
             // Check if context compaction is needed before each Claude request
             // This ensures compaction is evaluated even after tool-call rounds grow the history
             // Wrap in try-catch to prevent compaction failures from crashing the agentic loop
+            CompactionCompleted? compactionEvent = null;
             if (_contextCompactor != null)
             {
                 try
                 {
-                    await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
+                    compactionEvent = await CompactIfNeededAsync(systemPrompt, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -435,6 +436,12 @@ public sealed class AgentOrchestrator : IDisposable
                     System.Diagnostics.Debug.WriteLine($"WARNING: Context compaction failed: {ex.Message}");
                     // Compaction is optimization, not correctness — continue without it
                 }
+            }
+
+            // Yield compaction event outside try-catch (C# constraint: cannot yield in try-catch)
+            if (compactionEvent != null)
+            {
+                yield return compactionEvent;
             }
 
             // Track tool calls from this response
@@ -990,7 +997,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// Replaces conversation history with compacted version.
     /// Enforces a hard token limit after compaction as a safety net.
     /// </summary>
-    private async Task CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
+    private async Task<CompactionCompleted?> CompactIfNeededAsync(string systemPrompt, CancellationToken cancellationToken)
     {
         int historyCount;
         lock (_conversationHistoryLock)
@@ -1000,7 +1007,7 @@ public sealed class AgentOrchestrator : IDisposable
 
         if (_contextCompactor == null || historyCount == 0)
         {
-            return;
+            return null;
         }
 
         List<object> historySnapshot;
@@ -1013,15 +1020,18 @@ public sealed class AgentOrchestrator : IDisposable
 
         if (_contextCompactor.ShouldCompact(tokenCount) || _contextCompactor.ExceedsHardLimit(tokenCount))
         {
-            await CompactAndEnforceHardLimitAsync(historySnapshot, systemPrompt, tokenCount, cancellationToken).ConfigureAwait(false);
+            return await CompactAndEnforceHardLimitAsync(historySnapshot, systemPrompt, tokenCount, cancellationToken).ConfigureAwait(false);
         }
+
+        return null;
     }
 
     /// <summary>
     /// Performs context compaction and enforces the hard token limit as a safety net.
     /// If compaction alone doesn't bring tokens under the max, performs emergency truncation.
+    /// Returns a CompactionCompleted event with metadata for JSONL persistence.
     /// </summary>
-    private async Task CompactAndEnforceHardLimitAsync(
+    private async Task<CompactionCompleted> CompactAndEnforceHardLimitAsync(
         List<object> historySnapshot,
         string systemPrompt,
         int tokenCount,
@@ -1050,6 +1060,17 @@ public sealed class AgentOrchestrator : IDisposable
             _conversationHistory.Clear();
             _conversationHistory.AddRange(compactedMessages);
         }
+
+        // Truncate summary to 200 chars for JSONL persistence
+        var summary = result.Summary.Length > 200
+            ? result.Summary[..200]
+            : result.Summary;
+
+        return new CompactionCompleted(
+            summary,
+            result.OriginalTokenCount,
+            result.CompactedTokenCount,
+            result.MessagesRemoved);
     }
 
     /// <summary>
