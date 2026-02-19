@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-19 (v0.4.5 Issue #188 Complete — 1,876 tests passing, 2 skipped)
+> **Last updated:** 2026-02-19 (v0.4.5 Issue #188 Complete — 1,878 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2991,7 +2991,8 @@ Compaction metadata is now recorded as events in JSONL session files for debuggi
    - Modified `CompactAndEnforceHardLimitAsync()` to:
      - Create `CompactionCompleted` event with metadata
      - Truncate summary to 200 chars if longer
-     - Return event for yielding
+     - **Recompute token count after emergency truncation** (critical bug fix)
+     - Return event for yielding with accurate `tokensAfter` metadata
    - Modified `RunAgenticLoopAsync()` to:
      - Capture compaction event outside try-catch (C# constraint)
      - Yield event if compaction occurred
@@ -3013,10 +3014,15 @@ Compaction metadata is now recorded as events in JSONL session files for debuggi
   - `Should_LoadCompactionEventsForInspection` — Verifies events available via LoadAsync
   - `Should_ReconstructMessagesCorrectlyWithMixedEventsIncludingCompaction` — Verifies complex scenarios
 
+- **2 new tests** in `AgentEventTests.cs` and `AgentOrchestratorTests.cs`:
+  - `CompactionCompleted_Should_HaveCorrectProperties` — Verifies CompactionCompleted event properties
+  - `RunAsync_Should_RecomputeTokensAfter_EmergencyTruncation` — Verifies token recount after emergency truncation
+
 - **All tests pass:**
   - 31 SessionStore tests (27 original + 4 new)
-  - 142 Memory tests total (137 original + 5 new, but 4 added here)
-  - 1,876 total tests across all projects (was 1,868, +8 tests)
+  - 414 Core tests (412 original + 2 new)
+  - 142 Memory tests total
+  - 1,878 total tests across all projects (was 1,868, +6 tests in this issue, +4 from other changes)
   - 2 tests skipped (unrelated)
 
 ### Security
@@ -3036,10 +3042,12 @@ Compaction metadata is now recorded as events in JSONL session files for debuggi
 
 - `src/Krutaka.Core/SessionEvent.cs` — Added `TokensBefore`, `TokensAfter`, `MessagesRemoved` properties
 - `src/Krutaka.Core/AgentEvent.cs` — Added `CompactionCompleted` record
-- `src/Krutaka.Core/AgentOrchestrator.cs` — Modified compaction methods to return/yield event
+- `src/Krutaka.Core/AgentOrchestrator.cs` — Modified compaction methods to return/yield event, **fixed token recount bug**
 - `src/Krutaka.Memory/SessionStore.cs` — Added explicit compaction event skip in reconstruction
 - `src/Krutaka.Console/Program.cs` — Added CompactionCompleted case in WrapWithSessionPersistence
 - `tests/Krutaka.Memory.Tests/SessionStoreTests.cs` — Added 4 comprehensive tests
+- `tests/Krutaka.Core.Tests/AgentEventTests.cs` — Added CompactionCompleted event test
+- `tests/Krutaka.Core.Tests/AgentOrchestratorTests.cs` — Added emergency truncation token recount test
 
 ### Usage Example
 
@@ -3063,13 +3071,14 @@ Compaction metadata is now recorded as events in JSONL session files for debuggi
 
 ✅ Compaction events written to JSONL after successful compaction  
 ✅ Compaction events contain summary, token counts, and message counts  
+✅ **Token counts accurate even after emergency truncation** (critical bug fix)  
 ✅ Compaction events skipped during message reconstruction  
 ✅ Compaction events loadable via LoadAsync for debugging  
-✅ All new tests pass (4 tests in SessionStoreTests)  
-✅ All existing tests continue to pass (1,876 tests total)  
+✅ All new tests pass (6 tests total: 4 in SessionStoreTests, 2 in Core tests)  
+✅ All existing tests continue to pass (1,878 tests total)  
 ✅ `docs/status/PROGRESS.md` updated with completion details
 
-**Ready for:** Production use — session debugging enhancement enabling developers to inspect compaction history and diagnose session lifecycle issues
+**Ready for:** Production use — session debugging enhancement enabling developers to inspect compaction history with accurate metadata, including proper token counts after emergency truncation
 
 ---
 
