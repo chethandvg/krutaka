@@ -435,4 +435,223 @@ public sealed class ConversationPrunerTests
 
         throw new InvalidOperationException("No tool_result found in message");
     }
+
+    // ============================================================================
+    // ADVERSARIAL TESTS - Edge cases and boundary conditions for pruning
+    // ============================================================================
+
+    [Fact]
+    public void PruneOldToolResults_Should_HandleEmptyConversation_NoCrash()
+    {
+        // Arrange - empty conversation (edge case)
+        var messages = new List<object>();
+
+        // Act - should not crash with empty list
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 0, pruneAfterTurns: 6, pruneMinChars: 1000);
+
+        // Assert
+        pruned.Should().NotBeNull();
+        pruned.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_PruneConversationWithOnlyToolResultMessages()
+    {
+        // Arrange - conversation with only tool_result messages (unusual but valid)
+        var messages = new List<object>
+        {
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", new string('x', 2000), isError: false)]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_02", new string('y', 2000), isError: false)]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_03", new string('z', 2000), isError: false)]),
+        };
+
+        // Act - prune after 0 turns (all results are "old")
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 3, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - All tool results should be pruned (no user prompts to associate with turns)
+        // Note: Since there are no user prompts, currentTurnIndex doesn't map to these messages
+        // The pruner should handle this gracefully
+        pruned.Should().HaveCount(3);
+
+        // All tool results should be pruned since they're larger than min chars
+        var result1 = GetToolResultContent(pruned, messageIndex: 0);
+        result1.Should().StartWith("[Previous tool result truncated");
+
+        var result2 = GetToolResultContent(pruned, messageIndex: 1);
+        result2.Should().StartWith("[Previous tool result truncated");
+
+        var result3 = GetToolResultContent(pruned, messageIndex: 2);
+        result3.Should().StartWith("[Previous tool result truncated");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_NotPruneToolResultAtExactlyMinCharsThreshold()
+    {
+        // Arrange - tool result with exactly min chars (boundary test)
+        var messages = new List<object>
+        {
+            CreateUserMessage("Task"),
+            CreateAssistantMessage("Working", [CreateToolCall("tool_01", "read_file", "{}")]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", new string('x', 1000), isError: false)]), // Exactly 1000 chars
+        };
+
+        // Act - prune after 0 turns, min 1000 chars
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - Should NOT be pruned (exactly at boundary)
+        var result = GetToolResultContent(pruned, messageIndex: 2);
+        result.Should().Be(new string('x', 1000), "result at exactly min chars should NOT be pruned");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_PruneToolResultWithMinCharsPlusOne()
+    {
+        // Arrange - tool result with min chars + 1 (just over threshold)
+        var messages = new List<object>
+        {
+            CreateUserMessage("Task"),
+            CreateAssistantMessage("Working", [CreateToolCall("tool_01", "read_file", "{}")]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", new string('x', 1001), isError: false)]), // 1001 chars
+        };
+
+        // Act - prune after 0 turns, min 1000 chars
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - Should be pruned (over threshold by 1 char)
+        var result = GetToolResultContent(pruned, messageIndex: 2);
+        result.Should().StartWith("[Previous tool result truncated", "result with min chars + 1 should be pruned");
+        result.Should().Contain("1,001 chars");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_PruneOnlyToolResultInMixedContentBlocks()
+    {
+        // Arrange - user message with mixed content: text + tool_result
+        var messages = new List<object>
+        {
+            CreateUserMessage("Initial task"),
+            CreateAssistantMessage("Working", [CreateToolCall("tool_01", "read_file", "{}")]),
+            // User message with both text and tool_result
+            new
+            {
+                role = "user",
+                content = new object[]
+                {
+                    new { type = "text", text = "Here's some user commentary" },
+                    new { type = "tool_result", tool_use_id = "tool_01", content = new string('x', 2000), is_error = false }
+                }
+            }
+        };
+
+        // Act - prune after 0 turns
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - Only tool_result should be pruned, text should be preserved
+        var prunedMessage = pruned[2];
+        var json = JsonSerializer.Serialize(prunedMessage);
+        using var doc = JsonDocument.Parse(json);
+        var content = doc.RootElement.GetProperty("content");
+
+        content.GetArrayLength().Should().Be(2, "should have both text and tool_result blocks");
+
+        // Verify text block is unchanged
+        var textBlock = content[0];
+        textBlock.GetProperty("type").GetString().Should().Be("text");
+        textBlock.GetProperty("text").GetString().Should().Be("Here's some user commentary");
+
+        // Verify tool_result is pruned
+        var toolResultBlock = content[1];
+        toolResultBlock.GetProperty("type").GetString().Should().Be("tool_result");
+        toolResultBlock.GetProperty("content").GetString().Should().StartWith("[Previous tool result truncated");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_HandleMessageWithNoContentProperty()
+    {
+        // Arrange - edge case: message without content property (should not crash)
+        var messages = new List<object>
+        {
+            new { role = "user" }, // No content property
+        };
+
+        // Act - should handle gracefully without crashing
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 0, pruneAfterTurns: 6, pruneMinChars: 1000);
+
+        // Assert
+        pruned.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_HandleMultipleToolResultsWithMixedSizes()
+    {
+        // Arrange - multiple tool results, some below threshold, some above
+        var messages = new List<object>
+        {
+            CreateUserMessage("Multi-tool task"),
+            CreateAssistantMessage("Working", [
+                CreateToolCall("tool_01", "read_file", "{}"),
+                CreateToolCall("tool_02", "read_file", "{}"),
+                CreateToolCall("tool_03", "read_file", "{}")
+            ]),
+            CreateUserMessageWithToolResults([
+                CreateToolResult("tool_01", new string('x', 500), isError: false),  // Small (< 1000)
+                CreateToolResult("tool_02", new string('y', 2000), isError: false), // Large (> 1000)
+                CreateToolResult("tool_03", new string('z', 999), isError: false),  // Just under threshold
+            ]),
+        };
+
+        // Act - prune after 0 turns
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - Only tool_02 (2000 chars) should be pruned
+        var json = JsonSerializer.Serialize(pruned[2]);
+
+        json.Should().Contain(new string('x', 500), "small result should be preserved");
+        json.Should().Contain("[Previous tool result truncated", "large result should be pruned");
+        json.Should().Contain(new string('z', 999), "result just under threshold should be preserved");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_PreserveStructureForZeroLengthToolResult()
+    {
+        // Arrange - tool result with zero-length content (edge case)
+        var messages = new List<object>
+        {
+            CreateUserMessage("Task"),
+            CreateAssistantMessage("Working", [CreateToolCall("tool_01", "test_tool", "{}")]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", "", isError: false)]), // Empty content
+        };
+
+        // Act
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - Should not prune empty content (below threshold)
+        var result = GetToolResultContent(pruned, messageIndex: 2);
+        result.Should().BeEmpty("zero-length content should be preserved");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_HandleVeryLargeToolResult_10MB()
+    {
+        // Arrange - extremely large tool result (10MB - stress test)
+        var largeContent = new string('x', 10 * 1024 * 1024); // 10 MB
+        var messages = new List<object>
+        {
+            CreateUserMessage("Task"),
+            CreateAssistantMessage("Working", [CreateToolCall("tool_01", "read_file", "{}")]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", largeContent, isError: false)]),
+        };
+
+        // Act - prune after 0 turns
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - Should be pruned with correct size notation
+        var result = GetToolResultContent(pruned, messageIndex: 2);
+        result.Should().StartWith("[Previous tool result truncated");
+        result.Should().Contain("10,485,760 chars", "should show correct size in truncation message");
+
+        // Verify pruned message is much smaller than original
+        var prunedJson = JsonSerializer.Serialize(pruned[2]);
+        prunedJson.Length.Should().BeLessThan(500, "pruned message should be compact");
+    }
 }
