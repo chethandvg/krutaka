@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-19 (v0.4.5 Issue #188 Complete — 1,878 tests passing, 2 skipped)
+> **Last updated:** 2026-02-19 (v0.4.5 Issue #189 Complete — 1,917 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3220,10 +3220,95 @@ Implemented tool result pruning to trim large tool results from conversation tur
 
 **Ready for:** Production use — context intelligence enhancement reducing token waste while preserving full session history
 
+---
+
+## Issue #189: Adversarial tests for session resilience and API hardening — ✅ Complete (2026-02-19)
+
+**Status:** Complete  
+**Type:** Testing — Adversarial & Edge Cases  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence  
+**Depends on:** Issue #181 (session resume fix), Issue #182 (rate limit retry), Issue #183 (error recovery) — ✅ All Complete
+
+### Summary
+
+Created comprehensive adversarial test suites that verify the resilience improvements from v0.4.5 under hostile or edge-case conditions. These tests ensure that session resume, rate limiting, error recovery, and pruning all behave correctly under stress. Follows the pattern from `AccessPolicyEngineAdversarialTests.cs` to systematically attack potential weak points in the system.
+
+### Changes Implemented
+
+1. **SessionResumeAdversarialTests.cs** (`tests/Krutaka.Memory.Tests/`)
+   - **Mass Orphan Scenario:** 100+ orphaned tool_use blocks (extreme stress test)
+   - **Worst Case:** Every assistant message has orphaned tool_use (10 turns, all broken)
+   - **Interleaved Valid/Orphaned:** Mix of valid tool_use with results and orphaned tool_use
+   - **Deeply Nested JSON:** tool_use input with 10 levels of nesting
+   - **Uniqueness Verification:** 50 orphaned tool_use blocks, verify no duplicate synthetic tool_result IDs
+   - **Empty Assistant Text:** Assistant messages with empty text content (edge case)
+   - **Malformed JSON Input:** tool_use input as malformed JSON (tests ParseToolInput fallback to `{}`)
+   - **Total: 7 adversarial tests** — all passing
+
+2. **RateLimitAdversarialTests.cs** (`tests/Krutaka.AI.Tests/`)
+   - **Configuration Validation:** Reject negative max attempts, zero initial delay, max delay < initial delay
+   - **Boundary Tests:** Accept zero retries (no retry mode), exactly 5 minutes max delay, 1ms minimal delay
+   - **Exponential Backoff:** Verify calculation correctness and capping at max delay
+   - **Jitter Calculation:** Verify ±25% range (0.75-1.25 factor) with 100 samples showing variance
+   - **Thread Safety:** Concurrent jitter calculations (1000 iterations) with proper locking
+   - **Concurrent Wrappers:** 100 ClaudeClientWrapper instances created in parallel (fixed dispose issue)
+   - **Idempotent Dispose:** Multiple concurrent Dispose() calls don't throw
+   - **ExecuteWithRetryAsync Validation:** 4 new tests validating backoff sequence, jitter application, max delay capping, and exception propagation
+   - **Total: 23 adversarial tests** (+4 from review feedback) — all passing
+
+3. **ConversationPrunerTests.cs** (Adversarial Additions)
+   - **Empty Conversation:** 0 messages → no crash
+   - **Only Tool Results:** Conversation with only tool_result messages (no user prompts)
+   - **Exact Boundary:** Tool result with exactly min chars (1000) → NOT pruned
+   - **Boundary + 1:** Tool result with min chars + 1 (1001) → pruned
+   - **Mixed Content:** User message with text + tool_result → only tool_result pruned
+   - **No Content Property:** Message without content property → no crash
+   - **Mixed Sizes:** Multiple tool results, some above threshold, some below → selective pruning
+   - **Zero-Length:** Empty tool result content → preserved (below threshold)
+   - **10MB Result:** Extremely large tool result → pruned with correct size notation
+   - **Total: 10 adversarial tests added** (21 total in file) — all passing
+
+### Test Coverage
+
+- **40 new adversarial tests created (+4 from review feedback):**
+  - 7 in `SessionResumeAdversarialTests.cs`
+  - 23 in `RateLimitAdversarialTests.cs` (+4 ExecuteWithRetryAsync validation tests)
+  - 10 added to `ConversationPrunerTests.cs`
+
+- **All tests pass:**
+  - **1,917 total tests across all projects** (+40 from v0.4.5 Issue #188)
+  - 2 tests skipped (unrelated — long-running timeout tests)
+
+### Test Results by Project
+
+- `Krutaka.AI.Tests`: 53 tests (+23 adversarial) — all passing
+- `Krutaka.Memory.Tests`: 149 tests (+7 adversarial) — all passing
+- `Krutaka.Core.Tests`: 423 tests (+10 adversarial) — all passing
+- `Krutaka.Console.Tests`: 185 tests — all passing
+- `Krutaka.Skills.Tests`: 17 tests — all passing
+- `Krutaka.Tools.Tests`: 847 tests (1 skipped) — all passing
+- `Krutaka.Telegram.Tests`: 243 tests (1 skipped) — all passing
+
+### Security
+
+- **Adversarial tests verify threat mitigations:**
+  - **T1 (Session Resume Crash):** Mass orphan and worst-case scenarios confirm synthetic tool_result injection works correctly
+  - **T2 (Rate Limit Crash):** Configuration validation confirms retry logic boundaries are enforced
+  - **T3 (Tool Result Pruning Hides Errors):** Mixed content tests confirm error flag preservation
+
+### Architecture
+
+- **Follows existing adversarial test pattern:**
+  - Structured like `AccessPolicyEngineAdversarialTests.cs`
+  - Tests attack-vector approach (bypass attempts, boundary conditions, stress scenarios)
+  - Uses `IDisposable` with unique test directories for isolation
+  - FluentAssertions for readable assertions
+  - xUnit test framework consistency
+
+**Ready for:** Production use — comprehensive adversarial test coverage confirms v0.4.5 resilience improvements
+
 ### Next Steps
 
 Remaining v0.4.5 issues:
-- Compaction events to JSONL (#186)
-- Adversarial tests (#187)
-- Release documentation (#188)
+- Release documentation (#190) — Final docs consolidation
 
