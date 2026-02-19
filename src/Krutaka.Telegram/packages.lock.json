@@ -35,7 +35,8 @@
         "resolved": "22.9.0",
         "contentHash": "h8PjZYkWm5vxoiGU3tlHUrEY1llhbyCMqibBiOWDaH8yW/1F3qwJjUhDaBPzmA3PcYVnFgnrx5b6fiRp8lGLEg==",
         "dependencies": {
-          "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0"
+          "Microsoft.Extensions.Options.ConfigurationExtensions": "8.0.0",
+          "System.Text.Json": "8.0.5"
         }
       },
       "Microsoft.Data.Sqlite.Core": {
@@ -287,7 +288,10 @@
       "SQLitePCLRaw.core": {
         "type": "Transitive",
         "resolved": "2.1.11",
-        "contentHash": "PK0GLFkfhZzLQeR3PJf71FmhtHox+U3vcY6ZtswoMjrefkB9k6ErNJEnwXqc5KgXDSjige2XXrezqS39gkpQKA=="
+        "contentHash": "PK0GLFkfhZzLQeR3PJf71FmhtHox+U3vcY6ZtswoMjrefkB9k6ErNJEnwXqc5KgXDSjige2XXrezqS39gkpQKA==",
+        "dependencies": {
+          "System.Memory": "4.5.3"
+        }
       },
       "SQLitePCLRaw.lib.e_sqlite3": {
         "type": "Transitive",
@@ -302,10 +306,30 @@
           "SQLitePCLRaw.core": "2.1.11"
         }
       },
+      "System.Diagnostics.DiagnosticSource": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "0KdBK+h7G13PuOSC2R/DalAoFMvdYMznvGRuICtkdcUMXgl/gYXsG6z4yUvTxHSMACorWgHCU1Faq0KUHU6yAQ=="
+      },
+      "System.Memory": {
+        "type": "Transitive",
+        "resolved": "4.5.3",
+        "contentHash": "3oDzvc/zzetpTKWMShs1AADwZjQ/36HnsufHRPcOjyRAAMLDlu2iD33MBI2opxnezcVUtXyqDXXjoFMOU9c7SA=="
+      },
       "System.Numerics.Tensors": {
         "type": "Transitive",
         "resolved": "10.0.0",
         "contentHash": "PxZKFx8ACAt7gRnTSDgtZFA06cimls5XL1Olv63bWF8qKL5+EQdqq3K02etW4LNut4xDoREPe9z7QYATLMkBPA=="
+      },
+      "System.Text.Json": {
+        "type": "Transitive",
+        "resolved": "10.0.2",
+        "contentHash": "zy8ey7I16G9neZ6uzxrnYwS7pidElzN8XarsBjGu7lE2m7afTKMEe18KbY3ZSmh/z/bR40oxjd6hlUcmOEaMHw=="
+      },
+      "System.Threading.Channels": {
+        "type": "Transitive",
+        "resolved": "10.0.0",
+        "contentHash": "fwRdkJpKisUEVNaEdsL5w5EwidzuVw0BOTfzDvYB1Yg8sq1pqNfUZxBOVFgSj6i6tNhpT3HP8BEDXf1+kFkTDA=="
       },
       "System.Threading.RateLimiting": {
         "type": "Transitive",
@@ -340,7 +364,6 @@
         "dependencies": {
           "CliWrap": "[3.6.7, )",
           "Krutaka.Core": "[0.3.0, )",
-          "Krutaka.Memory": "[0.3.0, )",
           "Meziantou.Framework.Win32.Jobs": "[3.4.10, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )",
@@ -353,7 +376,9 @@
         "resolved": "12.4.0",
         "contentHash": "c7sfzLzOdLee3Xdx2gMUTAzCXclJ+VbSqOnxqdHR/XYKCnbKJJIA3xKD2isLwwGzl2cYRaZoNnbmisCRs1kpuA==",
         "dependencies": {
-          "Microsoft.Extensions.AI.Abstractions": "10.2.0"
+          "Microsoft.Extensions.AI.Abstractions": "10.2.0",
+          "System.Net.ServerSentEvents": "10.0.1",
+          "System.Text.Json": "10.0.2"
         }
       },
       "CliWrap": {
@@ -389,7 +414,10 @@
           "Microsoft.Extensions.Caching.Abstractions": "10.0.0",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.0",
           "Microsoft.Extensions.Logging.Abstractions": "10.0.0",
-          "System.Numerics.Tensors": "10.0.0"
+          "System.Diagnostics.DiagnosticSource": "10.0.0",
+          "System.Numerics.Tensors": "10.0.0",
+          "System.Text.Json": "10.0.0",
+          "System.Threading.Channels": "10.0.0"
         }
       },
       "Microsoft.Extensions.Configuration": {
@@ -429,6 +457,12 @@
           "Microsoft.Extensions.Logging.Abstractions": "10.0.2",
           "Microsoft.Extensions.Options": "10.0.2"
         }
+      },
+      "System.Net.ServerSentEvents": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.0, )",
+        "resolved": "10.0.0",
+        "contentHash": "zRH5XXZfenw7bgn8BT+q6XH1Sp75kSQM5m7Ee4WzZhMu2syGawcsqdlfFa2u/+skXr/u2ufp9F6M9lgkKkfZZg=="
       }
     }
   }
