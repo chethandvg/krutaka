@@ -68,9 +68,9 @@
       },
       "Microsoft.NET.ILLink.Tasks": {
         "type": "Direct",
-        "requested": "[10.0.2, )",
-        "resolved": "10.0.2",
-        "contentHash": "sXdDtMf2qcnbygw9OdE535c2lxSxrZP8gO4UhDJ0xiJbl1wIqXS1OTcTDFTIJPOFd6Mhcm8gPEthqWGUxBsTqw=="
+        "requested": "[10.0.3, )",
+        "resolved": "10.0.3",
+        "contentHash": "0B6nZyCHWXnvmlB559oduOspVdNOnpNXPjhpWVMovLPAsDVG7A4jJR9rzECf67JUzxP8/ee/wA8clwIzJcWNFA=="
       },
       "Serilog": {
         "type": "Direct",
@@ -549,7 +549,6 @@
         "dependencies": {
           "CliWrap": "[3.6.7, )",
           "Krutaka.Core": "[0.3.0, )",
-          "Krutaka.Memory": "[0.3.0, )",
           "Meziantou.Framework.Win32.Jobs": "[3.4.10, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.2, )",
           "Microsoft.Extensions.FileSystemGlobbing": "[10.0.2, )",

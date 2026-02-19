@@ -216,6 +216,12 @@
   List<string> items = new List<string>();
   ```
 
+## File Organization
+
+- Place new `.cs` files in the appropriate subdirectory matching their category (see project README.md)
+- Interfaces go in `Abstractions/`, records/enums in `Models/`, implementations in their functional subdirectory
+- Do NOT create new top-level `.cs` files in project roots — use existing subdirectory structure
+
 ## Security Rules (Non-Negotiable)
 
 ### API Keys and Secrets
@@ -284,6 +290,8 @@
   result.Should().BeOfType<string>();
   result.Should().Be("expected value");
   ```
+- Mirror source project directory structure in test projects where possible
+- Test classes for `src/Krutaka.Core/Session/ManagedSession.cs` go in `tests/Krutaka.Core.Tests/Session/ManagedSessionTests.cs`
 
 ## Multi-Session Patterns
 

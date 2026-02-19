@@ -6,7 +6,7 @@ This file provides instructions for AI coding agents (GitHub Copilot, etc.) work
 
 Krutaka is an OpenClaw-inspired AI agent built in C#/.NET 10 for Windows. It is a console application that uses the Claude API to perform agentic tasks (read/write files, execute commands, search code) with human-in-the-loop approval for destructive operations.
 
-**Implementation Status:** ✅ **v0.4.5 Session Resilience, API Hardening & Context Intelligence Complete** — v0.4.0 complete with 1,765 tests passing (2 skipped). v0.4.5 complete with 1,917 tests passing (2 skipped), adding session resume crash fixes, API retry/backoff, directory awareness, pre-compaction memory flush, tool result pruning, and bootstrap file caps. The project is ready for production use with both local console and remote Telegram access. See `docs/status/PROGRESS.md` for details.
+**Implementation Status:** 🚧 **v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites In Progress** — v0.4.5 complete with 1,917 tests passing (2 skipped), adding session resume crash fixes, API retry/backoff, directory awareness, pre-compaction memory flush, tool result pruning, and bootstrap file caps. v0.4.6 restructures all 14 projects into logical subdirectories, adds per-project READMEs, fills missing test coverage, and defines v0.5.0 prerequisite interfaces. The project is ready for production use with both local console and remote Telegram access. See `docs/status/PROGRESS.md` for details.
 
 **Important:** We use the official `Anthropic` NuGet package (v12.4.0), NOT the community `Anthropic.SDK` package. Always refer to it as the "official Anthropic package" or "Anthropic NuGet package" to avoid confusion. See ADR-003 in `docs/architecture/DECISIONS.md` for details.
 
@@ -30,6 +30,8 @@ After every task, update the following files **only with necessary changes**:
 4. **Do NOT update `README.md`** unless the issue explicitly says to.
 5. **For v0.4.0 issues**, new documentation files ARE permitted when the issue explicitly requests their creation.
 6. **For v0.4.5 issues**, verify that existing test suites pass before adding new tests.
+7. **For v0.4.6 restructuring issues**, verify `dotnet build` succeeds with zero warnings AND `dotnet test` passes all 1,917 tests (2 skipped) after every file move.
+8. **Do NOT change namespaces when moving files** — only change file locations.
 
 ## Build and Test Commands
 
@@ -127,4 +129,6 @@ These rules apply to ALL code changes. Violating them is a blocking issue.
 | `docs/versions/v0.3.0.md` | v0.3.0 graduated command execution architecture design |
 | `docs/versions/v0.4.0.md` | v0.4.0 Telegram integration and multi-session architecture design |
 | `docs/versions/v0.4.5.md` | v0.4.5 Session Resilience, API Hardening & Context Intelligence design |
+| `docs/versions/v0.4.6.md` | v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites design |
+| `docs/roadmap/ROADMAP.md` | Forward-looking roadmap through v1.3.0+ |
 | `CHANGELOG.md` | Release notes following Keep a Changelog format |
