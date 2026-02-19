@@ -568,4 +568,256 @@ public sealed class SessionStoreTests : IDisposable
         userMsg.Should().Contain("contents A"); // Existing result
         userMsg.Should().Contain("Session was interrupted"); // Synthetic results
     }
+
+    [Fact]
+    public async Task Should_PersistCompactionEventWithMetadata()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        var compactionEvent = new SessionEvent(
+            Type: "compaction",
+            Role: null,
+            Content: "Compacted old messages to save tokens...",
+            Timestamp: DateTimeOffset.UtcNow,
+            TokensBefore: 150000,
+            TokensAfter: 80000,
+            MessagesRemoved: 25);
+
+        // Act
+        await store.AppendAsync(compactionEvent);
+
+        var loadedEvents = new List<SessionEvent>();
+        await foreach (var evt in store.LoadAsync())
+        {
+            loadedEvents.Add(evt);
+        }
+
+        // Assert
+        loadedEvents.Should().HaveCount(1);
+        var loaded = loadedEvents[0];
+        loaded.Type.Should().Be("compaction");
+        loaded.Role.Should().BeNull();
+        loaded.Content.Should().Be("Compacted old messages to save tokens...");
+        loaded.TokensBefore.Should().Be(150000);
+        loaded.TokensAfter.Should().Be(80000);
+        loaded.MessagesRemoved.Should().Be(25);
+    }
+
+    [Fact]
+    public async Task Should_SkipCompactionEventsInReconstruction()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        // Add a user message
+        await store.AppendAsync(new SessionEvent(
+            Type: "user",
+            Role: "user",
+            Content: "Hello",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        // Add a compaction event (should be skipped)
+        await store.AppendAsync(new SessionEvent(
+            Type: "compaction",
+            Role: null,
+            Content: "Compacted conversation",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1),
+            TokensBefore: 100000,
+            TokensAfter: 50000,
+            MessagesRemoved: 10));
+
+        // Add an assistant message
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "Hi there!",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(2)));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert
+        // Should only have 2 messages (user and assistant), compaction event skipped
+        messages.Should().HaveCount(2);
+
+        var userMsg = JsonSerializer.Serialize(messages[0]);
+        userMsg.Should().Contain("\"role\":\"user\"");
+        userMsg.Should().Contain("Hello");
+
+        var assistantMsg = JsonSerializer.Serialize(messages[1]);
+        assistantMsg.Should().Contain("\"role\":\"assistant\"");
+        assistantMsg.Should().Contain("Hi there!");
+    }
+
+    [Fact]
+    public async Task Should_LoadCompactionEventsForInspection()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        // Add multiple events including compaction
+        await store.AppendAsync(new SessionEvent(
+            Type: "user",
+            Role: "user",
+            Content: "First message",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "compaction",
+            Role: null,
+            Content: "First compaction",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1),
+            TokensBefore: 100000,
+            TokensAfter: 50000,
+            MessagesRemoved: 10));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "Response",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(2)));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "compaction",
+            Role: null,
+            Content: "Second compaction",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(3),
+            TokensBefore: 120000,
+            TokensAfter: 60000,
+            MessagesRemoved: 15));
+
+        // Act
+        var loadedEvents = new List<SessionEvent>();
+        await foreach (var evt in store.LoadAsync())
+        {
+            loadedEvents.Add(evt);
+        }
+
+        // Assert
+        // All events should be loaded (4 total)
+        loadedEvents.Should().HaveCount(4);
+
+        // Verify compaction events are present
+        var compactionEvents = loadedEvents.Where(e => e.Type == "compaction").ToList();
+        compactionEvents.Should().HaveCount(2);
+
+        compactionEvents[0].Content.Should().Be("First compaction");
+        compactionEvents[0].TokensBefore.Should().Be(100000);
+        compactionEvents[0].TokensAfter.Should().Be(50000);
+        compactionEvents[0].MessagesRemoved.Should().Be(10);
+
+        compactionEvents[1].Content.Should().Be("Second compaction");
+        compactionEvents[1].TokensBefore.Should().Be(120000);
+        compactionEvents[1].TokensAfter.Should().Be(60000);
+        compactionEvents[1].MessagesRemoved.Should().Be(15);
+    }
+
+    [Fact]
+    public async Task Should_ReconstructMessagesCorrectlyWithMixedEventsIncludingCompaction()
+    {
+        // Arrange
+        var sessionId = Guid.NewGuid();
+        using var store = new SessionStore(_projectPath, sessionId, _testRoot);
+
+        // Simulate a conversation with multiple compactions
+        await store.AppendAsync(new SessionEvent(
+            Type: "user",
+            Role: "user",
+            Content: "First user message",
+            Timestamp: DateTimeOffset.UtcNow));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "First assistant response",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1)));
+
+        // First compaction
+        await store.AppendAsync(new SessionEvent(
+            Type: "compaction",
+            Role: null,
+            Content: "Compacted early messages",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(2),
+            TokensBefore: 80000,
+            TokensAfter: 40000,
+            MessagesRemoved: 5));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "user",
+            Role: "user",
+            Content: "Second user message",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(3)));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_use",
+            Role: "assistant",
+            Content: """{"path": "test.txt"}""",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(4),
+            ToolName: "read_file",
+            ToolUseId: "toolu_123"));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "tool_result",
+            Role: "user",
+            Content: "file contents",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(5),
+            ToolName: "read_file",
+            ToolUseId: "toolu_123"));
+
+        // Second compaction
+        await store.AppendAsync(new SessionEvent(
+            Type: "compaction",
+            Role: null,
+            Content: "Compacted more messages",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(6),
+            TokensBefore: 120000,
+            TokensAfter: 60000,
+            MessagesRemoved: 8));
+
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "Final response",
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(7)));
+
+        // Act
+        var messages = await store.ReconstructMessagesAsync();
+
+        // Assert
+        // Should have 6 messages: user, assistant, user, assistant(tool_use), user(tool_result), assistant
+        // Compaction events should be completely skipped
+        messages.Should().HaveCount(6);
+
+        var msg0 = JsonSerializer.Serialize(messages[0]);
+        msg0.Should().Contain("\"role\":\"user\"");
+        msg0.Should().Contain("First user message");
+
+        var msg1 = JsonSerializer.Serialize(messages[1]);
+        msg1.Should().Contain("\"role\":\"assistant\"");
+        msg1.Should().Contain("First assistant response");
+
+        var msg2 = JsonSerializer.Serialize(messages[2]);
+        msg2.Should().Contain("\"role\":\"user\"");
+        msg2.Should().Contain("Second user message");
+
+        var msg3 = JsonSerializer.Serialize(messages[3]);
+        msg3.Should().Contain("\"role\":\"assistant\"");
+        msg3.Should().Contain("tool_use");
+        msg3.Should().Contain("read_file");
+        msg3.Should().Contain("toolu_123");
+
+        var msg4 = JsonSerializer.Serialize(messages[4]);
+        msg4.Should().Contain("\"role\":\"user\"");
+        msg4.Should().Contain("tool_result");
+        msg4.Should().Contain("file contents");
+        msg4.Should().Contain("toolu_123");
+
+        var msg5 = JsonSerializer.Serialize(messages[5]);
+        msg5.Should().Contain("\"role\":\"assistant\"");
+        msg5.Should().Contain("Final response");
+    }
 }
