@@ -27,13 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Directory awareness in system prompt** (#184): Claude knows `DefaultWorkingDirectory`, `CeilingDirectory`, and `AutoGrantPatterns` via Layer 3c (Environment Context) in `SystemPromptBuilder`. Eliminates working directory confusion.
 - **Bootstrap file size caps** (#185): Per-file limit (20K chars) and total limit (150K chars) with truncation markers `[... truncated at 20,000 chars. Use read_file for full content ...]`. Layer 2 (security instructions) always full-length, never truncated.
 - **Pre-compaction memory flush to MEMORY.md** (#186): Before compaction triggers, `ContextCompactor` extracts key decisions, file paths, and progress from conversation and writes to MEMORY.md via `MemoryFileService`. Preserves context that would be lost during summarization.
-- **Tool result pruning for older conversation turns** (#187): Trims large tool results (&gt;1K chars) older than 6 turns in API calls only. Replaces with `[Previous tool result truncated — {X} chars. Use read_file to re-read if needed.]`. Reduces token waste without modifying JSONL.
+- **Tool result pruning for older conversation turns** (#187): Trims large tool results (>1K chars) older than 6 turns in API calls only. Replaces with `[Previous tool result truncated — {X} chars. Use read_file to re-read if needed.]`. Reduces token waste without modifying JSONL.
 - **Compaction events recorded in JSONL session files** (#188): `SessionStore` writes compaction metadata (summary, tokensBefore, tokensAfter, messagesRemoved, timestamp) to JSONL after `CompactAsync()`. Skipped during message reconstruction — informational only for debugging.
 - **Adversarial test suites for session resilience, rate limiting, and tool result pruning** (#189):
   - `SessionResumeAdversarialTests.cs` — Mass orphan scenario, worst-case double-serialization, empty conversation edge cases (7 tests)
   - `RateLimitAdversarialTests.cs` — Configuration validation, boundary conditions, jitter variance, cancellation handling (27 tests)
   - `ConversationPrunerTests.cs` — Boundary pruning, mixed content, error flag preservation, immutability verification (13 adversarial tests)
-- **~152 new tests across Memory, Core, AI, and Console test projects** — Brings total to **1,917 tests passing (2 skipped)**:
+- **~152 new tests across Memory, Core, AI, and Console test projects** — Brings total to **1,917 tests passing (2 skipped)**. Key test additions include:
   - 7 in `SessionResumeRepairTests.cs`
   - 30 in `ClaudeClientRetryTests.cs` (includes 10 validation tests)
   - 10 in `ErrorRecoveryTests.cs`
@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 7 in `SessionResumeAdversarialTests.cs`
   - 27 in `RateLimitAdversarialTests.cs` (includes 4 ExecuteWithRetryAsync validation tests)
   - 13 adversarial additions to `ConversationPrunerTests.cs`
+  - Plus additional test modifications and enhancements across existing test suites
 
 ### Changed
 - **`ClaudeClientWrapper.SendMessageAsync()` and `CountTokensAsync()` now retry on rate limits**: Both methods wrapped with `ExecuteWithRetryAsync()` helper. Retries only `AnthropicRateLimitException`, not other API errors (e.g., `AnthropicBadRequestException`). Mid-stream rate limits (unlikely) propagate without retry.
