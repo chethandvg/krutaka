@@ -123,7 +123,9 @@ public sealed class SessionFactory : ISessionFactory
             auditLogger: _auditLogger,
             correlationContext: correlationContext,
             contextCompactor: contextCompactor,
-            commandApprovalCache: commandApprovalCache);
+            commandApprovalCache: commandApprovalCache,
+            pruneToolResultsAfterTurns: _toolOptions.PruneToolResultsAfterTurns,
+            pruneToolResultMinChars: _toolOptions.PruneToolResultMinChars);
 
         // Create SessionBudget from request parameters
         var budget = new SessionBudget(

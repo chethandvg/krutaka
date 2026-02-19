@@ -23,6 +23,8 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly int _maxToolResultCharacters;
     private readonly TimeSpan _toolTimeout;
     private readonly TimeSpan _approvalTimeout;
+    private readonly int _pruneToolResultsAfterTurns;
+    private readonly int _pruneToolResultMinChars;
     private readonly SemaphoreSlim _turnLock;
     private readonly List<object> _conversationHistory;
     private readonly object _conversationHistoryLock = new(); // Protects conversation history for thread-safe access
@@ -53,6 +55,8 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="correlationContext">Optional correlation context for request tracing.</param>
     /// <param name="contextCompactor">Optional context compactor for automatic context window management.</param>
     /// <param name="commandApprovalCache">Optional command approval cache for graduated command execution (v0.3.0).</param>
+    /// <param name="pruneToolResultsAfterTurns">Number of turns after which large tool results are pruned (default: 6). v0.4.5 feature.</param>
+    /// <param name="pruneToolResultMinChars">Minimum character count for tool result pruning (default: 1000). v0.4.5 feature.</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
@@ -64,7 +68,9 @@ public sealed class AgentOrchestrator : IDisposable
         IAuditLogger? auditLogger = null,
         CorrelationContext? correlationContext = null,
         ContextCompactor? contextCompactor = null,
-        ICommandApprovalCache? commandApprovalCache = null)
+        ICommandApprovalCache? commandApprovalCache = null,
+        int pruneToolResultsAfterTurns = 6,
+        int pruneToolResultMinChars = 1000)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
@@ -81,7 +87,19 @@ public sealed class AgentOrchestrator : IDisposable
             throw new ArgumentOutOfRangeException(nameof(approvalTimeoutSeconds), "Approval timeout must be non-negative (0 = infinite).");
         }
 
+        if (pruneToolResultsAfterTurns < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pruneToolResultsAfterTurns), "Prune tool results after turns must be non-negative.");
+        }
+
+        if (pruneToolResultMinChars < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pruneToolResultMinChars), "Prune tool result minimum characters must be non-negative.");
+        }
+
         _approvalTimeout = approvalTimeoutSeconds == 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(approvalTimeoutSeconds);
+        _pruneToolResultsAfterTurns = pruneToolResultsAfterTurns;
+        _pruneToolResultMinChars = pruneToolResultMinChars;
         _turnLock = new SemaphoreSlim(1, 1);
         _conversationHistory = [];
         _approvalCache = new ConcurrentDictionary<string, bool>();
@@ -433,6 +451,42 @@ public sealed class AgentOrchestrator : IDisposable
             {
                 conversationSnapshot = _conversationHistory.ToList();
             }
+
+            // Calculate current turn index (count of non-tool-result user messages in history)
+            var currentTurnIndex = conversationSnapshot.Count(msg =>
+            {
+                var msgJson = JsonSerializer.Serialize(msg);
+                using var msgDoc = JsonDocument.Parse(msgJson);
+                if (!msgDoc.RootElement.TryGetProperty("role", out var roleElement) ||
+                    roleElement.GetString() != "user")
+                {
+                    return false;
+                }
+
+                // Check if this is a tool_result message
+                if (msgDoc.RootElement.TryGetProperty("content", out var contentElement) &&
+                    contentElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var block in contentElement.EnumerateArray())
+                    {
+                        if (block.TryGetProperty("type", out var typeElement) &&
+                            typeElement.GetString() == "tool_result")
+                        {
+                            return false; // This is a tool_result message, don't count it
+                        }
+                    }
+                }
+
+                return true; // This is a regular user message
+            });
+
+            // Apply tool result pruning to reduce token waste from old tool outputs
+            // This creates a new list and NEVER modifies the original conversation history or JSONL
+            conversationSnapshot = PruneOldToolResults(
+                conversationSnapshot,
+                currentTurnIndex,
+                _pruneToolResultsAfterTurns,
+                _pruneToolResultMinChars);
 
             // Stream the response from Claude
             await foreach (var evt in _claudeClient.SendMessageAsync(
@@ -1202,6 +1256,234 @@ public sealed class AgentOrchestrator : IDisposable
         }
 
         return $"{truncatedContent}{truncationNotice}";
+    }
+
+    /// <summary>
+    /// Prunes large tool results from older conversation turns to reduce token waste.
+    /// Only affects the snapshot sent to Claude API — original conversation history is NEVER modified.
+    /// </summary>
+    /// <param name="messages">The conversation messages to prune (typically a snapshot).</param>
+    /// <param name="currentTurnIndex">The current turn index (0-based count of user messages).</param>
+    /// <param name="pruneAfterTurns">Number of turns after which tool results are eligible for pruning.</param>
+    /// <param name="pruneMinChars">Minimum character count for pruning eligibility.</param>
+    /// <returns>A new list with pruned messages. The input list is never modified.</returns>
+    private static List<object> PruneOldToolResults(
+        List<object> messages,
+        int currentTurnIndex,
+        int pruneAfterTurns,
+        int pruneMinChars)
+    {
+        // Return a new list to ensure immutability of the input
+        var prunedMessages = new List<object>(messages.Count);
+
+        // Track turn index - starts at -1, incremented when we see a new user prompt
+        var turnIndex = -1;
+
+        foreach (var message in messages)
+        {
+            // Parse the message as a dynamic object to read its properties
+            var messageJson = JsonSerializer.Serialize(message);
+            using var messageDoc = JsonDocument.Parse(messageJson);
+            var root = messageDoc.RootElement;
+
+            // Get role — skip if not present (shouldn't happen but be defensive)
+            if (!root.TryGetProperty("role", out var roleElement))
+            {
+                prunedMessages.Add(message);
+                continue;
+            }
+
+            var role = roleElement.GetString();
+
+            // Track turn index for user messages
+            if (role == "user")
+            {
+                // Check if this is a tool_result message or a regular user prompt
+                // Tool result messages don't advance the turn counter
+                bool isToolResultMessage = false;
+                if (root.TryGetProperty("content", out var checkContent) &&
+                    checkContent.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var checkBlock in checkContent.EnumerateArray())
+                    {
+                        if (checkBlock.TryGetProperty("type", out var checkType) &&
+                            checkType.GetString() == "tool_result")
+                        {
+                            isToolResultMessage = true;
+                            break;
+                        }
+                    }
+                }
+
+                // For regular user messages, increment turn index BEFORE calculating age
+                // This ensures tool_result messages (which come after) belong to the same turn
+                if (!isToolResultMessage)
+                {
+                    turnIndex++;
+                }
+
+                // Calculate age of this turn relative to current
+                // Tool_result messages use the just-incremented turnIndex (they belong to that turn)
+                var age = currentTurnIndex - turnIndex;
+
+                // Only prune if age exceeds threshold
+                if (age > pruneAfterTurns && root.TryGetProperty("content", out var contentElement))
+                {
+                    // Check if content is an array of content blocks
+                    if (contentElement.ValueKind == JsonValueKind.Array)
+                    {
+                        var contentBlocks = new List<object>();
+                        var hasToolResults = false;
+
+                        foreach (var block in contentElement.EnumerateArray())
+                        {
+                            if (block.TryGetProperty("type", out var typeElement) &&
+                                typeElement.GetString() == "tool_result")
+                            {
+                                hasToolResults = true;
+
+                                // Extract properties
+                                var toolUseId = block.TryGetProperty("tool_use_id", out var idElement)
+                                    ? idElement.GetString() ?? ""
+                                    : "";
+
+                                var content = block.TryGetProperty("content", out var contentProp)
+                                    ? contentProp.GetString() ?? ""
+                                    : "";
+
+                                var isError = block.TryGetProperty("is_error", out var isErrorElement) &&
+                                              isErrorElement.GetBoolean();
+
+                                // Prune if content exceeds minimum character threshold
+                                if (content.Length > pruneMinChars)
+                                {
+                                    string replacementContent;
+                                    if (isError)
+                                    {
+                                        var ageText = age == 1 ? "1 turn ago" : string.Create(CultureInfo.InvariantCulture, $"{age} turns ago");
+                                        replacementContent = string.Create(CultureInfo.InvariantCulture,
+                                            $"[Previous tool error truncated — {content.Length:N0} chars. Original error occurred {ageText}.]");
+                                    }
+                                    else
+                                    {
+                                        replacementContent = string.Create(CultureInfo.InvariantCulture,
+                                            $"[Previous tool result truncated — {content.Length:N0} chars. Use read_file to re-read if needed.]");
+                                    }
+
+                                    // Create pruned tool result
+                                    contentBlocks.Add(new
+                                    {
+                                        type = "tool_result",
+                                        tool_use_id = toolUseId,
+                                        content = replacementContent,
+                                        is_error = isError
+                                    });
+                                }
+                                else
+                                {
+                                    // Keep small tool results as-is - reconstruct as anonymous object to preserve type information
+                                    // Using JsonSerializer.Deserialize<object> creates JsonElement which loses type reflection
+                                    contentBlocks.Add(new
+                                    {
+                                        type = "tool_result",
+                                        tool_use_id = toolUseId,
+                                        content,
+                                        is_error = isError
+                                    });
+                                }
+                            }
+                            else
+                            {
+                                // Keep non-tool_result blocks as-is - reconstruct to preserve type information
+                                // Check if it's a text block or tool_use block
+                                if (block.TryGetProperty("type", out var blockType))
+                                {
+                                    var blockTypeStr = blockType.GetString();
+                                    if (blockTypeStr == "text")
+                                    {
+                                        var text = block.TryGetProperty("text", out var textProp)
+                                            ? textProp.GetString() ?? ""
+                                            : "";
+                                        contentBlocks.Add(new { type = "text", text });
+                                    }
+                                    else if (blockTypeStr == "tool_use")
+                                    {
+                                        var id = block.TryGetProperty("id", out var idProp)
+                                            ? idProp.GetString() ?? ""
+                                            : "";
+                                        var name = block.TryGetProperty("name", out var nameProp)
+                                            ? nameProp.GetString() ?? ""
+                                            : "";
+                                        
+                                        // For tool_use input, we need to preserve the JsonElement
+                                        JsonElement input;
+                                        if (block.TryGetProperty("input", out var inputProp))
+                                        {
+                                            input = inputProp;
+                                        }
+                                        else
+                                        {
+                                            using var emptyDoc = JsonDocument.Parse("{}");
+                                            input = emptyDoc.RootElement.Clone();
+                                        }
+                                        
+                                        contentBlocks.Add(new
+                                        {
+                                            type = "tool_use",
+                                            id,
+                                            name,
+                                            input
+                                        });
+                                    }
+                                    else
+                                    {
+                                        // Unknown block type - deserialize as fallback
+                                        contentBlocks.Add(JsonSerializer.Deserialize<object>(block.GetRawText())!);
+                                    }
+                                }
+                                else
+                                {
+                                    // No type property - deserialize as fallback
+                                    contentBlocks.Add(JsonSerializer.Deserialize<object>(block.GetRawText())!);
+                                }
+                            }
+                        }
+
+                        // If we found and modified tool results, create a new message object
+                        if (hasToolResults)
+                        {
+                            prunedMessages.Add(new
+                            {
+                                role = "user",
+                                content = contentBlocks
+                            });
+                        }
+                        else
+                        {
+                            // No tool results, keep original message
+                            prunedMessages.Add(message);
+                        }
+                    }
+                    else
+                    {
+                        // Content is not an array (simple string), keep as-is
+                        prunedMessages.Add(message);
+                    }
+                }
+                else
+                {
+                    // Age within threshold or no content, keep original message
+                    prunedMessages.Add(message);
+                }
+            }
+            else
+            {
+                // Not a user message, keep as-is
+                prunedMessages.Add(message);
+            }
+        }
+
+        return prunedMessages;
     }
 
     /// <summary>

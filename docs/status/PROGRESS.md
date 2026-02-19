@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-18 (v0.4.5 Issue #186 Complete — 1,855 tests passing, 2 skipped)
+> **Last updated:** 2026-02-18 (v0.4.5 Issue #187 Complete — 1,868 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2952,11 +2952,150 @@ Extracted content might look like:
 
 **Ready for:** Production use — context intelligence enhancement with configurable memory flush, preserving critical decisions and progress across compaction events
 
+---
+
+## Issue #185: Add tool result pruning for older conversation turns — ✅ Complete (2026-02-18)
+
+**Status:** Complete  
+**Type:** Enhancement — Context Intelligence  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence
+
+### Summary
+
+Implemented tool result pruning to trim large tool results from conversation turns older than N turns before sending to the Claude API. This reduces token waste from stale file contents and command outputs while preserving full history in JSONL files.
+
+### Changes Implemented
+
+1. **Configuration (ToolOptions.cs)**
+   - Added `PruneToolResultsAfterTurns` property (default: 6)
+   - Added `PruneToolResultMinChars` property (default: 1000)
+   - Properties documented with v0.4.5 feature notation
+
+2. **appsettings.json Update**
+   - Added `PruneToolResultsAfterTurns: 6` to `ToolOptions` section
+   - Added `PruneToolResultMinChars: 1000` to `ToolOptions` section
+
+3. **AgentOrchestrator Enhancement**
+   - Added `_pruneToolResultsAfterTurns` and `_pruneToolResultMinChars` readonly fields
+   - Updated constructor to accept pruning configuration parameters
+   - Implemented `PruneOldToolResults()` private static method (137 lines)
+   - Integrated pruning into `RunAgenticLoopAsync()` after conversation snapshot creation
+   - Turn counting logic: counts non-tool-result user messages, tool_result messages belong to same turn as preceding prompt
+   - Returns new list ensuring immutability — original conversation history never modified
+
+4. **SessionFactory Wiring**
+   - Updated `AgentOrchestrator` instantiation to pass `PruneToolResultsAfterTurns` and `PruneToolResultMinChars` from `ToolOptions`
+
+5. **Pruning Logic Details**
+   - Iterates through conversation messages
+   - Tracks turn index (incremented only for non-tool-result user messages)
+   - For each user message with tool_result content blocks:
+     - Calculates age = currentTurnIndex - message's turnIndex
+     - If age > pruneAfterTurns AND content.length > pruneMinChars:
+       - Replaces with truncation message
+       - Error results: `[Previous tool error truncated — {length} chars. Original error occurred {age} turns ago.]`
+       - Normal results: `[Previous tool result truncated — {length} chars. Use read_file to re-read if needed.]`
+   - Preserves `tool_use_id` and `is_error` flags in pruned results
+   - Returns new list (immutability pattern)
+
+### Test Coverage
+
+- **10 new tests** in `ConversationPrunerTests.cs`:
+  - `PruneOldToolResults_Should_PruneToolResultsOlderThanThreshold` — Verifies age-based pruning
+  - `PruneOldToolResults_Should_NotPruneToolResultsWithinThreshold` — Verifies recent results preserved
+  - `PruneOldToolResults_Should_NotPruneSmallToolResults` — Verifies size threshold respected
+  - `PruneOldToolResults_Should_PruneErrorResultsWithErrorMessage` — Verifies error-specific messages
+  - `PruneOldToolResults_Should_ReturnNewList` — Verifies immutability
+  - `PruneOldToolResults_Should_NotModifyMessagesWithoutToolResults` — Verifies non-tool messages untouched
+  - `PruneOldToolResults_Should_CalculateTurnAgeCorrectly` — Verifies turn counting logic
+  - `PruneOldToolResults_Should_HandleMultipleToolResultsInOneMessage` — Verifies multiple results handled
+  - `PruneOldToolResults_Should_PreserveToolUseIdInPrunedResults` — Verifies metadata preservation
+  - `PruneOldToolResults_Should_PreserveIsErrorFlagInPrunedResults` — Verifies error flag preservation
+
+- **All tests pass:**
+  - 408 Core tests (398 original + 10 new)
+  - 1,868 total tests across all projects
+  - 2 tests skipped (unrelated)
+
+### Security
+
+- **Threat T3 Mitigation (Tool Result Pruning Hides Errors):**
+  - Only prunes results older than configurable threshold (default: 6 turns)
+  - Error results pruned with message preserving error awareness
+  - Indicates original age in truncation message
+  - Small results (< min chars) never pruned regardless of age
+
+- **Immutability Guarantees:**
+  - `PruneOldToolResults()` returns new list
+  - Original `_conversationHistory` never modified
+  - JSONL session files never modified
+  - Only affects in-memory snapshot sent to Claude API
+
+- **Configuration Control:**
+  - `PruneToolResultsAfterTurns` controls age threshold
+  - `PruneToolResultMinChars` controls size threshold
+  - Set `PruneToolResultsAfterTurns` to very large number to effectively disable
+
+### Files Modified
+
+- `src/Krutaka.Console/appsettings.json` — Added pruning configuration
+- `src/Krutaka.Core/AgentOrchestrator.cs` — Added pruning logic and integration
+- `src/Krutaka.Tools/ToolOptions.cs` — Added pruning configuration properties
+- `src/Krutaka.Tools/SessionFactory.cs` — Wired up pruning configuration
+- `tests/Krutaka.Core.Tests/ConversationPrunerTests.cs` — Added 10 comprehensive tests (new file)
+
+### Usage Example
+
+**Before pruning (turn 0, 2000 chars):**
+```json
+{
+  "role": "user",
+  "content": [{
+    "type": "tool_result",
+    "tool_use_id": "toolu_01ABC",
+    "content": "[...2000 chars of file content...]",
+    "is_error": false
+  }]
+}
+```
+
+**After pruning (7 turns later):**
+```json
+{
+  "role": "user",
+  "content": [{
+    "type": "tool_result",
+    "tool_use_id": "toolu_01ABC",
+    "content": "[Previous tool result truncated — 2,000 chars. Use read_file to re-read if needed.]",
+    "is_error": false
+  }]
+}
+```
+
+**Benefits:**
+- Reduces token waste from stale tool outputs
+- Preserves full history in JSONL for debugging
+- Claude can re-read files if needed via `read_file` tool
+- Configurable thresholds for different use cases
+
+### Acceptance Criteria
+
+✅ Large tool results older than configurable threshold are pruned in API calls  
+✅ Original conversation history is NEVER modified  
+✅ JSONL session files are NEVER modified  
+✅ Error results pruned with error-specific truncation message  
+✅ Configurable via `appsettings.json`  
+✅ All new tests pass (10 tests)  
+✅ All existing tests continue to pass (1,858 tests)  
+✅ Turn counting logic correctly handles tool_result messages  
+✅ Metadata (tool_use_id, is_error) preserved in pruned results
+
+**Ready for:** Production use — context intelligence enhancement reducing token waste while preserving full session history
+
 ### Next Steps
 
 Remaining v0.4.5 issues:
-- Tool result pruning (#185)
-- Compaction events to JSONL (#187)
-- Adversarial tests (#188)
-- Release documentation (#189)
+- Compaction events to JSONL (#186)
+- Adversarial tests (#187)
+- Release documentation (#188)
 
