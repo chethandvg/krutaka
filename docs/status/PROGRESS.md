@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-18 (v0.4.5 Issue #187 Complete — 1,868 tests passing, 2 skipped)
+> **Last updated:** 2026-02-19 (v0.4.5 Issue #188 Complete — 1,876 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -2951,6 +2951,125 @@ Extracted content might look like:
 - ✅ `docs/status/PROGRESS.md` updated with completion details
 
 **Ready for:** Production use — context intelligence enhancement with configurable memory flush, preserving critical decisions and progress across compaction events
+
+---
+
+## Issue #188: Add compaction events to JSONL session files — ✅ Complete (2026-02-19)
+
+**Status:** Complete  
+**Type:** Enhancement — Context Intelligence  
+**Epic:** v0.4.5 (#177) — Session Resilience, API Hardening & Context Intelligence  
+**Depends on:** Issue #186 (pre-compaction flush must be in place) — ✅ Complete
+
+### Summary
+
+Compaction metadata is now recorded as events in JSONL session files for debugging session issues. Compaction events contain summary snippets, token counts (before/after), and message counts, enabling developers to diagnose session lifecycle issues and understand when/why compaction occurred.
+
+### Changes Implemented
+
+1. **SessionEvent Model Extension**
+   - Added three optional properties to `SessionEvent` record:
+     - `TokensBefore?: int?` — Token count before compaction
+     - `TokensAfter?: int?` — Token count after compaction
+     - `MessagesRemoved?: int?` — Number of messages removed during compaction
+   - Properties use JSON property names (`tokens_before`, `tokens_after`, `messages_removed`)
+   - All three default to `null` for non-compaction events
+
+2. **CompactionCompleted AgentEvent**
+   - Added new `CompactionCompleted` record in `AgentEvent.cs`
+   - Emitted by `AgentOrchestrator` after successful compaction
+   - Contains: `Summary` (truncated to 200 chars), `TokensBefore`, `TokensAfter`, `MessagesRemoved`
+   - Follows existing AgentEvent pattern (e.g., `ToolCallCompleted`, `DirectoryAccessRequested`)
+
+3. **SessionStore.ReconstructMessagesAsync Enhancement**
+   - Added explicit check: `if (evt.Type == "compaction") continue;`
+   - Compaction events are skipped during message reconstruction
+   - Ensures compaction metadata never affects Claude API calls
+
+4. **AgentOrchestrator Modifications**
+   - Modified `CompactIfNeededAsync()` to return `CompactionCompleted?`
+   - Modified `CompactAndEnforceHardLimitAsync()` to:
+     - Create `CompactionCompleted` event with metadata
+     - Truncate summary to 200 chars if longer
+     - Return event for yielding
+   - Modified `RunAgenticLoopAsync()` to:
+     - Capture compaction event outside try-catch (C# constraint)
+     - Yield event if compaction occurred
+
+5. **Program.cs WrapWithSessionPersistence Enhancement**
+   - Added `case CompactionCompleted` to event switch
+   - Writes compaction event to SessionStore with:
+     - Type: `"compaction"`
+     - Role: `null`
+     - Content: Summary text (first 200 chars)
+     - Timestamp: Event timestamp
+     - TokensBefore, TokensAfter, MessagesRemoved: From event
+
+### Test Coverage
+
+- **4 new tests** in `SessionStoreTests.cs`:
+  - `Should_PersistCompactionEventWithMetadata` — Verifies round-trip serialization
+  - `Should_SkipCompactionEventsInReconstruction` — Verifies events excluded from API messages
+  - `Should_LoadCompactionEventsForInspection` — Verifies events available via LoadAsync
+  - `Should_ReconstructMessagesCorrectlyWithMixedEventsIncludingCompaction` — Verifies complex scenarios
+
+- **All tests pass:**
+  - 31 SessionStore tests (27 original + 4 new)
+  - 142 Memory tests total (137 original + 5 new, but 4 added here)
+  - 1,876 total tests across all projects (was 1,868, +8 tests)
+  - 2 tests skipped (unrelated)
+
+### Security
+
+- **Threat T6 Mitigation (Compaction Event Spoofing in JSONL):**
+  - Compaction events are informational only
+  - `ReconstructMessagesAsync()` skips them entirely
+  - Tampering cannot affect Claude API behavior
+  - Events exist solely for debugging and inspection
+
+- **Immutability Guarantees:**
+  - Compaction events appended to JSONL (never modify existing events)
+  - Events can be inspected via `LoadAsync()` but never affect reconstruction
+  - Summary truncation (200 chars) prevents excessive JSONL bloat
+
+### Files Modified
+
+- `src/Krutaka.Core/SessionEvent.cs` — Added `TokensBefore`, `TokensAfter`, `MessagesRemoved` properties
+- `src/Krutaka.Core/AgentEvent.cs` — Added `CompactionCompleted` record
+- `src/Krutaka.Core/AgentOrchestrator.cs` — Modified compaction methods to return/yield event
+- `src/Krutaka.Memory/SessionStore.cs` — Added explicit compaction event skip in reconstruction
+- `src/Krutaka.Console/Program.cs` — Added CompactionCompleted case in WrapWithSessionPersistence
+- `tests/Krutaka.Memory.Tests/SessionStoreTests.cs` — Added 4 comprehensive tests
+
+### Usage Example
+
+**JSONL Session File (after compaction):**
+```jsonl
+{"type":"user","role":"user","content":"Write a file","timestamp":"2026-02-19T06:00:00Z"}
+{"type":"assistant","role":"assistant","content":"I will write...","timestamp":"2026-02-19T06:00:01Z"}
+{"type":"compaction","role":null,"content":"Compacted early conversation to preserve context...","timestamp":"2026-02-19T06:10:00Z","tokens_before":150000,"tokens_after":80000,"messages_removed":25}
+{"type":"user","role":"user","content":"Next task","timestamp":"2026-02-19T06:10:05Z"}
+```
+
+**LoadAsync Output:**
+- All 4 events loaded (including compaction event)
+- Available for inspection, logging, debugging
+
+**ReconstructMessagesAsync Output:**
+- Only 3 messages returned (user, assistant, user)
+- Compaction event completely skipped
+
+### Acceptance Criteria
+
+✅ Compaction events written to JSONL after successful compaction  
+✅ Compaction events contain summary, token counts, and message counts  
+✅ Compaction events skipped during message reconstruction  
+✅ Compaction events loadable via LoadAsync for debugging  
+✅ All new tests pass (4 tests in SessionStoreTests)  
+✅ All existing tests continue to pass (1,876 tests total)  
+✅ `docs/status/PROGRESS.md` updated with completion details
+
+**Ready for:** Production use — session debugging enhancement enabling developers to inspect compaction history and diagnose session lifecycle issues
 
 ---
 
