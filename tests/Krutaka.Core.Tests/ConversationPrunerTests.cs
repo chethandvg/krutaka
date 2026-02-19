@@ -101,7 +101,7 @@ public sealed class ConversationPrunerTests
         var result = GetToolResultContent(pruned, messageIndex: 2);
         result.Should().StartWith("[Previous tool error truncated");
         result.Should().Contain("2,000 chars");
-        result.Should().Contain("1 turns ago");
+        result.Should().Contain("1 turn ago");
     }
 
     [Fact]
@@ -241,6 +241,100 @@ public sealed class ConversationPrunerTests
         // Assert - is_error should still be true
         var json = JsonSerializer.Serialize(pruned[2]);
         json.Should().Contain("\"is_error\":true");
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_PreserveAnonymousObjectTypeForSmallToolResults()
+    {
+        // Arrange - small tool result that should not be pruned
+        var messages = new List<object>
+        {
+            CreateUserMessage("Task"),
+            CreateAssistantMessage("Working", [CreateToolCall("tool_01", "read_file", "{}")]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", "small content", isError: false)]),
+        };
+
+        // Act - prune after 0 turns, but content is too small
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - verify the result is an anonymous object with type property accessible via reflection
+        var prunedMessage = pruned[2];
+        var json = JsonSerializer.Serialize(prunedMessage);
+        using var doc = JsonDocument.Parse(json);
+        var content = doc.RootElement.GetProperty("content");
+        
+        foreach (var block in content.EnumerateArray())
+        {
+            // Verify we can access type property
+            block.TryGetProperty("type", out var type).Should().BeTrue();
+            type.GetString().Should().Be("tool_result");
+            
+            // Verify tool_use_id is preserved
+            block.TryGetProperty("tool_use_id", out var toolUseId).Should().BeTrue();
+            toolUseId.GetString().Should().Be("tool_01");
+            
+            // Verify content is preserved
+            block.TryGetProperty("content", out var contentProp).Should().BeTrue();
+            contentProp.GetString().Should().Be("small content");
+        }
+
+        // Verify the pruned message can be serialized back to an object with reflectable properties
+        // This test ensures the block is not a JsonElement which would lose type information
+        var messageType = prunedMessage.GetType();
+        var contentProperty = messageType.GetProperty("content");
+        contentProperty.Should().NotBeNull();
+        
+        var contentValue = contentProperty!.GetValue(prunedMessage);
+        contentValue.Should().NotBeNull();
+        
+        // The content should be an enumerable of anonymous objects
+        if (contentValue is System.Collections.IEnumerable enumerable)
+        {
+            var firstBlock = enumerable.Cast<object>().First();
+            var firstBlockType = firstBlock.GetType();
+            
+            // Verify we can reflect on the type property (not JsonElement)
+            var typeProperty = firstBlockType.GetProperty("type");
+            typeProperty.Should().NotBeNull("block should have reflectable type property");
+            typeProperty!.GetValue(firstBlock).Should().Be("tool_result");
+        }
+    }
+
+    [Fact]
+    public void PruneOldToolResults_Should_PreserveTextBlocksWithReflectableType()
+    {
+        // Arrange - message with text block and tool result
+        var messages = new List<object>
+        {
+            CreateUserMessage("Task"),
+            CreateAssistantMessage("Thinking...", [CreateToolCall("tool_01", "read_file", "{}")]),
+            CreateUserMessageWithToolResults([CreateToolResult("tool_01", "small", isError: false)]),
+        };
+
+        // Act
+        var pruned = InvokePruneOldToolResults(messages, currentTurnIndex: 1, pruneAfterTurns: 0, pruneMinChars: 1000);
+
+        // Assert - verify assistant message text block is preserved with reflectable type
+        var assistantMessage = pruned[1];
+        var messageType = assistantMessage.GetType();
+        var contentProperty = messageType.GetProperty("content");
+        
+        var contentValue = contentProperty!.GetValue(assistantMessage);
+        if (contentValue is System.Collections.IEnumerable enumerable)
+        {
+            var textBlock = enumerable.Cast<object>().First();
+            var textBlockType = textBlock.GetType();
+            
+            // Verify text block has reflectable type property
+            var typeProperty = textBlockType.GetProperty("type");
+            typeProperty.Should().NotBeNull("text block should have reflectable type property");
+            typeProperty!.GetValue(textBlock).Should().Be("text");
+            
+            // Verify text property is accessible
+            var textProperty = textBlockType.GetProperty("text");
+            textProperty.Should().NotBeNull();
+            textProperty!.GetValue(textBlock).Should().Be("Thinking...");
+        }
     }
 
     // Helper methods

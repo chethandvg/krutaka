@@ -333,6 +333,44 @@ public sealed class AgentOrchestratorTests
     }
 
     [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenPruneToolResultsAfterTurnsNegative()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act & Assert
+        var act = () => new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            securityPolicy,
+            pruneToolResultsAfterTurns: -1);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("pruneToolResultsAfterTurns");
+    }
+
+    [Fact]
+    public void Constructor_Should_ThrowArgumentOutOfRangeException_WhenPruneToolResultMinCharsNegative()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        var securityPolicy = new MockSecurityPolicy();
+
+        // Act & Assert
+        var act = () => new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            securityPolicy,
+            pruneToolResultMinChars: -1);
+
+        act.Should().Throw<ArgumentOutOfRangeException>()
+            .WithParameterName("pruneToolResultMinChars");
+    }
+
+    [Fact]
     public async Task RunAsync_Should_AllowInfiniteApprovalTimeout_WhenSetToZero()
     {
         // Arrange - timeout set to 0 = infinite

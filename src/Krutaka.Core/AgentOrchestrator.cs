@@ -87,6 +87,16 @@ public sealed class AgentOrchestrator : IDisposable
             throw new ArgumentOutOfRangeException(nameof(approvalTimeoutSeconds), "Approval timeout must be non-negative (0 = infinite).");
         }
 
+        if (pruneToolResultsAfterTurns < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pruneToolResultsAfterTurns), "Prune tool results after turns must be non-negative.");
+        }
+
+        if (pruneToolResultMinChars < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pruneToolResultMinChars), "Prune tool result minimum characters must be non-negative.");
+        }
+
         _approvalTimeout = approvalTimeoutSeconds == 0 ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(approvalTimeoutSeconds);
         _pruneToolResultsAfterTurns = pruneToolResultsAfterTurns;
         _pruneToolResultMinChars = pruneToolResultMinChars;
@@ -1350,8 +1360,9 @@ public sealed class AgentOrchestrator : IDisposable
                                     string replacementContent;
                                     if (isError)
                                     {
+                                        var ageText = age == 1 ? "1 turn ago" : string.Create(CultureInfo.InvariantCulture, $"{age} turns ago");
                                         replacementContent = string.Create(CultureInfo.InvariantCulture,
-                                            $"[Previous tool error truncated — {content.Length:N0} chars. Original error occurred {age} turns ago.]");
+                                            $"[Previous tool error truncated — {content.Length:N0} chars. Original error occurred {ageText}.]");
                                     }
                                     else
                                     {
@@ -1370,14 +1381,71 @@ public sealed class AgentOrchestrator : IDisposable
                                 }
                                 else
                                 {
-                                    // Keep small tool results as-is
-                                    contentBlocks.Add(JsonSerializer.Deserialize<object>(block.GetRawText())!);
+                                    // Keep small tool results as-is - reconstruct as anonymous object to preserve type information
+                                    // Using JsonSerializer.Deserialize<object> creates JsonElement which loses type reflection
+                                    contentBlocks.Add(new
+                                    {
+                                        type = "tool_result",
+                                        tool_use_id = toolUseId,
+                                        content,
+                                        is_error = isError
+                                    });
                                 }
                             }
                             else
                             {
-                                // Keep non-tool_result blocks as-is
-                                contentBlocks.Add(JsonSerializer.Deserialize<object>(block.GetRawText())!);
+                                // Keep non-tool_result blocks as-is - reconstruct to preserve type information
+                                // Check if it's a text block or tool_use block
+                                if (block.TryGetProperty("type", out var blockType))
+                                {
+                                    var blockTypeStr = blockType.GetString();
+                                    if (blockTypeStr == "text")
+                                    {
+                                        var text = block.TryGetProperty("text", out var textProp)
+                                            ? textProp.GetString() ?? ""
+                                            : "";
+                                        contentBlocks.Add(new { type = "text", text });
+                                    }
+                                    else if (blockTypeStr == "tool_use")
+                                    {
+                                        var id = block.TryGetProperty("id", out var idProp)
+                                            ? idProp.GetString() ?? ""
+                                            : "";
+                                        var name = block.TryGetProperty("name", out var nameProp)
+                                            ? nameProp.GetString() ?? ""
+                                            : "";
+                                        
+                                        // For tool_use input, we need to preserve the JsonElement
+                                        JsonElement input;
+                                        if (block.TryGetProperty("input", out var inputProp))
+                                        {
+                                            input = inputProp;
+                                        }
+                                        else
+                                        {
+                                            using var emptyDoc = JsonDocument.Parse("{}");
+                                            input = emptyDoc.RootElement.Clone();
+                                        }
+                                        
+                                        contentBlocks.Add(new
+                                        {
+                                            type = "tool_use",
+                                            id,
+                                            name,
+                                            input
+                                        });
+                                    }
+                                    else
+                                    {
+                                        // Unknown block type - deserialize as fallback
+                                        contentBlocks.Add(JsonSerializer.Deserialize<object>(block.GetRawText())!);
+                                    }
+                                }
+                                else
+                                {
+                                    // No type property - deserialize as fallback
+                                    contentBlocks.Add(JsonSerializer.Deserialize<object>(block.GetRawText())!);
+                                }
                             }
                         }
 
