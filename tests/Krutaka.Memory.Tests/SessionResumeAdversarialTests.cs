@@ -447,68 +447,81 @@ public sealed class SessionResumeAdversarialTests : IDisposable
     }
 
     [Fact]
-    public async Task Should_HandleEmptyContentArraysInAssistantMessages()
+    public async Task Should_HandleEmptyAssistantTextContent()
     {
-        // Arrange - assistant message with empty content array (edge case)
+        // Arrange - assistant message with empty text content (edge case for reconstruction)
         var sessionId = Guid.NewGuid();
         using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         await store.AppendAsync(new SessionEvent(
             Type: "user",
             Role: "user",
-            Content: "Test empty content",
+            Content: "Test empty assistant text",
             Timestamp: DateTimeOffset.UtcNow));
 
-        // Note: SessionStore.AppendAsync doesn't allow creating empty content arrays directly
-        // through the normal flow, but we can test the reconstruction handles it gracefully
-        // by creating a minimal assistant message followed by orphaned tool_use
+        // Assistant message with empty string content
+        await store.AppendAsync(new SessionEvent(
+            Type: "assistant",
+            Role: "assistant",
+            Content: "", // Empty content
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1)));
+
         await store.AppendAsync(new SessionEvent(
             Type: "tool_use",
             Role: "assistant",
             Content: """{"test": "data"}""",
-            Timestamp: DateTimeOffset.UtcNow.AddSeconds(1),
+            Timestamp: DateTimeOffset.UtcNow.AddSeconds(2),
             ToolName: "test_tool",
-            ToolUseId: "toolu_empty_content_001"));
+            ToolUseId: "toolu_empty_text_001"));
 
-        // Act - Should handle gracefully even if content reconstruction creates unusual structures
+        // Act - Should handle gracefully
         var messages = await store.ReconstructMessagesAsync();
 
         // Assert - Should not crash and should inject synthetic tool_result
         messages.Should().HaveCount(3);
 
+        // Verify assistant message has empty text block and tool_use
+        var assistantMsg = JsonSerializer.Serialize(messages[1]);
+        var assistantDoc = JsonDocument.Parse(assistantMsg);
+        var assistantContent = assistantDoc.RootElement.GetProperty("content");
+        assistantContent.GetArrayLength().Should().Be(2); // empty text + tool_use
+        assistantContent[0].GetProperty("type").GetString().Should().Be("text");
+        assistantContent[0].GetProperty("text").GetString().Should().BeEmpty();
+
+        // Verify synthetic tool_result was injected
         var userMsg = JsonSerializer.Serialize(messages[2]);
         var userDoc = JsonDocument.Parse(userMsg);
         var content = userDoc.RootElement.GetProperty("content");
-        content[0].GetProperty("tool_use_id").GetString().Should().Be("toolu_empty_content_001");
+        content[0].GetProperty("tool_use_id").GetString().Should().Be("toolu_empty_text_001");
         content[0].GetProperty("is_error").GetBoolean().Should().BeTrue();
     }
 
     [Fact]
-    public async Task Should_HandleToolUseInputAsRawString_FallbackToParseToolInput()
+    public async Task Should_HandleMalformedToolUseInput_FallbackToEmptyObject()
     {
-        // Arrange - tool_use input stored as raw string (tests ParseToolInput fallback)
+        // Arrange - tool_use input with malformed JSON (tests ParseToolInput fallback to {})
         var sessionId = Guid.NewGuid();
         using var store = new SessionStore(_projectPath, sessionId, _testRoot);
 
         await store.AppendAsync(new SessionEvent(
             Type: "user",
             Role: "user",
-            Content: "Test string input",
+            Content: "Test malformed input",
             Timestamp: DateTimeOffset.UtcNow));
 
-        // Store input as raw string (not pre-parsed JSON)
+        // Store malformed JSON that cannot be parsed
         await store.AppendAsync(new SessionEvent(
             Type: "tool_use",
             Role: "assistant",
-            Content: """{"command": "test", "args": ["arg1", "arg2"]}""",
+            Content: "{invalid json: missing quotes, trailing comma,}", // Malformed
             Timestamp: DateTimeOffset.UtcNow.AddSeconds(1),
-            ToolName: "run_shell",
-            ToolUseId: "toolu_string_input_001"));
+            ToolName: "test_tool",
+            ToolUseId: "toolu_malformed_001"));
 
         // Act
         var messages = await store.ReconstructMessagesAsync();
 
-        // Assert - ParseToolInput should convert string to JsonElement
+        // Assert - ParseToolInput should fallback to empty object {} when JSON is invalid
         messages.Should().HaveCount(3);
 
         var assistantMsg = JsonSerializer.Serialize(messages[1]);
@@ -516,18 +529,16 @@ public sealed class SessionResumeAdversarialTests : IDisposable
         var content = assistantDoc.RootElement.GetProperty("content");
         var toolUse = content[0];
 
-        // Input should be a proper JSON object, not a double-escaped string
+        // Input should be an empty JSON object {} due to fallback
         var input = toolUse.GetProperty("input");
-        input.ValueKind.Should().Be(JsonValueKind.Object, "ParseToolInput should convert string to JsonElement");
-        input.GetProperty("command").GetString().Should().Be("test");
-        input.GetProperty("args").GetArrayLength().Should().Be(2);
-        input.GetProperty("args")[0].GetString().Should().Be("arg1");
+        input.ValueKind.Should().Be(JsonValueKind.Object, "ParseToolInput should fallback to empty object for malformed JSON");
+        input.EnumerateObject().Should().BeEmpty("fallback should produce empty object {}");
 
         // Verify synthetic tool_result was injected
         var userMsg = JsonSerializer.Serialize(messages[2]);
         var userDoc = JsonDocument.Parse(userMsg);
         userDoc.RootElement.GetProperty("role").GetString().Should().Be("user");
         var userContent = userDoc.RootElement.GetProperty("content");
-        userContent[0].GetProperty("tool_use_id").GetString().Should().Be("toolu_string_input_001");
+        userContent[0].GetProperty("tool_use_id").GetString().Should().Be("toolu_malformed_001");
     }
 }

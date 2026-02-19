@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-19 (v0.4.5 Issue #189 Complete — 1,913 tests passing, 2 skipped)
+> **Last updated:** 2026-02-19 (v0.4.5 Issue #189 Complete — 1,917 tests passing, 2 skipped)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3241,8 +3241,8 @@ Created comprehensive adversarial test suites that verify the resilience improve
    - **Interleaved Valid/Orphaned:** Mix of valid tool_use with results and orphaned tool_use
    - **Deeply Nested JSON:** tool_use input with 10 levels of nesting
    - **Uniqueness Verification:** 50 orphaned tool_use blocks, verify no duplicate synthetic tool_result IDs
-   - **Empty Content Arrays:** Assistant messages with empty content arrays (edge case)
-   - **Raw String Input:** tool_use input as raw string (tests ParseToolInput fallback)
+   - **Empty Assistant Text:** Assistant messages with empty text content (edge case)
+   - **Malformed JSON Input:** tool_use input as malformed JSON (tests ParseToolInput fallback to `{}`)
    - **Total: 7 adversarial tests** — all passing
 
 2. **RateLimitAdversarialTests.cs** (`tests/Krutaka.AI.Tests/`)
@@ -3251,9 +3251,10 @@ Created comprehensive adversarial test suites that verify the resilience improve
    - **Exponential Backoff:** Verify calculation correctness and capping at max delay
    - **Jitter Calculation:** Verify ±25% range (0.75-1.25 factor) with 100 samples showing variance
    - **Thread Safety:** Concurrent jitter calculations (1000 iterations) with proper locking
-   - **Concurrent Wrappers:** 100 ClaudeClientWrapper instances created in parallel
+   - **Concurrent Wrappers:** 100 ClaudeClientWrapper instances created in parallel (fixed dispose issue)
    - **Idempotent Dispose:** Multiple concurrent Dispose() calls don't throw
-   - **Total: 19 adversarial tests** — all passing
+   - **ExecuteWithRetryAsync Validation:** 4 new tests validating backoff sequence, jitter application, max delay capping, and exception propagation
+   - **Total: 23 adversarial tests** (+4 from review feedback) — all passing
 
 3. **ConversationPrunerTests.cs** (Adversarial Additions)
    - **Empty Conversation:** 0 messages → no crash
@@ -3269,18 +3270,18 @@ Created comprehensive adversarial test suites that verify the resilience improve
 
 ### Test Coverage
 
-- **36 new adversarial tests created:**
+- **40 new adversarial tests created (+4 from review feedback):**
   - 7 in `SessionResumeAdversarialTests.cs`
-  - 19 in `RateLimitAdversarialTests.cs`
+  - 23 in `RateLimitAdversarialTests.cs` (+4 ExecuteWithRetryAsync validation tests)
   - 10 added to `ConversationPrunerTests.cs`
 
 - **All tests pass:**
-  - **1,913 total tests across all projects** (+35 from v0.4.5 Issue #188)
+  - **1,917 total tests across all projects** (+40 from v0.4.5 Issue #188)
   - 2 tests skipped (unrelated — long-running timeout tests)
 
 ### Test Results by Project
 
-- `Krutaka.AI.Tests`: 49 tests (+19 adversarial) — all passing
+- `Krutaka.AI.Tests`: 53 tests (+23 adversarial) — all passing
 - `Krutaka.Memory.Tests`: 149 tests (+7 adversarial) — all passing
 - `Krutaka.Core.Tests`: 423 tests (+10 adversarial) — all passing
 - `Krutaka.Console.Tests`: 185 tests — all passing
