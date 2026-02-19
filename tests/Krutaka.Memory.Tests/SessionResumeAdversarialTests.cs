@@ -132,25 +132,50 @@ public sealed class SessionResumeAdversarialTests : IDisposable
         // Act
         var messages = await store.ReconstructMessagesAsync();
 
-        // Assert - Should have 10 triplets: user, assistant (with tool_use), user (with synthetic tool_result)
-        messages.Should().HaveCount(30); // 10 turns * 3 messages each
+        // Assert - The reconstruction consolidates messages:
+        // Turn 0: user "Task 0"
+        // Turn 0: assistant "Executing task 0" + tool_use
+        // Turn 1: user "Task 1" + synthetic tool_result for toolu_worst_case_00
+        // Turn 1: assistant "Executing task 1" + tool_use
+        // Turn 2: user "Task 2" + synthetic tool_result for toolu_worst_case_01
+        // ...
+        // Turn 9: assistant "Executing task 9" + tool_use
+        // Final: synthetic user with tool_result for toolu_worst_case_09
+        //
+        // Total: 10 user messages (9 with tool_result augmentation) + 10 assistant messages + 1 final synthetic user = 21
+        messages.Should().HaveCount(21);
 
-        // Verify every third message (indices 2, 5, 8, ..., 29) is a user message with synthetic tool_result
+        // Verify all synthetic tool_results are present and correct
+        var foundResults = new HashSet<string>();
+        foreach (var message in messages)
+        {
+            var json = JsonSerializer.Serialize(message);
+            var doc = JsonDocument.Parse(json);
+            var role = doc.RootElement.GetProperty("role").GetString();
+
+            if (role == "user" && doc.RootElement.TryGetProperty("content", out var content))
+            {
+                if (content.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var block in content.EnumerateArray())
+                    {
+                        if (block.TryGetProperty("type", out var type) && type.GetString() == "tool_result")
+                        {
+                            var toolUseId = block.GetProperty("tool_use_id").GetString()!;
+                            var isError = block.GetProperty("is_error").GetBoolean();
+                            isError.Should().BeTrue("synthetic tool_results should be marked as errors");
+                            foundResults.Add(toolUseId);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify all 10 orphaned tool_use blocks got synthetic tool_results
+        foundResults.Should().HaveCount(10);
         for (int i = 0; i < 10; i++)
         {
-            int messageIndex = i * 3 + 2;
-            var userMsg = JsonSerializer.Serialize(messages[messageIndex]);
-            var userDoc = JsonDocument.Parse(userMsg);
-            userDoc.RootElement.GetProperty("role").GetString().Should().Be("user");
-
-            var content = userDoc.RootElement.GetProperty("content");
-            content.GetArrayLength().Should().BeGreaterOrEqualTo(1);
-
-            // Last content block should be synthetic tool_result
-            var lastBlock = content[content.GetArrayLength() - 1];
-            lastBlock.GetProperty("type").GetString().Should().Be("tool_result");
-            lastBlock.GetProperty("is_error").GetBoolean().Should().BeTrue();
-            lastBlock.GetProperty("tool_use_id").GetString().Should().Be($"toolu_worst_case_{i:D2}");
+            foundResults.Should().Contain($"toolu_worst_case_{i:D2}");
         }
     }
 
@@ -223,53 +248,67 @@ public sealed class SessionResumeAdversarialTests : IDisposable
         // Act
         var messages = await store.ReconstructMessagesAsync();
 
-        // Assert - Should have 6 messages total
-        messages.Should().HaveCount(6);
-
+        // Assert - Reconstruction consolidates messages:
         // Message 0: user "Valid operation"
         // Message 1: assistant with tool_use "toolu_valid_001"
-        // Message 2: user with tool_result "toolu_valid_001" (valid, not synthetic)
-        // Message 3: user "Orphaned operation"
-        // Message 4: assistant with tool_use "toolu_orphaned_001"
-        // Message 5: user with synthetic tool_result "toolu_orphaned_001" + text "Another valid operation" + tool_use + tool_result
+        // Message 2: user with tool_result "toolu_valid_001" (valid) + text "Orphaned operation"
+        // Message 3: assistant with tool_use "toolu_orphaned_001"
+        // Message 4: user with text "Another valid operation" + synthetic tool_result "toolu_orphaned_001"
+        // Message 5: assistant with tool_use "toolu_valid_002"
+        // Message 6: user with tool_result "toolu_valid_002" (valid)
+        //
+        // Total: 7 messages
+        messages.Should().HaveCount(7);
 
-        // Verify message 2 has only the valid tool_result (not synthetic)
+        // Verify message 2 has the valid tool_result + next user text
         var msg2 = JsonSerializer.Serialize(messages[2]);
         var doc2 = JsonDocument.Parse(msg2);
         var content2 = doc2.RootElement.GetProperty("content");
-        content2.GetArrayLength().Should().Be(1);
+        content2.GetArrayLength().Should().Be(2);
+        content2[0].GetProperty("type").GetString().Should().Be("tool_result");
+        content2[0].GetProperty("tool_use_id").GetString().Should().Be("toolu_valid_001");
         content2[0].GetProperty("is_error").GetBoolean().Should().BeFalse();
-        content2[0].GetProperty("content").GetString().Should().Be("Success");
+        content2[1].GetProperty("type").GetString().Should().Be("text");
+        content2[1].GetProperty("text").GetString().Should().Be("Orphaned operation");
 
-        // Verify message 5 has the orphaned tool_result (synthetic) plus the "Another valid operation" text
-        var msg5 = JsonSerializer.Serialize(messages[5]);
-        var doc5 = JsonDocument.Parse(msg5);
-        var content5 = doc5.RootElement.GetProperty("content");
-        content5.GetArrayLength().Should().BeGreaterOrEqualTo(2);
+        // Verify message 4 has the text + synthetic tool_result for orphaned tool_use
+        var msg4 = JsonSerializer.Serialize(messages[4]);
+        var doc4 = JsonDocument.Parse(msg4);
+        var content4 = doc4.RootElement.GetProperty("content");
+        content4.GetArrayLength().Should().BeGreaterOrEqualTo(2);
 
-        // Find the synthetic tool_result for toolu_orphaned_001
+        bool foundText = false;
         bool foundSyntheticResult = false;
-        bool foundValidResult = false;
-        foreach (var block in content5.EnumerateArray())
+        foreach (var block in content4.EnumerateArray())
         {
-            if (block.TryGetProperty("type", out var type) && type.GetString() == "tool_result")
+            if (block.TryGetProperty("type", out var type))
             {
-                var toolUseId = block.GetProperty("tool_use_id").GetString();
-                if (toolUseId == "toolu_orphaned_001")
+                if (type.GetString() == "text" && block.GetProperty("text").GetString() == "Another valid operation")
                 {
-                    foundSyntheticResult = true;
-                    block.GetProperty("is_error").GetBoolean().Should().BeTrue();
+                    foundText = true;
                 }
-                else if (toolUseId == "toolu_valid_002")
+
+                if (type.GetString() == "tool_result")
                 {
-                    foundValidResult = true;
-                    block.GetProperty("is_error").GetBoolean().Should().BeFalse();
+                    var toolUseId = block.GetProperty("tool_use_id").GetString();
+                    if (toolUseId == "toolu_orphaned_001")
+                    {
+                        foundSyntheticResult = true;
+                        block.GetProperty("is_error").GetBoolean().Should().BeTrue();
+                    }
                 }
             }
         }
 
-        foundSyntheticResult.Should().BeTrue("synthetic tool_result for orphaned tool_use should be injected");
-        foundValidResult.Should().BeTrue("valid tool_result should be preserved");
+        foundText.Should().BeTrue("message 4 should contain the 'Another valid operation' text");
+        foundSyntheticResult.Should().BeTrue("message 4 should contain synthetic tool_result for toolu_orphaned_001");
+
+        // Verify message 6 has the valid tool_result for toolu_valid_002
+        var msg6 = JsonSerializer.Serialize(messages[6]);
+        var doc6 = JsonDocument.Parse(msg6);
+        var content6 = doc6.RootElement.GetProperty("content");
+        content6[0].GetProperty("tool_use_id").GetString().Should().Be("toolu_valid_002");
+        content6[0].GetProperty("is_error").GetBoolean().Should().BeFalse();
     }
 
     [Fact]

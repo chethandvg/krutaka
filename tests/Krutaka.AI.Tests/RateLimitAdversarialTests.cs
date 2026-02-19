@@ -346,7 +346,7 @@ public sealed class RateLimitAdversarialTests
         // Arrange
         using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
-        var wrapper = new ClaudeClientWrapper(client, logger);
+        using var wrapper = new ClaudeClientWrapper(client, logger);
 
         // Act - Dispose 10 times
         for (int i = 0; i < 10; i++)
@@ -363,7 +363,7 @@ public sealed class RateLimitAdversarialTests
         // Arrange
         using var client = new Anthropic.AnthropicClient { ApiKey = "test-key" };
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeClientWrapper>.Instance;
-        var wrapper = new ClaudeClientWrapper(client, logger);
+        using var wrapper = new ClaudeClientWrapper(client, logger);
 
         // Act - Dispose from multiple threads concurrently
         Parallel.For(0, 100, i =>
