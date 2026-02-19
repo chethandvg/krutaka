@@ -133,7 +133,14 @@ public sealed class SessionStore : ISessionStore, IDisposable
 
         await foreach (var evt in LoadAsync(cancellationToken).ConfigureAwait(false))
         {
+            // Skip metadata events (not sent to Claude API)
             if (evt.IsMeta)
+            {
+                continue;
+            }
+
+            // Skip compaction events (informational only, not part of conversation)
+            if (evt.Type == "compaction")
             {
                 continue;
             }

@@ -78,3 +78,13 @@ public sealed record DirectoryAccessRequested(string Path, AccessLevel AccessLev
 /// <param name="Request">The command execution request requiring approval.</param>
 /// <param name="Decision">The policy decision containing tier and reason.</param>
 public sealed record CommandApprovalRequested(CommandExecutionRequest Request, CommandDecision Decision) : AgentEvent;
+
+/// <summary>
+/// Represents the completion of a context compaction operation.
+/// Emitted after CompactAsync completes successfully to enable JSONL persistence.
+/// </summary>
+/// <param name="Summary">The compaction summary (first 200 chars).</param>
+/// <param name="TokensBefore">Token count before compaction.</param>
+/// <param name="TokensAfter">Token count after compaction.</param>
+/// <param name="MessagesRemoved">Number of messages removed during compaction.</param>
+public sealed record CompactionCompleted(string Summary, int TokensBefore, int TokensAfter, int MessagesRemoved) : AgentEvent;

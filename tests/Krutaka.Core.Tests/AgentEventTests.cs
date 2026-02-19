@@ -110,4 +110,18 @@ public class AgentEventTests
         evt.Justification.Should().Be("Need to read and write project files");
         evt.Timestamp.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
     }
+
+    [Fact]
+    public void CompactionCompleted_Should_HaveCorrectProperties()
+    {
+        // Arrange & Act
+        var evt = new CompactionCompleted("Compacted old messages to save tokens", 150000, 80000, 25);
+
+        // Assert
+        evt.Summary.Should().Be("Compacted old messages to save tokens");
+        evt.TokensBefore.Should().Be(150000);
+        evt.TokensAfter.Should().Be(80000);
+        evt.MessagesRemoved.Should().Be(25);
+        evt.Timestamp.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1));
+    }
 }
