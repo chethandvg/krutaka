@@ -4,7 +4,7 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
-**Implementation Status:** ✅ **v0.4.5 Session Resilience, API Hardening & Context Intelligence Complete** — v0.4.0 complete with 1,765 tests passing (2 skipped). v0.4.5 complete with 1,917 tests passing (2 skipped), adding session resume crash fixes, API retry/backoff, directory awareness, pre-compaction memory flush, tool result pruning, and bootstrap file caps. See `docs/status/PROGRESS.md` for detailed status.
+**Implementation Status:** 🚧 **v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites In Progress** — v0.4.5 complete with 1,917 tests passing (2 skipped). v0.4.6 restructures all 14 projects into logical subdirectories, adds per-project READMEs, fills missing test coverage, and defines v0.5.0 prerequisite interfaces. See `docs/status/PROGRESS.md` for detailed status.
 
 **Host Modes:** The application supports three operating modes via `appsettings.json` `"Mode"` setting or `--mode` CLI argument:
 - **Console** (default): Single-session local console UI, no Telegram services loaded
@@ -38,6 +38,9 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - Test classes mirror source classes: `MyClass.cs` → `MyClassTests.cs`
 - `Krutaka.Telegram` is a composition root (like `Krutaka.Console`) that provides Telegram bot interface
 - `ISessionFactory`/`ISessionManager` replace the singleton orchestrator pattern for multi-session support
+- All source projects use logical subdirectories (Abstractions/, Models/, etc.) — see each project's README.md for layout
+- File moves MUST NOT change namespaces — C# does not enforce namespace-to-directory mapping
+- `.csproj`, `AssemblyInfo.cs`, `packages.lock.json`, and `Program.cs` (for executables) stay at project root
 
 ### Security (Critical)
 - NEVER hardcode secrets, API keys, or credentials
@@ -73,6 +76,8 @@ Before making changes, read:
 - `docs/versions/v0.3.0.md` — v0.3.0 graduated command execution architecture design
 - `docs/versions/v0.4.0.md` — v0.4.0 Telegram integration and multi-session architecture design
 - `docs/versions/v0.4.5.md` — v0.4.5 Session Resilience, API Hardening & Context Intelligence design
+- `docs/versions/v0.4.6.md` — v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites design
+- `docs/roadmap/ROADMAP.md` — Forward-looking roadmap (v0.5.0 through v1.3.0+)
 - `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
 - `docs/architecture/TELEGRAM.md` — Telegram security architecture
 - `docs/architecture/DECISIONS.md` — Architecture Decision Records (ADR-013 for graduated command execution)
