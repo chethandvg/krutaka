@@ -3396,3 +3396,19 @@ The following steps are performed by the repository maintainer (not the Copilot 
 - [ ] Trigger stabilization testing per `release-lifecycle.txt`
 - [ ] If stabilization passes, merge to `main` and tag `v0.4.5`
 
+---
+
+## v0.4.6 — Project Structure, Code Quality & v0.5.0 Prerequisites (In Progress)
+
+> **Status:** 🔄 **In Progress**
+> **Reference:** See `docs/versions/v0.4.6.md` for complete architecture design, restructuring rules, and implementation roadmap.
+
+### Overview
+
+v0.4.6 is a **structural, code quality, and prerequisite** release that reorganizes all 14 projects into logical subdirectories, adds per-project READMEs, fills missing test coverage, and defines the v0.5.0 prerequisite interfaces. No behavioral changes — only structural improvements and prerequisites.
+
+### Issue Status
+
+| # | Issue | Type | Status | Date Completed |
+|---|---|---|---|---|
+| TBD | Create v0.4.6 roadmap document | Documentation | 🔄 In Progress | — |
