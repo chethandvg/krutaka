@@ -88,3 +88,15 @@ public sealed record CommandApprovalRequested(CommandExecutionRequest Request, C
 /// <param name="TokensAfter">Token count after compaction.</param>
 /// <param name="MessagesRemoved">Number of messages removed during compaction.</param>
 public sealed record CompactionCompleted(string Summary, int TokensBefore, int TokensAfter, int MessagesRemoved) : AgentEvent;
+
+/// <summary>
+/// Emitted when the agent transitions to <see cref="AgentState.Paused"/>.
+/// The agentic loop will block until a resume signal is received.
+/// </summary>
+/// <param name="Reason">The human-readable reason for the pause.</param>
+public sealed record AgentPaused(string Reason) : AgentEvent;
+
+/// <summary>
+/// Emitted when the agent transitions from <see cref="AgentState.Paused"/> back to <see cref="AgentState.Running"/>.
+/// </summary>
+public sealed record AgentResumed : AgentEvent;
