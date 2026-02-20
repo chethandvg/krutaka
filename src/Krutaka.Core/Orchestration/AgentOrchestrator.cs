@@ -30,6 +30,7 @@ public sealed class AgentOrchestrator : IDisposable
     private readonly object _conversationHistoryLock = new(); // Protects conversation history for thread-safe access
     private readonly ConcurrentDictionary<string, bool> _approvalCache; // Tracks approved tools for session (thread-safe)
     private readonly ICommandApprovalCache? _commandApprovalCache; // Tracks approved command signatures (v0.3.0, injected from DI)
+    private readonly IAgentStateManager? _stateManager; // Optional state machine for pause/resume/abort (v0.5.0)
     private readonly ConcurrentDictionary<string, bool> _sessionCommandApprovals = new(); // Tracks session-level "Always" command approvals (v0.3.0)
     private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
@@ -57,6 +58,7 @@ public sealed class AgentOrchestrator : IDisposable
     /// <param name="commandApprovalCache">Optional command approval cache for graduated command execution (v0.3.0).</param>
     /// <param name="pruneToolResultsAfterTurns">Number of turns after which large tool results are pruned (default: 6). v0.4.5 feature.</param>
     /// <param name="pruneToolResultMinChars">Minimum character count for tool result pruning (default: 1000). v0.4.5 feature.</param>
+    /// <param name="stateManager">Optional state manager for pause/resume/abort lifecycle control (v0.5.0).</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
@@ -70,7 +72,8 @@ public sealed class AgentOrchestrator : IDisposable
         ContextCompactor? contextCompactor = null,
         ICommandApprovalCache? commandApprovalCache = null,
         int pruneToolResultsAfterTurns = 6,
-        int pruneToolResultMinChars = 1000)
+        int pruneToolResultMinChars = 1000,
+        IAgentStateManager? stateManager = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
@@ -80,6 +83,7 @@ public sealed class AgentOrchestrator : IDisposable
         _correlationContext = correlationContext;
         _commandApprovalCache = commandApprovalCache;
         _contextCompactor = contextCompactor;
+        _stateManager = stateManager;
         _maxToolResultCharacters = maxToolResultCharacters > 0 ? maxToolResultCharacters : DefaultMaxToolResultCharacters;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
         if (approvalTimeoutSeconds < 0)
@@ -545,9 +549,36 @@ public sealed class AgentOrchestrator : IDisposable
 
             // Process tool calls
             var toolResults = new List<object>();
+            var agentAborted = false;
 
             foreach (var toolCall in toolCalls)
             {
+                // Check agent state before executing each tool (v0.5.0)
+                if (_stateManager != null)
+                {
+                    if (_stateManager.CurrentState == AgentState.Paused)
+                    {
+                        yield return new AgentPaused(_stateManager.PauseReason ?? "Agent is paused.");
+
+                        // Poll until state changes away from Paused
+                        while (_stateManager.CurrentState == AgentState.Paused)
+                        {
+                            await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                        }
+
+                        if (_stateManager.CurrentState == AgentState.Running)
+                        {
+                            yield return new AgentResumed();
+                        }
+                    }
+
+                    if (_stateManager.CurrentState == AgentState.Aborted)
+                    {
+                        agentAborted = true;
+                        break;
+                    }
+                }
+
                 // Check if approval is required and not already granted for this session
                 var approvalRequired = _securityPolicy.IsApprovalRequired(toolCall.Name);
                 var alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
@@ -879,6 +910,12 @@ public sealed class AgentOrchestrator : IDisposable
                 }
 
                 toolResults.Add(CreateToolResult(toolCall.Id, toolResult.Content, toolResult.IsError));
+            }
+
+            // Exit the agentic loop if the agent was aborted during tool processing
+            if (agentAborted)
+            {
+                break;
             }
 
             // Add user message with tool results
