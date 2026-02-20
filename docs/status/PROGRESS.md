@@ -3412,3 +3412,21 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | # | Issue | Type | Status | Date Completed |
 |---|---|---|---|---|
 | TBD | Create v0.4.6 roadmap document | Documentation | 🔄 In Progress | — |
+| TBD | Add dedicated tests for SessionManager lifecycle | Testing | 🟢 Complete | 2026-02-20 |
+
+### Completed Work
+
+#### Add dedicated tests for SessionManager lifecycle (2026-02-20)
+
+**Summary:** Added 9 new unit tests to `tests/Krutaka.Core.Tests/Session/SessionManagerTests.cs` covering the gaps identified in the issue requirements. All 1,926 tests pass (1,917 baseline + 9 new), 2 skipped.
+
+**New tests added:**
+- ✅ `DisposeAsync_Should_BeIdempotent` — double-dispose safety
+- ✅ `ListActiveSessions_Should_ReturnEmptyList_Initially` — empty list edge case
+- ✅ `CreateSessionAsync_Should_AssignUniqueSessionId` — unique ID per session
+- ✅ `TerminateSessionAsync_Should_HandleNonExistentSessionGracefully` — graceful no-op for unknown IDs
+- ✅ `ResumeSessionAsync_Should_ResumeFromSuspendedState` — full suspend → resume path
+- ✅ `ResumeSessionAsync_Should_PreserveOriginalSessionId` — ID preserved after resume
+- ✅ `IdleDetection_Should_NotIdleSession_WhenActivityOccurs` — touch resets idle timer
+- ✅ `MaxActiveSessions_Should_NotEvict_WhenUnderLimit` — no eviction below capacity
+- ✅ `SuspendOldestIdle_Should_PreferIdleSessions_OverActiveSessions` — eviction preference for idle sessions

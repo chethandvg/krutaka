@@ -117,6 +117,18 @@ public sealed class SessionManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task TerminateSessionAsync_Should_HandleNonExistentSessionGracefully()
+    {
+        // Arrange
+        await using var manager = CreateSessionManager();
+        var unknownId = Guid.NewGuid();
+
+        // Act & Assert - should not throw for an unknown session ID
+        var act = async () => await manager.TerminateSessionAsync(unknownId, CancellationToken.None);
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
     public async Task TerminateSessionAsync_Should_RemoveExternalKeyMapping()
     {
         // Arrange
@@ -207,6 +219,53 @@ public sealed class SessionManagerTests : IDisposable
 
         // Assert - session should be terminated
         session.State.Should().Be(SessionState.Terminated);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_Should_BeIdempotent()
+    {
+        // Arrange
+        var manager = CreateSessionManager();
+        await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Act - disposing twice should not throw
+        await manager.DisposeAsync();
+        var act = async () => await manager.DisposeAsync();
+
+        // Assert
+        await act.Should().NotThrowAsync();
+    }
+
+    [Fact]
+    public async Task ListActiveSessions_Should_ReturnEmptyList_Initially()
+    {
+        // Arrange
+        await using var manager = CreateSessionManager();
+
+        // Act
+        var sessions = manager.ListActiveSessions();
+
+        // Assert
+        sessions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_Should_AssignUniqueSessionId()
+    {
+        // Arrange
+        await using var manager = CreateSessionManager();
+
+        // Act - Create 5 sessions and verify all IDs are unique
+        var sessions = new List<ManagedSession>();
+        for (var i = 0; i < 5; i++)
+        {
+            sessions.Add(await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None));
+        }
+
+        // Assert
+        var ids = sessions.Select(s => s.SessionId).ToList();
+        ids.Should().OnlyHaveUniqueItems();
+        ids.Should().AllSatisfy(id => id.Should().NotBe(Guid.Empty));
     }
 
     #endregion
@@ -398,6 +457,55 @@ public sealed class SessionManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task MaxActiveSessions_Should_NotEvict_WhenUnderLimit()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 5,
+            EvictionStrategy: EvictionStrategy.RejectNew);
+
+        await using var manager = CreateSessionManager(options);
+
+        // Act - Create sessions up to (but not exceeding) the limit; should not throw
+        for (var i = 0; i < 5; i++)
+        {
+            await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        }
+
+        // Assert - All 5 sessions are active; no eviction occurred
+        manager.ListActiveSessions().Should().HaveCount(5);
+        manager.ListActiveSessions().Should().AllSatisfy(s => s.State.Should().Be(SessionState.Active));
+    }
+
+    [Fact]
+    public async Task SuspendOldestIdle_Should_PreferIdleSessions_OverActiveSessions()
+    {
+        // Arrange - MaxActiveSessions = 2 to allow active + idle, then trigger eviction
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 2,
+            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
+
+        await using var manager = CreateSessionManager(options);
+
+        // Create two sessions; make the first one idle
+        var idleSession = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        var activeSession = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        idleSession.State = SessionState.Idle;
+
+        // Act - Create a third session; eviction must prefer the idle one
+        var newSession = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Assert - the idle session was evicted, the active one was preserved
+        newSession.Should().NotBeNull();
+        manager.GetSession(idleSession.SessionId).Should().BeNull();    // evicted (suspended)
+        manager.GetSession(activeSession.SessionId).Should().NotBeNull(); // kept
+
+        var summaries = manager.ListActiveSessions();
+        summaries.Should().Contain(s => s.SessionId == idleSession.SessionId && s.State == SessionState.Suspended);
+    }
+
+    [Fact]
     public async Task UserSessionCleanup_Should_AllowNewSession_AfterTermination()
     {
         // Arrange
@@ -473,6 +581,58 @@ public sealed class SessionManagerTests : IDisposable
         // Assert
         resumed.Should().BeSameAs(session);
         resumed.State.Should().Be(SessionState.Active);
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Should_ResumeFromSuspendedState()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 1,
+            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
+
+        await using var manager = CreateSessionManager(options);
+
+        // Create session and force it into suspended state via eviction
+        var session = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        var sessionId = session.SessionId;
+        session.State = SessionState.Idle;
+
+        // Creating a second session with limit = 1 suspends the first
+        await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        manager.GetSession(sessionId).Should().BeNull(); // confirm it is suspended
+
+        // Act
+        var resumed = await manager.ResumeSessionAsync(sessionId, _testProjectPath, CancellationToken.None);
+
+        // Assert - session was successfully resumed
+        resumed.Should().NotBeNull();
+        resumed.State.Should().Be(SessionState.Active);
+        manager.GetSession(sessionId).Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Should_PreserveOriginalSessionId()
+    {
+        // Arrange
+        var options = new SessionManagerOptions(
+            MaxActiveSessions: 1,
+            EvictionStrategy: EvictionStrategy.SuspendOldestIdle);
+
+        await using var manager = CreateSessionManager(options);
+
+        // Create session and suspend it
+        var original = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+        var originalId = original.SessionId;
+        original.State = SessionState.Idle;
+
+        await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Act
+        var resumed = await manager.ResumeSessionAsync(originalId, _testProjectPath, CancellationToken.None);
+
+        // Assert - identity preserved
+        resumed.SessionId.Should().Be(originalId);
     }
 
     #endregion
@@ -599,6 +759,26 @@ public sealed class SessionManagerTests : IDisposable
         // Assert - Should be the same session ID (resumed, not new)
         resumedSession.SessionId.Should().Be(session1Id);
         resumedSession.State.Should().Be(SessionState.Active);
+    }
+
+    [Fact]
+    public async Task IdleDetection_Should_NotIdleSession_WhenActivityOccurs()
+    {
+        // Arrange - use a short idle timeout
+        var options = new SessionManagerOptions(IdleTimeout: TimeSpan.FromMilliseconds(200));
+        await using var manager = CreateSessionManager(options);
+
+        var session = await manager.CreateSessionAsync(new SessionRequest(_testProjectPath), CancellationToken.None);
+
+        // Act - keep touching the session every 100ms (well within the idle timeout)
+        for (var i = 0; i < 4; i++)
+        {
+            await Task.Delay(100);
+            session.UpdateLastActivity();
+        }
+
+        // Assert - session must still be Active because activity kept resetting the idle timer
+        session.State.Should().Be(SessionState.Active);
     }
 
     #endregion
