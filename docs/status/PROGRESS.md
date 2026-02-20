@@ -3507,3 +3507,25 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - `tests/Krutaka.Core.Tests/Models/TaskBudgetTests.cs` — Defaults, custom values, equality, `with` expression (5 tests)
 - `tests/Krutaka.Core.Tests/Models/TaskBudgetSnapshotTests.cs` — Construction, equality, zero/full consumption (5 tests)
 - `tests/Krutaka.Core.Tests/Abstractions/ITaskBudgetTrackerTests.cs` — Interface contract via stub mock (6 tests)
+
+#### Define v0.5.0 IGitCheckpointService and IBehaviorAnomalyDetector interface stubs (2026-02-20)
+
+**Summary:** Defined 6 new type stubs in `Krutaka.Core` required as v0.5.0 prerequisites for git checkpoint/rollback and behavior anomaly detection. All types are definitions only — no behavioral changes. 27 new tests added; all 502 `Krutaka.Core.Tests` tests pass (verified via `dotnet test`; the previous entry's count of 471 appears to have been slightly under-reported).
+
+**New source files:**
+
+- `src/Krutaka.Core/Models/CheckpointInfo.cs` — Sealed record with `CheckpointId`, `Message`, `CreatedAt`, and `FilesModified`
+- `src/Krutaka.Core/Models/AnomalySeverity.cs` — Enum with 4 members (`None`, `Low`, `Medium`, `High`) ordered by severity
+- `src/Krutaka.Core/Models/AnomalyAssessment.cs` — Sealed record with `IsAnomalous`, `Reason?`, and `Severity`
+- `src/Krutaka.Core/Models/AgentBehaviorSnapshot.cs` — Sealed record with 5 behavioral metrics (`ToolCallFrequency`, `RepeatedFailureCount`, `AccessEscalationCount`, `FileModificationVelocity`, `DirectoryScopeExpansionCount`)
+- `src/Krutaka.Core/Abstractions/IGitCheckpointService.cs` — Interface with `CreateCheckpointAsync`, `RollbackToCheckpointAsync`, and `ListCheckpointsAsync`
+- `src/Krutaka.Core/Abstractions/IBehaviorAnomalyDetector.cs` — Interface with `AssessAsync`
+
+**New test files (26 tests):**
+
+- `tests/Krutaka.Core.Tests/Models/CheckpointInfoTests.cs` — Construction, equality, inequality, `with` expression (4 tests)
+- `tests/Krutaka.Core.Tests/Models/AnomalySeverityTests.cs` — Values, count, ordering, parse-roundtrip (7 tests)
+- `tests/Krutaka.Core.Tests/Models/AnomalyAssessmentTests.cs` — Construction, null Reason, equality, inequality (4 tests)
+- `tests/Krutaka.Core.Tests/Models/AgentBehaviorSnapshotTests.cs` — Construction, idle state, equality, inequality (4 tests)
+- `tests/Krutaka.Core.Tests/Abstractions/IGitCheckpointServiceTests.cs` — Interface contract via stub (4 tests)
+- `tests/Krutaka.Core.Tests/Abstractions/IBehaviorAnomalyDetectorTests.cs` — Interface contract via stub (3 tests)
