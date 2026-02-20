@@ -3411,7 +3411,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 
 | # | Issue | Type | Status | Date Completed |
 |---|---|---|---|---|
-| TBD | Create v0.4.6 roadmap document | Documentation | 🔄 In Progress | — |
+| TBD | Define v0.5.0 autonomy level and task budget type stubs | Types | 🟢 Complete | 2026-02-20 |
 | TBD | Add dedicated tests for SessionManager lifecycle | Testing | 🟢 Complete | 2026-02-20 |
 | TBD | Add dedicated tests for SessionFactory and DI registration | Testing | 🟢 Complete | 2026-02-20 |
 | TBD | Add bootstrap truncation logging and ADR-014 | Observability + Docs | 🟢 Complete | 2026-02-20 |
@@ -3487,3 +3487,23 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - ✅ `BuildAsync_Should_NotLog_WhenFileIsExactlyAtCapLimit` — no log when file exactly at cap
 
 **ADR-014:** Added to `docs/architecture/DECISIONS.md` documenting in-memory tool result pruning strategy (audit trail integrity rationale, alternatives rejected).
+
+#### Define v0.5.0 autonomy level and task budget type stubs (2026-02-20)
+
+**Summary:** Defined 5 new type stubs in `Krutaka.Core` required as v0.5.0 prerequisites. All types are definitions only — no behavioral changes. 29 new tests added; all 471 `Krutaka.Core.Tests` tests pass.
+
+**New source files:**
+
+- `src/Krutaka.Core/Models/AutonomyLevel.cs` — Enum with 4 members (`Supervised`, `Guided`, `SemiAutonomous`, `Autonomous`) with full XML documentation
+- `src/Krutaka.Core/Models/BudgetDimension.cs` — Enum with 4 members (`Tokens`, `ToolCalls`, `FilesModified`, `ProcessesSpawned`) with full XML documentation
+- `src/Krutaka.Core/Models/TaskBudget.cs` — Sealed record with 4 parameters and defaults (200,000 tokens, 100 tool calls, 20 files, 10 processes)
+- `src/Krutaka.Core/Models/TaskBudgetSnapshot.cs` — Sealed record with 8 parameters (4 raw counters + 4 percentage values)
+- `src/Krutaka.Core/Abstractions/ITaskBudgetTracker.cs` — Interface with `TryConsume`, `GetSnapshot`, and `IsExhausted`
+
+**New test files (29 tests):**
+
+- `tests/Krutaka.Core.Tests/Models/AutonomyLevelTests.cs` — Values, ordering, parse-roundtrip (7 tests)
+- `tests/Krutaka.Core.Tests/Models/BudgetDimensionTests.cs` — Values, count, parse-roundtrip (6 tests)
+- `tests/Krutaka.Core.Tests/Models/TaskBudgetTests.cs` — Defaults, custom values, equality, `with` expression (5 tests)
+- `tests/Krutaka.Core.Tests/Models/TaskBudgetSnapshotTests.cs` — Construction, equality, zero/full consumption (5 tests)
+- `tests/Krutaka.Core.Tests/Abstractions/ITaskBudgetTrackerTests.cs` — Interface contract via stub mock (6 tests)
