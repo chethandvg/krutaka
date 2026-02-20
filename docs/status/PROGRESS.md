@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-19 (v0.4.5 Issue #190 Complete — 1,917 tests passing, 2 skipped)
+> **Last updated:** 2026-02-20 (v0.4.6 Issue #219 Complete — 2,051 tests passing, 2 skipped, 2,053 total)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3398,9 +3398,9 @@ The following steps are performed by the repository maintainer (not the Copilot 
 
 ---
 
-## v0.4.6 — Project Structure, Code Quality & v0.5.0 Prerequisites (In Progress)
+## v0.4.6 — Project Structure, Code Quality & v0.5.0 Prerequisites (Complete)
 
-> **Status:** 🔄 **In Progress**
+> **Status:** ✅ **Complete** (2026-02-20) — All issues complete, 2,051 tests passing (2 skipped), 2,053 total
 > **Reference:** See `docs/versions/v0.4.6.md` for complete architecture design, restructuring rules, and implementation roadmap.
 
 ### Overview
@@ -3415,6 +3415,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | TBD | Add dedicated tests for SessionManager lifecycle | Testing | 🟢 Complete | 2026-02-20 |
 | TBD | Add dedicated tests for SessionFactory and DI registration | Testing | 🟢 Complete | 2026-02-20 |
 | TBD | Add bootstrap truncation logging and ADR-014 | Observability + Docs | 🟢 Complete | 2026-02-20 |
+| #219 | Full regression test suite verification and build validation | Verification | 🟢 Complete | 2026-02-20 |
 
 ### Completed Work
 
@@ -3529,3 +3530,63 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - `tests/Krutaka.Core.Tests/Models/AgentBehaviorSnapshotTests.cs` — Construction, idle state, equality, inequality (4 tests)
 - `tests/Krutaka.Core.Tests/Abstractions/IGitCheckpointServiceTests.cs` — Interface contract via stub (4 tests)
 - `tests/Krutaka.Core.Tests/Abstractions/IBehaviorAnomalyDetectorTests.cs` — Interface contract via stub (3 tests)
+
+#### Full regression test suite verification and build validation — Issue #219 (2026-02-20)
+
+**Summary:** Completed final v0.4.6 verification gate. Ran full clean build and complete test suite. Fixed all remaining restructuring gaps identified during verification.
+
+**Build verification:**
+- `dotnet clean && dotnet build --no-incremental` — **zero warnings, zero errors** ✅
+
+**Test verification:**
+- `dotnet test` — **2,051 passed, 2 skipped, 2,053 total** ✅ (≥ 2,050 threshold met)
+- Both skipped tests still appropriately skipped:
+  - `Krutaka.Tools.Tests.RunCommandToolTests.Should_TimeoutLongRunningCommand` (platform timing)
+  - `Krutaka.Telegram.Tests.PollingLockFileTests.TryAcquire_Should_WritePidToLockFile` (file locking)
+
+**File restructuring completed (10 source moves):**
+- `src/Krutaka.AI/ServiceExtensions.cs` → `DI/`
+- `src/Krutaka.Console/HostModeConfigurator.cs` → `Configuration/`
+- `src/Krutaka.Memory/DailyLogService.cs` → `Service/`
+- `src/Krutaka.Memory/MemoryOptions.cs` → `Configuration/`
+- `src/Krutaka.Memory/ServiceExtensions.cs` → `DI/`
+- `src/Krutaka.Memory/SessionStore.cs` → `Storage/`
+- `src/Krutaka.Skills/ServiceExtensions.cs` → `DI/`
+- `src/Krutaka.Skills/SkillOptions.cs` → `Configuration/`
+- `src/Krutaka.Tools/ServiceExtensions.cs` → `DI/`
+- `src/Krutaka.Tools/ToolRegistry.cs` → `DI/`
+
+**Test file restructuring (6 moves to mirror source):**
+- `tests/Krutaka.Memory.Tests/DailyLogServiceTests.cs` → `Service/`
+- `tests/Krutaka.Memory.Tests/SessionStoreTests.cs` → `Storage/`
+- `tests/Krutaka.Memory.Tests/SessionStoreDiscoveryTests.cs` → `Storage/`
+- `tests/Krutaka.Memory.Tests/SessionResumeRepairTests.cs` → `Storage/`
+- `tests/Krutaka.Tools.Tests/ToolRegistryTests.cs` → `DI/`
+- `tests/Krutaka.Tools.Tests/ToolRegistryIntegrationTests.cs` → `DI/`
+
+**New test file (19 tests):**
+- `tests/Krutaka.Console.Tests/Configuration/HostModeConfiguratorTests.cs` — Tests for `HostModeConfigurator.ConfigureSessionManager`:
+  - Console mode: MaxActiveSessions=1, IdleTimeout=Zero, EvictionStrategy=TerminateOldest, MaxSessionsPerUser=1, GlobalTokenLimit=1M
+  - Telegram mode defaults: MaxActiveSessions=10, IdleTimeout=15min, MaxSessionsPerUser=3, GlobalTokenLimit=1M, EvictionStrategy=SuspendOldestIdle
+  - Telegram mode custom config: all 5 options override-able via IConfiguration
+  - Both mode: defaults and custom MaxActiveSessions
+  - Null guard: ArgumentNullException when configuration is null
+
+**Flat file exceptions documented:**
+- `GlobalSuppressions.cs` in `src/Krutaka.Console/` — retained at project root (standard .NET code analysis suppression file; implied exception per spec "etc.")
+- `Program.cs`, `AssemblyInfo.cs`, `ToolBase.cs` — explicitly listed exceptions per spec
+
+**InternalsVisibleTo verification:**
+- `Krutaka.Core.AssemblyInfo.cs`: `[assembly: InternalsVisibleTo("Krutaka.Tools")]`, `[assembly: InternalsVisibleTo("Krutaka.Core.Tests")]` — unchanged (assembly names, not file paths) ✅
+- `Krutaka.Console.csproj`: `<InternalsVisibleTo Include="Krutaka.Console.Tests" />` — unchanged ✅
+- `Krutaka.AI.csproj`: `<InternalsVisibleTo Include="Krutaka.AI.Tests" />` — unchanged ✅
+
+**Source project READMEs verified:** All 7 source projects (Krutaka.AI, Krutaka.Console, Krutaka.Core, Krutaka.Memory, Krutaka.Skills, Krutaka.Telegram, Krutaka.Tools) have `README.md` ✅
+
+**v0.4.6 acceptance criteria:**
+- [x] `dotnet clean && dotnet build --no-incremental` — zero warnings, zero errors
+- [x] `dotnet test` — all tests pass (2 skipped)
+- [x] Total test count ≥ 2,050 (actual: 2,053)
+- [x] No `.cs` files flat in source project roots (except documented exceptions)
+- [x] Every source project has `README.md`
+- [x] `docs/status/PROGRESS.md` updated with test count
