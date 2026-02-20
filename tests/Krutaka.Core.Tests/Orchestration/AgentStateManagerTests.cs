@@ -342,9 +342,38 @@ public sealed class AgentStateManagerTests
             events.Add(evt);
         }
 
-        // Assert — loop should have exited without executing tools
+        // Assert — loop should have exited without executing tools or calling Claude
         events.OfType<ToolCallCompleted>().Should().BeEmpty();
         toolRegistry.ExecutedTools.Should().BeEmpty();
+        claudeClient.CallCount.Should().Be(0, "abort gate at top of loop must prevent all Claude API calls");
+    }
+
+    [Fact]
+    public async Task Orchestrator_Should_NotCallClaude_WhenAbortedBeforeFirstTurn()
+    {
+        // Arrange — agent is aborted BEFORE RunAsync is called
+        var claudeClient = new MockClaudeClientForStateTests();
+        // No events configured — if Claude is called, _callIndex would increment
+
+        var stateManager = new AgentStateManager();
+        stateManager.RequestAbort("pre-emptive abort");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            new MockToolRegistryForStateTests(),
+            new MockSecurityPolicyForStateTests(),
+            stateManager: stateManager);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Hello", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert — abort gate at top of loop must fire immediately, producing no events
+        events.Should().BeEmpty("the abort gate must exit before any Claude API call or event emission");
+        claudeClient.CallCount.Should().Be(0, "terminal Aborted state must prevent Claude API calls");
     }
 
     // ─── AgentState enum ─────────────────────────────────────────────────────────
@@ -380,6 +409,9 @@ public sealed class AgentStateManagerTests
     {
         private readonly List<List<AgentEvent>> _batches = [];
         private int _callIndex;
+
+        /// <summary>Gets the number of times <see cref="SendMessageAsync"/> was called.</summary>
+        public int CallCount => _callIndex;
 
         public void AddToolCallStarted(string name, string id, string input)
         {
