@@ -9,8 +9,16 @@ namespace Krutaka.Skills.Tests;
 /// Tests for Krutaka.Skills service registration via AddSkills.
 /// Validates singleton behaviour and configuration binding.
 /// </summary>
-public sealed class ServiceExtensionsTests
+public sealed class ServiceExtensionsTests : IDisposable
 {
+    // Isolated temp directory used by tests that write SKILL.md files
+    private readonly string _testDir = TestDirectoryHelper.GetTestDirectory("skills-di");
+
+    public void Dispose()
+    {
+        TestDirectoryHelper.TryDeleteDirectory(_testDir);
+    }
+
     private static ServiceProvider BuildProvider(Action<SkillOptions>? configure = null)
     {
         var services = new ServiceCollection();
@@ -76,17 +84,34 @@ public sealed class ServiceExtensionsTests
     }
 
     [Fact]
-    public void AddSkills_Should_ApplyConfigureCallback()
+    public void AddSkills_Should_ApplyConfigureCallback_AndLoadSkillsFromConfiguredDirectory()
     {
-        var customDir = Path.GetTempPath();
+        // Arrange — write a real SKILL.md into an isolated temp directory so the registry
+        // can discover and load it, proving the callback was applied.
+        Directory.CreateDirectory(_testDir);
+        var skillFile = Path.Combine(_testDir, "SKILL.md");
+        File.WriteAllText(skillFile,
+            """
+            ---
+            name: test-di-skill
+            description: A skill used to verify DI configure callback is applied
+            ---
+            Skill body.
+            """);
+
         using var sp = BuildProvider(o =>
         {
             o.SkillDirectories.Clear();
-            o.SkillDirectories.Add(customDir);
+            o.SkillDirectories.Add(_testDir);
         });
 
-        // Registry should resolve successfully with custom directories
+        // Act
         var registry = sp.GetRequiredService<ISkillRegistry>();
-        registry.Should().NotBeNull();
+        var metadata = registry.GetSkillMetadata();
+
+        // Assert — the callback was applied: only the configured directory was scanned
+        // and the test skill file in that directory was discovered.
+        metadata.Should().ContainSingle(m => m.Name == "test-di-skill",
+            "the configure callback should have pointed the registry at the test directory only");
     }
 }

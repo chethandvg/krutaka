@@ -83,9 +83,11 @@ public sealed class ServiceExtensionsTests
     }
 
     [Fact]
-    public async Task AddAgentTools_Should_RegisterISessionManager()
+    public void AddAgentTools_Should_RegisterISessionManager()
     {
-        await using var sp = BuildProvider();
+        // Note: ServiceProvider cannot be disposed synchronously here because SessionManager
+        // only implements IAsyncDisposable. Resolving is sufficient to validate registration.
+        var sp = BuildProvider();
         sp.GetService<ISessionManager>().Should().NotBeNull();
     }
 

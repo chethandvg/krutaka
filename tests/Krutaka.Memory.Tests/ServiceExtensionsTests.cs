@@ -11,15 +11,17 @@ namespace Krutaka.Memory.Tests;
 /// </summary>
 public sealed class ServiceExtensionsTests : IDisposable
 {
-    // Use a unique in-memory SQLite path per test run to avoid shared state
-    private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"krutaka-test-{Guid.NewGuid():N}.db");
+    // Use a unique temporary on-disk SQLite file per test run to avoid shared state
+    private readonly string _testDir = TestDirectoryHelper.GetTestDirectory("memory-di");
 
     private ServiceProvider BuildProvider(Action<MemoryOptions>? configure = null)
     {
+        Directory.CreateDirectory(_testDir);
+        var dbPath = Path.Combine(_testDir, "test.db");
         var services = new ServiceCollection();
         services.AddMemory(o =>
         {
-            o.DatabasePath = _dbPath;
+            o.DatabasePath = dbPath;
             configure?.Invoke(o);
         });
         return services.BuildServiceProvider();
@@ -27,10 +29,7 @@ public sealed class ServiceExtensionsTests : IDisposable
 
     public void Dispose()
     {
-        if (File.Exists(_dbPath))
-        {
-            File.Delete(_dbPath);
-        }
+        TestDirectoryHelper.TryDeleteDirectory(_testDir);
     }
 
     // ── service resolution ────────────────────────────────────────────────────
@@ -102,12 +101,10 @@ public sealed class ServiceExtensionsTests : IDisposable
     }
 
     [Fact]
-    public void AddMemory_Should_UseDefaultOptions_WhenConfigureIsNull()
+    public void AddMemory_Should_UseDefaultChunkSettings_WhenNotOverridden()
     {
-        var services = new ServiceCollection();
-        // Override the DB path so the default path isn't used; still verify other defaults
-        services.AddMemory(o => o.DatabasePath = _dbPath);
-        using var sp = services.BuildServiceProvider();
+        // Validates default values are preserved when no additional configure callback is supplied
+        using var sp = BuildProvider();
 
         var opts = sp.GetRequiredService<MemoryOptions>();
         opts.ChunkSizeTokens.Should().Be(500, "default chunk size is 500");
