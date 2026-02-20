@@ -1279,6 +1279,40 @@ public sealed class SystemPromptBuilderTests : IDisposable
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
     }
+
+    [Fact]
+    public async Task BuildAsync_Should_LogActualTruncatedLength_NotCapValue_InTotalCapWarning()
+    {
+        // Arrange - this test guards against regressing to logging _maxBootstrapTotalChars instead of prompt.Length
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+
+        var largeContent = new string('A', 5_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        // Use a cap of 500 — but the actual returned prompt will be longer than 500 because
+        // Layer 2 security instructions are always preserved unconditionally
+        const int totalCap = 500;
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: totalCap,
+            logger: logger);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // The actual truncated prompt length is result.Length, which includes Layer 2 security
+        // text and therefore exceeds totalCap. The warning must log result.Length, not totalCap.
+        result.Length.Should().BeGreaterThan(totalCap, "Layer 2 security instructions are always preserved");
+
+        logger.Received().Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Is<object>(o => o.ToString()!.Contains(result.Length.ToString(System.Globalization.CultureInfo.InvariantCulture))),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
 }
 
 // Mock implementations for testing

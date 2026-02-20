@@ -159,7 +159,7 @@ public sealed partial class SystemPromptBuilder
         {
             var originalTotalLength = prompt.Length;
             prompt = EnforceTotalCap(sections, securityInstructions);
-            LogTotalBootstrapTruncated(_logger, originalTotalLength, _maxBootstrapTotalChars);
+            LogTotalBootstrapTruncated(_logger, originalTotalLength, prompt.Length);
         }
 
         // Guard: Layer 2 security instructions must always be present in the final prompt
