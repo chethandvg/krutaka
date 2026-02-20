@@ -10,6 +10,7 @@ using Krutaka.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Serilog;
 using Spectre.Console;
 
@@ -288,6 +289,7 @@ try
         var memoryFileService = serviceProvider.GetService<MemoryFileService>();
         var commandRiskClassifier = serviceProvider.GetService<ICommandRiskClassifier>();
         var toolOptions = serviceProvider.GetService<IToolOptions>();
+        var promptLogger = serviceProvider.GetService<ILogger<SystemPromptBuilder>>();
 
         Func<CancellationToken, Task<string>>? memoryFileReader = null;
         if (memoryFileService != null)
@@ -302,7 +304,8 @@ try
             memoryService,
             memoryFileReader,
             commandRiskClassifier,
-            toolOptions);
+            toolOptions,
+            logger: promptLogger);
     }
 
     // Three-step resume pattern for disk sessions: Create with preserved ID + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory

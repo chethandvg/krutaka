@@ -1456,7 +1456,10 @@
         }
       },
       "krutaka.core": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.Extensions.Logging.Abstractions": "[10.0.2, )"
+        }
       },
       "Microsoft.Extensions.AI": {
         "type": "CentralTransitive",
