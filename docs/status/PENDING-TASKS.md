@@ -209,39 +209,19 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 
 ## Documentation Gaps
 
-### 1. Production Deployment Guide (Missing)
+### 1. Production Deployment Guide ✅ **Resolved (v0.4.6)**
 
 **Gap:** No documentation on deploying Krutaka to production (Windows Service, systemd, Docker, etc.).
 
-**Current State:** Users run via `dotnet run` or published executable in interactive mode.
-
-**Recommendation:**
-- Add `docs/guides/PRODUCTION-DEPLOYMENT.md` covering:
-  - Windows Service installation (using `sc.exe` or NSSM)
-  - Linux systemd service file for `dotnet` runtime
-  - Docker containerization (if cross-platform support added)
-  - Environment variable management for secrets
-  - Log rotation and monitoring
-- **Effort:** ~1 day
-- **Priority:** Medium (production users need this)
+**Resolution:** Added `docs/guides/PRODUCTION-DEPLOYMENT.md` covering Windows Service installation via `sc.exe` and NSSM, environment variable management for secrets (`KRUTAKA_ANTHROPIC_API_KEY`, `KRUTAKA_TELEGRAM_BOT_TOKEN`), headless Telegram-only mode configuration, Serilog log rotation and retention, health monitoring via Telegram admin notifications and Windows Event Log, backup strategy for session JSONL files and SQLite memory database, and update/rollback procedures.
 
 ---
 
-### 2. Troubleshooting Guide (Missing)
+### 2. Troubleshooting Guide ✅ **Resolved (v0.4.6)**
 
 **Gap:** No centralized troubleshooting documentation. Users must search through architecture docs or ask maintainer.
 
-**Current State:** Common issues (API key errors, Telegram auth failures, session corruption) are mentioned in respective guides but not consolidated.
-
-**Recommendation:**
-- Add `docs/guides/TROUBLESHOOTING.md` covering:
-  - "API key not found" → check Credential Manager
-  - "Telegram user not authorized" → check `AllowedUsers` array
-  - "Session resume crash" → v0.4.5 fixes this, upgrade if on v0.4.0
-  - "Rate limit exceeded" → v0.4.5 adds retries, check retry config
-  - "Compaction fails" → v0.4.5 makes this non-fatal, logs error
-- **Effort:** ~2 hours
-- **Priority:** Medium (improves self-service support)
+**Resolution:** Added `docs/guides/TROUBLESHOOTING.md` covering all common issues: "API key not found" (Credential Manager and environment variable resolution), "Telegram user not authorized" (`AllowedUsers` configuration), "Session resume crash" (v0.4.5 fixes, upgrade path from v0.4.0), "Rate limit exceeded" (v0.4.5 retry behavior and configuration), "Compaction fails" (v0.4.5 non-fatal handling), "Bot not responding" (polling lock file, token validity, rate limits, lockouts), "Tests failing after file moves" (namespace rules and `.csproj` explicit references), plus a complete common error messages reference table.
 
 ---
 
@@ -262,13 +242,13 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 ### Medium Priority (Evaluate for v0.5.0)
 
 1. Telegram setup wizard (improves onboarding)
-2. Production deployment guide (needed by production users)
-3. Troubleshooting guide (reduces support burden)
 
 ### Resolved (v0.4.6)
 
 1. ✅ Bootstrap file truncation feedback — INFO/WARNING logging in `SystemPromptBuilder`
 2. ✅ ADR-014 — Tool result pruning strategy documented in `docs/architecture/DECISIONS.md`
+3. ✅ Production deployment guide — `docs/guides/PRODUCTION-DEPLOYMENT.md` created
+4. ✅ Troubleshooting guide — `docs/guides/TROUBLESHOOTING.md` created
 
 ### Low Priority (Monitor and defer if not critical)
 
@@ -286,11 +266,8 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 
 Before starting v0.5.0 planning:
 
-1. **Address Medium Priority items** (2-3 days total effort):
+1. **Address Medium Priority items** (~1-2 days total effort):
    - Telegram setup wizard
-   - Bootstrap truncation feedback
-   - Production deployment guide
-   - Troubleshooting guide
 
 2. **Re-evaluate Low Priority items** based on:
    - User feedback from v0.4.5 usage
