@@ -16,6 +16,7 @@ public sealed partial class SystemPromptBuilder
     private readonly ICommandRiskClassifier? _commandRiskClassifier;
     private readonly IToolOptions? _toolOptions;
     private readonly string _agentsPromptPath;
+    private readonly string _agentsPromptFileName;
     private readonly Func<CancellationToken, Task<string>>? _memoryFileReader;
     private readonly ILogger<SystemPromptBuilder> _logger;
 
@@ -72,6 +73,7 @@ public sealed partial class SystemPromptBuilder
 
         _toolRegistry = toolRegistry;
         _agentsPromptPath = agentsPromptPath;
+        _agentsPromptFileName = Path.GetFileName(agentsPromptPath);
         _skillRegistry = skillRegistry;
         _memoryService = memoryService;
         _memoryFileReader = memoryFileReader;
@@ -194,7 +196,7 @@ public sealed partial class SystemPromptBuilder
                 var originalLength = content.Length;
                 content = content[.._maxBootstrapCharsPerFile] +
                     FormattableString.Invariant($"\n\n[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]");
-                LogBootstrapFileTruncated(_logger, Path.GetFileName(_agentsPromptPath), originalLength, _maxBootstrapCharsPerFile);
+                LogBootstrapFileTruncated(_logger, _agentsPromptFileName, originalLength, _maxBootstrapCharsPerFile);
             }
 
             return content;
