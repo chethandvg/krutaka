@@ -3510,7 +3510,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 
 #### Define v0.5.0 IGitCheckpointService and IBehaviorAnomalyDetector interface stubs (2026-02-20)
 
-**Summary:** Defined 6 new type stubs in `Krutaka.Core` required as v0.5.0 prerequisites for git checkpoint/rollback and behavior anomaly detection. All types are definitions only — no behavioral changes. 26 new tests added; all 501 `Krutaka.Core.Tests` tests pass.
+**Summary:** Defined 6 new type stubs in `Krutaka.Core` required as v0.5.0 prerequisites for git checkpoint/rollback and behavior anomaly detection. All types are definitions only — no behavioral changes. 27 new tests added; all 502 `Krutaka.Core.Tests` tests pass (verified via `dotnet test`; the previous entry's count of 471 appears to have been slightly under-reported).
 
 **New source files:**
 

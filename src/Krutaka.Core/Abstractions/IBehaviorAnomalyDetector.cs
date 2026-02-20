@@ -11,10 +11,10 @@ public interface IBehaviorAnomalyDetector
     /// Assesses the provided behavioral snapshot for anomalies.
     /// </summary>
     /// <param name="snapshot">The point-in-time behavioral metrics to evaluate.</param>
-    /// <param name="ct">Cancellation token.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// An <see cref="AnomalyAssessment"/> describing whether anomalous behavior was detected,
     /// the reason for the classification, and the severity of the anomaly.
     /// </returns>
-    Task<AnomalyAssessment> AssessAsync(AgentBehaviorSnapshot snapshot, CancellationToken ct);
+    Task<AnomalyAssessment> AssessAsync(AgentBehaviorSnapshot snapshot, CancellationToken cancellationToken);
 }

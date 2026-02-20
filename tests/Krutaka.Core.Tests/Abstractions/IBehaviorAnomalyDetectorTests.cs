@@ -6,9 +6,9 @@ public class IBehaviorAnomalyDetectorTests
 {
     private sealed class StubAnomalyDetector : IBehaviorAnomalyDetector
     {
-        public Task<AnomalyAssessment> AssessAsync(AgentBehaviorSnapshot snapshot, CancellationToken ct)
+        public Task<AnomalyAssessment> AssessAsync(AgentBehaviorSnapshot snapshot, CancellationToken cancellationToken)
         {
-            if (snapshot.ToolCallFrequency > 10.0)
+            if (snapshot.ToolCallFrequencyPerMinute > 10.0)
             {
                 return Task.FromResult(new AnomalyAssessment(
                     IsAnomalous: true,
@@ -42,7 +42,7 @@ public class IBehaviorAnomalyDetectorTests
         // Arrange
         IBehaviorAnomalyDetector detector = new StubAnomalyDetector();
         var snapshot = new AgentBehaviorSnapshot(
-            ToolCallFrequency: 1.0,
+            ToolCallFrequencyPerMinute: 1.0,
             RepeatedFailureCount: 0,
             AccessEscalationCount: 0,
             FileModificationVelocity: 0.2,
@@ -64,7 +64,7 @@ public class IBehaviorAnomalyDetectorTests
         // Arrange
         IBehaviorAnomalyDetector detector = new StubAnomalyDetector();
         var snapshot = new AgentBehaviorSnapshot(
-            ToolCallFrequency: 50.0,
+            ToolCallFrequencyPerMinute: 50.0,
             RepeatedFailureCount: 0,
             AccessEscalationCount: 0,
             FileModificationVelocity: 0.0,

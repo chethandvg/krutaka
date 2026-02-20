@@ -9,7 +9,7 @@ public class AgentBehaviorSnapshotTests
     {
         // Act
         var snapshot = new AgentBehaviorSnapshot(
-            ToolCallFrequency: 2.5,
+            ToolCallFrequencyPerMinute: 2.5,
             RepeatedFailureCount: 3,
             AccessEscalationCount: 1,
             FileModificationVelocity: 0.8,
@@ -17,7 +17,7 @@ public class AgentBehaviorSnapshotTests
         );
 
         // Assert
-        snapshot.ToolCallFrequency.Should().BeApproximately(2.5, 1e-9);
+        snapshot.ToolCallFrequencyPerMinute.Should().BeApproximately(2.5, 1e-9);
         snapshot.RepeatedFailureCount.Should().Be(3);
         snapshot.AccessEscalationCount.Should().Be(1);
         snapshot.FileModificationVelocity.Should().BeApproximately(0.8, 1e-9);
@@ -29,7 +29,7 @@ public class AgentBehaviorSnapshotTests
     {
         // Act
         var snapshot = new AgentBehaviorSnapshot(
-            ToolCallFrequency: 0.0,
+            ToolCallFrequencyPerMinute: 0.0,
             RepeatedFailureCount: 0,
             AccessEscalationCount: 0,
             FileModificationVelocity: 0.0,
@@ -37,7 +37,7 @@ public class AgentBehaviorSnapshotTests
         );
 
         // Assert
-        snapshot.ToolCallFrequency.Should().Be(0.0);
+        snapshot.ToolCallFrequencyPerMinute.Should().Be(0.0);
         snapshot.RepeatedFailureCount.Should().Be(0);
         snapshot.AccessEscalationCount.Should().Be(0);
         snapshot.FileModificationVelocity.Should().Be(0.0);
@@ -65,5 +65,18 @@ public class AgentBehaviorSnapshotTests
 
         // Assert
         snapshot1.Should().NotBe(snapshot2);
+    }
+
+    [Fact]
+    public void AgentBehaviorSnapshot_ToolCallFrequencyPerMinute_ShouldUsePerMinuteUnit()
+    {
+        // Values above 10 are considered unusual per the v0.5.0 anomaly policy.
+        // This test pins the unit as calls-per-minute so that detector implementations
+        // don't silently misclassify by a 60x factor.
+        var belowThreshold = new AgentBehaviorSnapshot(ToolCallFrequencyPerMinute: 10.0, 0, 0, 0.0, 0);
+        var aboveThreshold = new AgentBehaviorSnapshot(ToolCallFrequencyPerMinute: 10.1, 0, 0, 0.0, 0);
+
+        belowThreshold.ToolCallFrequencyPerMinute.Should().BeLessOrEqualTo(10.0);
+        aboveThreshold.ToolCallFrequencyPerMinute.Should().BeGreaterThan(10.0);
     }
 }

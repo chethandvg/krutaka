@@ -11,24 +11,24 @@ public interface IGitCheckpointService
     /// Creates a new checkpoint capturing the current state of the working tree.
     /// </summary>
     /// <param name="message">A human-readable description of why the checkpoint is being created.</param>
-    /// <param name="ct">Cancellation token.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
     /// The unique identifier of the created checkpoint (e.g., a git commit SHA or stash ref)
     /// that can be passed to <see cref="RollbackToCheckpointAsync"/> to restore this state.
     /// </returns>
-    Task<string> CreateCheckpointAsync(string message, CancellationToken ct);
+    Task<string> CreateCheckpointAsync(string message, CancellationToken cancellationToken);
 
     /// <summary>
     /// Rolls back the working tree to the state captured by the specified checkpoint.
     /// </summary>
     /// <param name="checkpointId">The identifier returned by <see cref="CreateCheckpointAsync"/>.</param>
-    /// <param name="ct">Cancellation token.</param>
-    Task RollbackToCheckpointAsync(string checkpointId, CancellationToken ct);
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task RollbackToCheckpointAsync(string checkpointId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Returns the list of all checkpoints created during the current session, ordered chronologically.
     /// </summary>
-    /// <param name="ct">Cancellation token.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A read-only list of <see cref="CheckpointInfo"/> records, oldest first.</returns>
-    Task<IReadOnlyList<CheckpointInfo>> ListCheckpointsAsync(CancellationToken ct);
+    Task<IReadOnlyList<CheckpointInfo>> ListCheckpointsAsync(CancellationToken cancellationToken);
 }
