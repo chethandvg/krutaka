@@ -242,69 +242,85 @@ public sealed partial class AgentOrchestrator
 
         if (approvalRequired && !alwaysApprove)
         {
-            // Create a TaskCompletionSource to block until the caller approves or denies
-            // Lock to ensure atomic assignment of pending state
-            TaskCompletionSource<bool> approvalTcs;
-            lock (_approvalStateLock)
+            // Check if the autonomy level auto-approves this tool call (v0.5.0)
+            if (_autonomyLevelProvider?.ShouldAutoApprove(toolCall.Name, approvalRequired) == true)
             {
-                approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _pendingApproval = approvalTcs;
-                _pendingToolUseId = toolCall.Id;
-                _pendingToolName = toolCall.Name;
-            }
-
-            yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
-
-            // Block until ApproveTool or DenyTool is called.
-            // Use try-finally to ensure _pendingApproval is cleaned up even on cancellation.
-            bool approved;
-            try
-            {
-                // Apply approval timeout if configured
-                if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                _auditLogger?.Log(new ToolAutoApprovedEvent
                 {
-                    using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
-                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-                    try
-                    {
-                        approved = await approvalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                    {
-                        // Approval timeout occurred (not user cancellation)
-                        throw new TimeoutException($"Approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for tool '{toolCall.Name}'. " +
-                            "The user did not respond to the approval request in time.");
-                    }
-                }
-                else
-                {
-                    // No timeout - wait indefinitely (or until user cancels)
-                    approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
+                    SessionId = _correlationContext?.SessionId ?? Guid.Empty,
+                    TurnId = _correlationContext?.TurnId ?? 0,
+                    RequestId = _correlationContext?.RequestId,
+                    ToolName = toolCall.Name,
+                    Level = _autonomyLevelProvider.GetLevel(),
+                    WasApprovalRequired = approvalRequired
+                });
             }
-            finally
+            else
             {
-                // Lock to prevent race with concurrent approval/denial
+                // Create a TaskCompletionSource to block until the caller approves or denies
+                // Lock to ensure atomic assignment of pending state
+                TaskCompletionSource<bool> approvalTcs;
                 lock (_approvalStateLock)
                 {
-                    _pendingApproval = null;
-                    _pendingToolUseId = null;
-                    _pendingToolName = null;
+                    approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _pendingApproval = approvalTcs;
+                    _pendingToolUseId = toolCall.Id;
+                    _pendingToolName = toolCall.Name;
                 }
-            }
 
-            if (!approved)
-            {
-                // Tool was denied - send denial message as tool result (is_error=true to align with ToolCallFailed)
-                var denialMessage = $"The user denied execution of {toolCall.Name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
-                yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMessage);
-                toolResults.Add(CreateToolResult(toolCall.Id, denialMessage, true));
-                yield break;
-            }
+                yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
 
-            // Update alwaysApprove state (may have been set by caller)
-            alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
+                // Block until ApproveTool or DenyTool is called.
+                // Use try-finally to ensure _pendingApproval is cleaned up even on cancellation.
+                bool approved;
+                try
+                {
+                    // Apply approval timeout if configured
+                    if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                    {
+                        using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+                        try
+                        {
+                            approved = await approvalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                        {
+                            // Approval timeout occurred (not user cancellation)
+                            throw new TimeoutException($"Approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for tool '{toolCall.Name}'. " +
+                                "The user did not respond to the approval request in time.");
+                        }
+                    }
+                    else
+                    {
+                        // No timeout - wait indefinitely (or until user cancels)
+                        approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    // Lock to prevent race with concurrent approval/denial
+                    lock (_approvalStateLock)
+                    {
+                        _pendingApproval = null;
+                        _pendingToolUseId = null;
+                        _pendingToolName = null;
+                    }
+                }
+
+                if (!approved)
+                {
+                    // Tool was denied - send denial message as tool result (is_error=true to align with ToolCallFailed)
+                    var denialMessage = $"The user denied execution of {toolCall.Name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
+                    yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMessage);
+                    toolResults.Add(CreateToolResult(toolCall.Id, denialMessage, true));
+                    yield break;
+                }
+
+                // Update alwaysApprove state (may have been set by caller)
+                alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
+            }
         }
 
         // Execute the tool with timeout - may throw DirectoryAccessRequiredException or CommandApprovalRequiredException

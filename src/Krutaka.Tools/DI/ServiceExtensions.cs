@@ -14,10 +14,12 @@ public static class ServiceExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configureOptions">Optional action to configure tool options.</param>
+    /// <param name="autonomyLevelOptions">Optional autonomy level options. Defaults to Guided if not provided.</param>
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddAgentTools(
         this IServiceCollection services,
-        Action<ToolOptions>? configureOptions = null)
+        Action<ToolOptions>? configureOptions = null,
+        AutonomyLevelOptions? autonomyLevelOptions = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -68,6 +70,11 @@ public static class ServiceExtensions
         // Register options as singleton
         services.AddSingleton(options);
         services.AddSingleton<IToolOptions>(options);
+
+        // Register autonomy level options (singleton - read-once at session start for per-session immutability)
+        var resolvedAutonomyOptions = autonomyLevelOptions ?? new AutonomyLevelOptions();
+        resolvedAutonomyOptions.Validate(); // Fail-fast validation at startup
+        services.AddSingleton(resolvedAutonomyOptions);
 
         // Note: ICommandApprovalCache is created per-session by SessionFactory (not registered globally)
         // v0.4.0: Per-session components are created by SessionFactory, not by global DI
@@ -132,7 +139,16 @@ public static class ServiceExtensions
         // SystemPromptBuilder will use the tool registry from the active session, not from global DI.
 
         // Register session factory (singleton) for v0.4.0 multi-session support
-        services.AddSingleton<ISessionFactory, SessionFactory>();
+        services.AddSingleton<ISessionFactory>(sp =>
+        {
+            var claudeClient = sp.GetRequiredService<IClaudeClient>();
+            var securityPolicy = sp.GetRequiredService<ISecurityPolicy>();
+            var accessPolicyEngine = sp.GetRequiredService<IAccessPolicyEngine>();
+            var commandRiskClassifier = sp.GetRequiredService<ICommandRiskClassifier>();
+            var auditLogger = sp.GetService<IAuditLogger>();
+            var autonomyOptions = sp.GetService<AutonomyLevelOptions>();
+            return new SessionFactory(claudeClient, securityPolicy, accessPolicyEngine, commandRiskClassifier, options, auditLogger, autonomyOptions);
+        });
 
         // Register session manager (singleton) for v0.4.0 multi-session lifecycle management
         services.AddSingleton<ISessionManager>(sp =>

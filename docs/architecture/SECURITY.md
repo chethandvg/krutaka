@@ -780,3 +780,16 @@ Bot token is loaded from:
 - `docs/architecture/TELEGRAM.md` — Complete threat model and security pipeline
 - `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
 - `docs/versions/v0.4.0.md` — Complete v0.4.0 version specification
+
+### Immutable Security Boundaries (v0.5.0 Additions)
+
+All v0.1.0–v0.4.0 boundaries remain **unchanged**. New v0.5.0 additions:
+
+| # | Boundary | Enforcement | Verified By |
+|---|---|---|---|
+| S9 | Autonomy level never escalates at runtime | `AutonomyLevelProvider` captures `AutonomyLevel` at construction; `AutonomyLevelOptions` is mutable but provider ignores post-construction changes | Unit test: `AutonomyLevelProvider_Level_Should_BeImmutableAfterConstruction` |
+| S14 | Dangerous-tier commands always blocked | Security policy blocks before `IsApprovalRequired` is called; `ShouldAutoApprove` never invoked for dangerous tools | Security policy + command policy tests |
+
+**S9 Implementation Details:** `AutonomyLevelProvider` reads `AutonomyLevelOptions.Level` once in its constructor and stores it as a private `readonly` field. Even if `AutonomyLevelOptions` is mutated after the provider is created, the provider's level remains fixed. `SessionFactory` creates one `AutonomyLevelProvider` per session, ensuring each session has its own immutable level from session start.
+
+**S14 Implementation Details:** The security policy (`CommandPolicy`) throws `SecurityException` for Dangerous-tier commands before they reach the orchestrator's approval flow. The `ShouldAutoApprove` method is only called for tools that pass the initial security policy check. Autonomous mode (Level 3) additionally requires explicit operator opt-in via `AllowAutonomousMode = true`.

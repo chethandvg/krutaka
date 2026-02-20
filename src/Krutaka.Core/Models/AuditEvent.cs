@@ -140,6 +140,27 @@ public sealed record ToolExecutionEvent : AuditEvent
 }
 
 /// <summary>
+/// Logged when a tool call is automatically approved by the autonomy level provider (v0.5.0).
+/// </summary>
+public sealed record ToolAutoApprovedEvent : AuditEvent
+{
+    /// <summary>
+    /// The name of the tool that was auto-approved.
+    /// </summary>
+    public required string ToolName { get; init; }
+
+    /// <summary>
+    /// The autonomy level that triggered auto-approval.
+    /// </summary>
+    public required AutonomyLevel Level { get; init; }
+
+    /// <summary>
+    /// Whether the security policy originally required human approval for this tool.
+    /// </summary>
+    public required bool WasApprovalRequired { get; init; }
+}
+
+/// <summary>
 /// Logged when context compaction occurs.
 /// </summary>
 public sealed record CompactionEvent : AuditEvent
