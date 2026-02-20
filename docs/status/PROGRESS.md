@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-20 (v0.4.6 Issue #219 Complete — 2,051 tests passing, 2 skipped, 2,053 total)
+> **Last updated:** 2026-02-20 (v0.4.6 Issue #220 Complete — 2,051 tests passing, 2 skipped, 2,053 total)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3416,6 +3416,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | TBD | Add dedicated tests for SessionFactory and DI registration | Testing | 🟢 Complete | 2026-02-20 |
 | TBD | Add bootstrap truncation logging and ADR-014 | Observability + Docs | 🟢 Complete | 2026-02-20 |
 | #219 | Full regression test suite verification and build validation | Verification | 🟢 Complete | 2026-02-20 |
+| #220 | Release documentation and verification | Docs | 🟢 Complete | 2026-02-20 |
 
 ### Completed Work
 
@@ -3590,3 +3591,24 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - [x] No `.cs` files flat in source project roots (except documented exceptions)
 - [x] Every source project has `README.md`
 - [x] `docs/status/PROGRESS.md` updated with test count
+
+#### Release documentation and verification — Issue #220 (2026-02-20)
+
+**Summary:** Final documentation updates for the v0.4.6 release. Updated CHANGELOG.md, README.md, AGENTS.md, copilot-instructions.md, `docs/versions/v0.4.6.md`, and `docs/status/PROGRESS.md`. Verified all acceptance criteria from the v0.4.6 epic (#202) are met.
+
+**Documentation updated:**
+- `CHANGELOG.md` — Added v0.4.6 entry with all changed/added items moved from [Unreleased] to [0.4.6] - 2026-02-20
+- `README.md` — Updated status to v0.4.6 complete with 2,051 tests passing (2 skipped)
+- `AGENTS.md` — Updated Implementation Status to ✅ Complete, test count to 2,051, ADR count to ADR-014, added PRODUCTION-DEPLOYMENT.md and TROUBLESHOOTING.md to Key Files Reference
+- `.github/copilot-instructions.md` — Updated Implementation Status to ✅ Complete with 2,051 tests
+- `docs/versions/v0.4.6.md` — Updated status from 📋 Planning to ✅ Complete, added completion date and final test count, checked all success criteria
+- `docs/status/PROGRESS.md` — Added Issue #220 to issue status table, added this completion entry, updated header timestamp
+
+**v0.4.6 complete — all epic #202 acceptance criteria verified:**
+- [x] `CHANGELOG.md` updated with v0.4.6 entry
+- [x] `README.md` version status updated to v0.4.6
+- [x] `AGENTS.md` Implementation Status updated to ✅ Complete
+- [x] `.github/copilot-instructions.md` Implementation Status updated to ✅ Complete
+- [x] `docs/versions/v0.4.6.md` status updated to ✅ Complete
+- [x] `docs/status/PROGRESS.md` updated with Issue #220
+- [x] All prior v0.4.6 acceptance criteria met (from Issue #219)
