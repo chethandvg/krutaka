@@ -5,7 +5,7 @@
 
 An OpenClaw-inspired AI agent built in C#/.NET 10 for Windows, powered by the Claude API. Krutaka is a local-first, security-hardened agent that can read, write, search, and execute commands in your project — with human-in-the-loop approval for all destructive operations. Access your agent via local console or remotely through Telegram.
 
-> **Status:** ✅ v0.4.5 — Session Resilience, API Hardening & Context Intelligence complete. 1,917 tests passing (2 skipped), ready for production use. See [Progress Tracker](docs/status/PROGRESS.md).
+> **Status:** ✅ v0.4.6 — Project Structure, Code Quality & v0.5.0 Prerequisites complete. 2,051 tests passing (2 skipped), ready for production use. Projects organized into logical subdirectories with per-project READMEs. See [Progress Tracker](docs/status/PROGRESS.md).
 
 ## Why Krutaka?
 

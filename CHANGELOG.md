@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-02-20
+
+### Changed
+- **Project restructuring — all 7 source projects organized into logical subdirectories** (#205–#211): All `.cs` files moved from flat project roots into category subdirectories (`Abstractions/`, `Models/`, `Orchestration/`, `Session/`, `FileTools/`, `Access/`, `Policies/`, `Auth/`, `Streaming/`, `Approval/`, etc.). No namespace changes, no behavioral changes. SDK-style `.csproj` wildcard includes mean zero build configuration changes required.
+- **Test projects restructured to mirror source project layouts** (#212): Test files moved into subdirectories matching their corresponding source project structure (e.g., `tests/Krutaka.Memory.Tests/Storage/SessionStoreTests.cs` mirrors `src/Krutaka.Memory/Storage/SessionStore.cs`).
+
+### Added
+- **Per-project README.md files** (#205–#211): All 7 source projects (`Krutaka.Core`, `Krutaka.Tools`, `Krutaka.Memory`, `Krutaka.Skills`, `Krutaka.AI`, `Krutaka.Telegram`, `Krutaka.Console`) have a standardized `README.md` documenting purpose, responsibilities, directory layout, dependencies, and used-by relationships.
+- **Dedicated SessionManager and SessionFactory tests** (#213, #214): ~80 new tests covering session lifecycle (create, suspend, resume, terminate, idle, eviction), budget tracking, per-session isolation guarantees, and DI registration verification.
+- **Bootstrap file truncation INFO-level logging** (#215): `SystemPromptBuilder` logs at INFO level when individual bootstrap files (AGENTS.md, MEMORY.md) are truncated at the per-file cap (20K chars), and at WARNING level when the total bootstrap content exceeds the total cap (150K chars). Added `Debug.Assert` guard ensuring Layer 2 security instructions are never subject to truncation.
+- **ADR-014: In-Memory Tool Result Pruning** (#215): Documents the decision to prune tool results in-memory only (not in JSONL session files), rationale (audit trail integrity), and alternatives considered.
+- **`docs/guides/PRODUCTION-DEPLOYMENT.md`** (#216): Production deployment guide covering Windows Service installation, secrets management under service accounts, headless Telegram-only mode, log rotation, health monitoring, backup strategy, and update/rollback procedures.
+- **`docs/guides/TROUBLESHOOTING.md`** (#216): Centralized troubleshooting guide covering all common issues: API key not found, Telegram user not authorized, session resume crash, rate limit exceeded, compaction failures, bot not responding, and tests failing after file moves.
+- **`docs/roadmap/ROADMAP.md`** (#204): Forward-looking roadmap covering v0.5.0 (Autonomous Agent Mode) through v1.3.0+, including Autonomous Agent Mode, Multi-Agent Orchestration, Plugin Ecosystem, and Enterprise Features.
+- **v0.5.0 prerequisite type stubs** (#217, #218): Defined in `Krutaka.Core` as definitions only (no implementations):
+  - `AutonomyLevel` enum — `Supervised`, `Guided`, `SemiAutonomous`, `Autonomous`
+  - `TaskBudget` record — Max Claude tokens, tool calls, files modified, processes spawned
+  - `BudgetDimension` enum — `Tokens`, `ToolCalls`, `FilesModified`, `ProcessesSpawned`
+  - `TaskBudgetSnapshot` record — Raw counters and percentage values
+  - `ITaskBudgetTracker` interface — `TryConsume`, `GetSnapshot`, `IsExhausted`
+  - `CheckpointInfo` record — Checkpoint ID, message, creation time, files modified
+  - `AnomalySeverity` enum — `None`, `Low`, `Medium`, `High`
+  - `AnomalyAssessment` record — `IsAnomalous`, optional `Reason`, `Severity`
+  - `AgentBehaviorSnapshot` record — Behavioral metrics (tool call frequency, repeated failures, etc.)
+  - `IGitCheckpointService` interface — `CreateCheckpointAsync`, `RollbackToCheckpointAsync`, `ListCheckpointsAsync`
+  - `IBehaviorAnomalyDetector` interface — `AssessAsync`
+
 ## [0.4.5] - 2026-02-19
 
 ### Fixed
@@ -312,7 +339,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/chethandvg/krutaka/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/chethandvg/krutaka/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/chethandvg/krutaka/compare/v0.4.0...v0.4.5
 [0.4.0]: https://github.com/chethandvg/krutaka/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/chethandvg/krutaka/compare/v0.2.0...v0.3.0
