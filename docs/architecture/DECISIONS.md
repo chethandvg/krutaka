@@ -260,3 +260,51 @@ Four tiers:
 - See `docs/versions/v0.3.0.md` for complete architecture design, tier assignments, and threat model
 - Implementation tracked across 10 sub-issues (v0.3.0-1 through v0.3.0-10)
 - Extends v0.2.0 dynamic directory scoping (ADR-012) — Moderate tier leverages trusted directory evaluation
+
+---
+
+## ADR-014: In-Memory Tool Result Pruning
+
+**Date:** 2026-02-20  
+**Status:** Accepted (v0.4.5)
+
+**Context:**
+
+Large tool results from older turns waste tokens when sent to the Claude API. A single `read_file` invocation on a large file can consume 10K+ tokens per API call, even when that content is no longer relevant to the current task. As sessions grow longer, the cumulative token cost of stale tool results reduces the effective context window available for the active conversation.
+
+**Decision:**
+
+Prune tool results older than N turns (default: 6) in the **in-memory conversation snapshot** sent to the API. The persisted JSONL session file is **never modified**.
+
+- `PruneToolResultsAfterTurns` (default: 6): tool results from turns older than this are omitted from API payloads.
+- `PruneToolResultMinChars` (default: 1,000): only results exceeding this size are pruned (small results are kept regardless of age).
+- Pruning applies to the in-memory `List<MessageParam>` snapshot built before each API call in `AgentOrchestrator`.
+- The JSONL session file on disk always retains the complete, unmodified conversation history.
+
+**Rationale:**
+
+Audit trail integrity is non-negotiable. The JSONL session file is the source of truth for debugging, replay, and compliance. Modifying it would make it impossible to reconstruct what the agent actually did in a session. The pruned content can be re-fetched by the agent using `read_file` if needed in a later turn.
+
+**Alternatives Considered:**
+
+1. **Prune JSONL** — Rejected. Violates audit trail integrity; makes session replay and debugging unreliable.
+2. **No pruning** — Rejected. Wastes tokens on every API call and shrinks the effective context window for long-running sessions.
+
+**Consequences:**
+
+✅ **Benefits:**
+- API calls use fewer tokens for long-running sessions
+- Effective context window is preserved for active conversation turns
+- Audit logs remain complete and unmodified for debugging and replay
+- Agent can re-read pruned content using `read_file` if needed
+- Configurable thresholds via `appsettings.json` (`PruneToolResultsAfterTurns`, `PruneToolResultMinChars`)
+
+⚠️ **Trade-offs:**
+- Agent may re-read content it previously fetched if it needs it again after pruning
+- Pruning thresholds are global (not per-tool or per-content-type)
+- No runtime UI to adjust thresholds — requires `appsettings.json` edit and restart (deferred per PENDING-TASKS.md §4)
+
+**Related:**
+- See `docs/versions/v0.4.5.md` for complete design and implementation details
+- `AgentOrchestrator` — pruning applied before each `CreateStreamingAsync` call
+- `docs/status/PENDING-TASKS.md` §4 — runtime UI for pruning thresholds (deferred)

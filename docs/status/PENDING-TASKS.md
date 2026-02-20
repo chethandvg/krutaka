@@ -167,25 +167,11 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 
 ---
 
-### 5. Bootstrap File Caps User Feedback (Deferred)
+### 5. Bootstrap File Caps User Feedback ✅ **Resolved (v0.4.6)**
 
 **Context:** v0.4.5 added per-file (20K chars) and total (150K chars) caps for bootstrap files.
 
-**Gap:** No telemetry or logging when files are truncated. Users won't know if AGENTS.md or MEMORY.md is being capped unless they check system prompt manually.
-
-**Current Workaround:** Users notice if Claude's behavior changes (e.g., forgets instructions from truncated section).
-
-**Recommendation:**
-- Add INFO-level log message when truncation occurs:
-  ```
-  [INFO] Bootstrap file AGENTS.md truncated (25,123 chars → 20,000 chars)
-  ```
-- Add Console UI indicator when system prompt exceeds total cap:
-  ```
-  ⚠️ System prompt truncated to fit 150K char limit. Use /config to adjust.
-  ```
-- **Effort:** ~2 hours
-- **Priority:** Medium (improves observability)
+**Resolution:** Added INFO-level logging when AGENTS.md or MEMORY.md is truncated, and WARNING-level logging when the total bootstrap content exceeds the total cap. Implemented via `[LoggerMessage]` source generators on `SystemPromptBuilder`. Also added a `Debug.Assert` guard ensuring Layer 2 security instructions are never truncated. 8 new tests verify the logging behavior.
 
 ---
 
@@ -259,20 +245,11 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 
 ---
 
-### 3. Architecture Decision Record for Tool Result Pruning (Missing)
+### 3. Architecture Decision Record for Tool Result Pruning ✅ **Resolved (v0.4.6)**
 
 **Gap:** No ADR documenting why tool result pruning prunes in-memory only (not JSONL).
 
-**Current State:** Decision is documented in v0.4.5 spec and PROGRESS.md, but not in formal ADR.
-
-**Recommendation:**
-- Add ADR-014 to `docs/architecture/DECISIONS.md`:
-  - Context: Token budget waste from large old tool results
-  - Decision: Prune in-memory conversation snapshots sent to API, not persisted JSONL
-  - Rationale: Audit trail integrity, ability to re-read pruned results with `read_file`
-  - Alternatives: Prune JSONL (rejected — violates audit trail), no pruning (rejected — wastes tokens)
-- **Effort:** ~1 hour
-- **Priority:** Low (decision is documented, just not in ADR format)
+**Resolution:** ADR-014 added to `docs/architecture/DECISIONS.md` documenting the in-memory pruning decision, rationale (audit trail integrity), and alternatives considered (prune JSONL — rejected; no pruning — rejected).
 
 ---
 
@@ -285,9 +262,13 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 ### Medium Priority (Evaluate for v0.5.0)
 
 1. Telegram setup wizard (improves onboarding)
-2. Bootstrap file truncation feedback (improves observability)
-3. Production deployment guide (needed by production users)
-4. Troubleshooting guide (reduces support burden)
+2. Production deployment guide (needed by production users)
+3. Troubleshooting guide (reduces support burden)
+
+### Resolved (v0.4.6)
+
+1. ✅ Bootstrap file truncation feedback — INFO/WARNING logging in `SystemPromptBuilder`
+2. ✅ ADR-014 — Tool result pruning strategy documented in `docs/architecture/DECISIONS.md`
 
 ### Low Priority (Monitor and defer if not critical)
 
@@ -298,7 +279,6 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 5. Compaction mid-stream failure recovery (acceptable as-is)
 6. Tool result pruning config UI (default values work well)
 7. Skipped tests (low impact, already implemented)
-8. ADR-014 for tool result pruning (decision documented elsewhere)
 
 ---
 

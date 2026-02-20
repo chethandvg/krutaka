@@ -3414,6 +3414,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | TBD | Create v0.4.6 roadmap document | Documentation | 🔄 In Progress | — |
 | TBD | Add dedicated tests for SessionManager lifecycle | Testing | 🟢 Complete | 2026-02-20 |
 | TBD | Add dedicated tests for SessionFactory and DI registration | Testing | 🟢 Complete | 2026-02-20 |
+| TBD | Add bootstrap truncation logging and ADR-014 | Observability + Docs | 🟢 Complete | 2026-02-20 |
 
 ### Completed Work
 
@@ -3461,3 +3462,28 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - ✅ `SkillRegistry` and `ISkillRegistry` are same instance
 - ✅ Default skill directories added
 - ✅ Custom configure callback applied
+
+#### Add bootstrap truncation logging and ADR-014 (2026-02-20)
+
+**Summary:** Resolved two pending tasks from `docs/status/PENDING-TASKS.md` (§5 and Documentation Gaps §3).
+
+**Bootstrap truncation logging (`SystemPromptBuilder`):**
+- Added `Microsoft.Extensions.Logging.Abstractions` package reference to `Krutaka.Core.csproj`
+- Added optional `ILogger<SystemPromptBuilder>?` constructor parameter (defaults to `NullLogger<SystemPromptBuilder>.Instance` — no breaking change)
+- Made class `partial` to support `[LoggerMessage]` source generators
+- INFO log: `"Bootstrap file {FileName} truncated ({OriginalChars} chars → {TruncatedChars} chars)"` — emitted when AGENTS.md or MEMORY.md exceeds per-file cap (20K chars)
+- WARNING log: `"Total bootstrap content truncated ({OriginalChars} chars → {TruncatedChars} chars). Consider reducing AGENTS.md or MEMORY.md size."` — emitted when total prompt exceeds total cap (150K chars)
+- Added `Debug.Assert` guard verifying Layer 2 security instructions are never truncated
+
+**New tests (8) in `SystemPromptBuilderTests.cs`:**
+- ✅ `BuildAsync_Should_LogInfo_WhenAgentsMdExceedsPerFileLimit` — INFO log emitted for AGENTS.md truncation
+- ✅ `BuildAsync_Should_NotLog_WhenAgentsMdUnderPerFileLimit` — no log when file under cap
+- ✅ `BuildAsync_Should_LogInfo_WhenMemoryMdExceedsPerFileLimit` — INFO log emitted for MEMORY.md truncation
+- ✅ `BuildAsync_Should_LogWarning_WhenTotalBootstrapExceedsTotalCap` — WARNING log for total cap hit
+- ✅ `BuildAsync_Should_NeverTruncateLayer2SecurityInstructions_EvenIfOverCap` — Layer 2 always preserved
+- ✅ `BuildAsync_Should_LogWithCorrectFileNameAndCharCounts_ForAgentsMd` — log message contains correct counts
+- ✅ `BuildAsync_Should_NotLog_WhenAllFilesUnderBothCaps` — no log when all content under caps
+- ✅ `BuildAsync_Should_LogSeparately_WhenMultipleFilesExceedPerFileCap` — two separate INFO logs
+- ✅ `BuildAsync_Should_NotLog_WhenFileIsExactlyAtCapLimit` — no log when file exactly at cap
+
+**ADR-014:** Added to `docs/architecture/DECISIONS.md` documenting in-memory tool result pruning strategy (audit trail integrity rationale, alternatives rejected).

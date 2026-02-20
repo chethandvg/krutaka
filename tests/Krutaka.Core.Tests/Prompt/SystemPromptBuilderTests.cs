@@ -2,6 +2,8 @@
 using System.Text.Json;
 using FluentAssertions;
 using Krutaka.Core;
+using Microsoft.Extensions.Logging;
+using NSubstitute;
 
 namespace Krutaka.Core.Tests;
 
@@ -1030,6 +1032,252 @@ public sealed class SystemPromptBuilderTests : IDisposable
 
         // Assert
         await act.Should().NotThrowAsync("budgetRemaining should never cause out-of-range slicing");
+    }
+
+    // --- Truncation Logging Tests ---
+
+    [Fact]
+    public async Task BuildAsync_Should_LogInfo_WhenAgentsMdExceedsPerFileLimit()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(LogLevel.Information).Returns(true);
+
+        var largeContent = new string('A', 25_000); // Exceeds default 20,000
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - INFO log emitted for AGENTS.md truncation
+        logger.Received().Log(
+            LogLevel.Information,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NotLog_WhenAgentsMdUnderPerFileLimit()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
+
+        var smallContent = "# Agent Identity\n\nYou are a helpful assistant."; // Well under 20K
+        await File.WriteAllTextAsync(_testAgentsPromptPath, smallContent);
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - no log emitted when content is under the cap
+        logger.DidNotReceive().Log(
+            Arg.Any<LogLevel>(),
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_LogInfo_WhenMemoryMdExceedsPerFileLimit()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(LogLevel.Information).Returns(true);
+
+        var largeMemory = new string('M', 25_000); // Exceeds default 20,000
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            "/nonexistent/path.md",
+            memoryFileReader: _ => Task.FromResult(largeMemory),
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - INFO log emitted for MEMORY.md truncation
+        logger.Received().Log(
+            LogLevel.Information,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_LogWarning_WhenTotalBootstrapExceedsTotalCap()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(LogLevel.Warning).Returns(true);
+
+        var largeContent = new string('A', 5_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        // Use a small total cap to force total truncation
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: 500,
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - WARNING log emitted for total cap truncation
+        logger.Received().Log(
+            LogLevel.Warning,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NeverTruncateLayer2SecurityInstructions_EvenIfOverCap()
+    {
+        // Arrange
+        var largeContent = new string('A', 5_000);
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        // Very small total cap — forces truncation but Layer 2 must always be preserved
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            maxBootstrapTotalChars: 500);
+
+        // Act
+        var result = await builder.BuildAsync();
+
+        // Assert - security instructions are always present even when total cap is hit
+        result.Should().Contain("# Security Instructions");
+        result.Should().Contain("CRITICAL RULES");
+        result.Should().Contain("prompt injection");
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_LogWithCorrectFileNameAndCharCounts_ForAgentsMd()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(LogLevel.Information).Returns(true);
+
+        var largeContent = new string('A', 25_000); // Exceeds 20K
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeContent);
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - log message contains original (25000) and truncated (20000) char counts
+        logger.Received().Log(
+            LogLevel.Information,
+            Arg.Any<EventId>(),
+            Arg.Is<object>(o => o.ToString()!.Contains("25000") && o.ToString()!.Contains("20000")),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NotLog_WhenAllFilesUnderBothCaps()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
+
+        var smallContent = "# Identity\n\nHelpful assistant.";
+        var smallMemory = "## Memory\n\nUser likes C#.";
+        await File.WriteAllTextAsync(_testAgentsPromptPath, smallContent);
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            memoryFileReader: _ => Task.FromResult(smallMemory),
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - no log emitted when all content is under both caps
+        logger.DidNotReceive().Log(
+            Arg.Any<LogLevel>(),
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_LogSeparately_WhenMultipleFilesExceedPerFileCap()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(LogLevel.Information).Returns(true);
+
+        var largeAgents = new string('A', 25_000); // Exceeds 20K
+        var largeMemory = new string('M', 25_000); // Exceeds 20K
+        await File.WriteAllTextAsync(_testAgentsPromptPath, largeAgents);
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            memoryFileReader: _ => Task.FromResult(largeMemory),
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - two separate INFO log calls (one per truncated file)
+        logger.Received(2).Log(
+            LogLevel.Information,
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
+    }
+
+    [Fact]
+    public async Task BuildAsync_Should_NotLog_WhenFileIsExactlyAtCapLimit()
+    {
+        // Arrange
+        var logger = Substitute.For<ILogger<SystemPromptBuilder>>();
+        logger.IsEnabled(Arg.Any<LogLevel>()).Returns(true);
+
+        var exactContent = new string('A', 20_000); // Exactly at default 20,000 cap
+        await File.WriteAllTextAsync(_testAgentsPromptPath, exactContent);
+
+        var builder = new SystemPromptBuilder(
+            new MockToolRegistry(),
+            _testAgentsPromptPath,
+            logger: logger);
+
+        // Act
+        await builder.BuildAsync();
+
+        // Assert - file at exact cap should not trigger truncation log
+        logger.DidNotReceive().Log(
+            Arg.Any<LogLevel>(),
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception?>(),
+            Arg.Any<Func<object, Exception?, string>>());
     }
 }
 

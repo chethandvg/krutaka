@@ -1,4 +1,6 @@
 using System.Globalization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Krutaka.Core;
 
@@ -6,7 +8,7 @@ namespace Krutaka.Core;
 /// Assembles the system prompt from multiple layers following progressive disclosure pattern.
 /// Layers are assembled in order: core identity → security → tools → skills → memory → context.
 /// </summary>
-public sealed class SystemPromptBuilder
+public sealed partial class SystemPromptBuilder
 {
     private readonly IToolRegistry _toolRegistry;
     private readonly ISkillRegistry? _skillRegistry;
@@ -15,6 +17,7 @@ public sealed class SystemPromptBuilder
     private readonly IToolOptions? _toolOptions;
     private readonly string _agentsPromptPath;
     private readonly Func<CancellationToken, Task<string>>? _memoryFileReader;
+    private readonly ILogger<SystemPromptBuilder> _logger;
 
     /// <summary>
     /// Maximum characters per bootstrap file (AGENTS.md, MEMORY.md).
@@ -41,6 +44,7 @@ public sealed class SystemPromptBuilder
     /// <param name="toolOptions">Optional tool options for Layer 3c (environment context with directory information).</param>
     /// <param name="maxBootstrapCharsPerFile">Optional maximum characters per bootstrap file (default: 20,000).</param>
     /// <param name="maxBootstrapTotalChars">Optional maximum total characters for system prompt (default: 150,000).</param>
+    /// <param name="logger">Optional logger for truncation diagnostics.</param>
     public SystemPromptBuilder(
         IToolRegistry toolRegistry,
         string agentsPromptPath,
@@ -50,7 +54,8 @@ public sealed class SystemPromptBuilder
         ICommandRiskClassifier? commandRiskClassifier = null,
         IToolOptions? toolOptions = null,
         int maxBootstrapCharsPerFile = 20_000,
-        int maxBootstrapTotalChars = 150_000)
+        int maxBootstrapTotalChars = 150_000,
+        ILogger<SystemPromptBuilder>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(toolRegistry);
         ArgumentException.ThrowIfNullOrWhiteSpace(agentsPromptPath, nameof(agentsPromptPath));
@@ -74,6 +79,7 @@ public sealed class SystemPromptBuilder
         _toolOptions = toolOptions;
         _maxBootstrapCharsPerFile = maxBootstrapCharsPerFile;
         _maxBootstrapTotalChars = maxBootstrapTotalChars;
+        _logger = logger ?? NullLogger<SystemPromptBuilder>.Instance;
     }
 
     /// <summary>
@@ -151,8 +157,15 @@ public sealed class SystemPromptBuilder
         var prompt = string.Join("\n\n", sections);
         if (prompt.Length > _maxBootstrapTotalChars)
         {
+            var originalTotalLength = prompt.Length;
             prompt = EnforceTotalCap(sections, securityInstructions);
+            LogTotalBootstrapTruncated(_logger, originalTotalLength, _maxBootstrapTotalChars);
         }
+
+        // Guard: Layer 2 security instructions must always be present in the final prompt
+        System.Diagnostics.Debug.Assert(
+            prompt.Contains(securityInstructions, StringComparison.Ordinal),
+            "CRITICAL: Layer 2 security instructions were truncated from the system prompt. This must never happen.");
 
         return prompt;
     }
@@ -178,8 +191,10 @@ public sealed class SystemPromptBuilder
             // Enforce per-file character cap for bootstrap files
             if (content.Length > _maxBootstrapCharsPerFile)
             {
+                var originalLength = content.Length;
                 content = content[.._maxBootstrapCharsPerFile] +
                     FormattableString.Invariant($"\n\n[... truncated at {_maxBootstrapCharsPerFile:N0} chars. Use read_file for full content ...]");
+                LogBootstrapFileTruncated(_logger, Path.GetFileName(_agentsPromptPath), originalLength, _maxBootstrapCharsPerFile);
             }
 
             return content;
@@ -324,8 +339,10 @@ public sealed class SystemPromptBuilder
         var wasTruncated = false;
         if (content.Length > _maxBootstrapCharsPerFile)
         {
+            var originalLength = content.Length;
             content = content[.._maxBootstrapCharsPerFile];
             wasTruncated = true;
+            LogBootstrapFileTruncated(_logger, "MEMORY.md", originalLength, _maxBootstrapCharsPerFile);
         }
 
         var sb = new System.Text.StringBuilder();
@@ -637,4 +654,16 @@ public sealed class SystemPromptBuilder
 
         return string.Join("\n\n", finalSections);
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Bootstrap file {FileName} truncated ({OriginalChars} chars → {TruncatedChars} chars)")]
+    private static partial void LogBootstrapFileTruncated(
+        ILogger logger, string fileName, int originalChars, int truncatedChars);
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Total bootstrap content truncated ({OriginalChars} chars → {TruncatedChars} chars). Consider reducing AGENTS.md or MEMORY.md size.")]
+    private static partial void LogTotalBootstrapTruncated(
+        ILogger logger, int originalChars, int truncatedChars);
 }
