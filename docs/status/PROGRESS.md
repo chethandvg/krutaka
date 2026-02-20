@@ -3642,7 +3642,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | # | Issue | Phase | Status | Date Completed |
 |---|-------|-------|--------|----------------|
 | 242 | v0.5.0 Autonomous Agent Mode — EPIC | — | 🚧 In Progress | — |
-| 243 | v0.5.0 Custom Instructions, AGENTS.md, and Documentation Updates | A | 🚧 In Progress | — |
+| 243 | v0.5.0 Custom Instructions, AGENTS.md, and Documentation Updates | A | ✅ Complete | 2026-02-20 |
 | 244 | Agent State Machine (Running/Paused/Aborted) | A | 📋 Pending | — |
 | 245 | AutonomyLevelProvider + Orchestrator Integration | B | 📋 Pending | — |
 | 246 | `/autonomy` Command (Console + Telegram) | B | 📋 Pending | — |
