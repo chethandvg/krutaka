@@ -3413,6 +3413,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 |---|---|---|---|---|
 | TBD | Create v0.4.6 roadmap document | Documentation | 🔄 In Progress | — |
 | TBD | Add dedicated tests for SessionManager lifecycle | Testing | 🟢 Complete | 2026-02-20 |
+| TBD | Add dedicated tests for SessionFactory and DI registration | Testing | 🟢 Complete | 2026-02-20 |
 
 ### Completed Work
 
@@ -3430,3 +3431,33 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - ✅ `IdleDetection_Should_NotIdleSession_WhenActivityOccurs` — touch resets idle timer
 - ✅ `MaxActiveSessions_Should_NotEvict_WhenUnderLimit` — no eviction below capacity
 - ✅ `SuspendOldestIdle_Should_PreferIdleSessions_OverActiveSessions` — eviction preference for idle sessions
+
+#### Add dedicated tests for SessionFactory and DI registration (2026-02-20)
+
+**Summary:** Added 36 new unit tests covering DI service registration across three projects. All new tests pass. `SessionFactory` isolation tests already existed in `tests/Krutaka.Core.Tests/Session/SessionFactoryTests.cs` (24 tests).
+
+**New test files:**
+
+`tests/Krutaka.Tools.Tests/ServiceExtensionsTests.cs` — 20 tests for `AddAgentTools()`:
+- ✅ All singleton services resolvable: `ISecurityPolicy`, `IAccessPolicyEngine`, `ICommandRiskClassifier`, `ICommandPolicy`, `IFileOperations`, `ToolOptions`, `IToolOptions`, `ISessionFactory`, `ISessionManager`
+- ✅ Singleton verification: `ISecurityPolicy`, `IAccessPolicyEngine`, `ToolOptions` same instance twice
+- ✅ `IToolOptions` and `ToolOptions` are the same instance
+- ✅ `ISessionFactory` is singleton
+- ✅ Configuration binding via `configureOptions` callback (e.g. `CommandTimeoutSeconds`, `RequireApprovalForWrites`)
+- ✅ Default options used when no callback provided
+- ✅ Fail-fast on invalid `AutoGrantPatterns`
+- ✅ `ArgumentNullException` when `services` is null
+- ✅ Per-session services (`ICommandApprovalCache`, `IToolRegistry`) NOT registered globally
+
+`tests/Krutaka.Memory.Tests/ServiceExtensionsTests.cs` — 9 tests for `AddMemory()`:
+- ✅ `IMemoryService`, `MemoryOptions`, `MemoryFileService`, `DailyLogService` all resolvable
+- ✅ Memory tools registered as `ITool`
+- ✅ `IMemoryService` and `MemoryOptions` singleton verified
+- ✅ Configuration binding via callback and defaults verified
+
+`tests/Krutaka.Skills.Tests/ServiceExtensionsTests.cs` — 7 tests for `AddSkills()`:
+- ✅ `ISkillRegistry`, `SkillRegistry`, `SkillLoader` all resolvable
+- ✅ `ISkillRegistry` is singleton
+- ✅ `SkillRegistry` and `ISkillRegistry` are same instance
+- ✅ Default skill directories added
+- ✅ Custom configure callback applied
