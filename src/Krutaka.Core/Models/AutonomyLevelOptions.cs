@@ -16,7 +16,22 @@ public sealed class AutonomyLevelOptions
     /// Controls how much human approval is required for tool calls.
     /// Default is <see cref="AutonomyLevel.Guided"/> (existing v0.3.0 behavior).
     /// </summary>
+    /// <remarks>
+    /// Supports both <c>Agent:Level</c> and <c>Agent:AutonomyLevel</c> configuration keys.
+    /// The <c>AutonomyLevel</c> property is the canonical key per v0.5.0 spec;
+    /// <c>Level</c> is retained for backward compatibility.
+    /// </remarks>
     public AutonomyLevel Level { get; set; } = AutonomyLevel.Guided;
+
+    /// <summary>
+    /// Alias for <see cref="Level"/> matching the <c>Agent:AutonomyLevel</c> configuration key
+    /// described in the v0.5.0 spec. Both keys are equivalent; last writer wins when both are set.
+    /// </summary>
+    public AutonomyLevel AutonomyLevel
+    {
+        get => Level;
+        set => Level = value;
+    }
 
     /// <summary>
     /// Gets or sets whether Autonomous mode is explicitly enabled.

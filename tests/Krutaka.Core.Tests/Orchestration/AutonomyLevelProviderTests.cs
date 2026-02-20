@@ -419,6 +419,89 @@ public sealed class AutonomyLevelProviderTests
         auditLogger.Events.Should().NotContain(e => e is ToolAutoApprovedEvent);
     }
 
+    // ── Supervised level prompts for Safe tools ───────────────────────────────
+
+    [Fact]
+    public async Task Orchestrator_Should_Prompt_ForSafeTool_WhenAutonomyLevelIsSupervised()
+    {
+        // Arrange: Supervised level, Safe tool — should still prompt (every action requires approval)
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddToolCallStarted("read_file", "id1", "{}");
+        claudeClient.AddFinalResponse("done", "tool_use");
+
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("read_file", "file contents");
+
+        var securityPolicy = new MockSecurityPolicy();
+        securityPolicy.SetApprovalRequired("read_file", false); // Safe tier — policy says no approval needed
+
+        var autonomyProvider = CreateProvider(AutonomyLevel.Supervised);
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient: claudeClient,
+            toolRegistry: toolRegistry,
+            securityPolicy: securityPolicy,
+            approvalTimeoutSeconds: 1, // short timeout for test
+            autonomyLevelProvider: autonomyProvider);
+
+        // Act — expect timeout since no one approves
+        var events = new List<AgentEvent>();
+        var act = async () =>
+        {
+            await foreach (var evt in orchestrator.RunAsync("read something", "system"))
+            {
+                events.Add(evt);
+            }
+        };
+
+        // Assert: HumanApprovalRequired emitted despite Safe tier, because Supervised mode requires all approvals
+        await act.Should().ThrowAsync<TimeoutException>();
+        events.Should().Contain(e => e is HumanApprovalRequired);
+    }
+
+    // ── Audit: auto-approved tools are logged as Approved=true ───────────────
+
+    [Fact]
+    public async Task Orchestrator_Should_LogToolExecution_AsApproved_WhenAutoApproved()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddToolCallStarted("write_file", "id1", "{}");
+        claudeClient.AddFinalResponse("done", "tool_use");
+        claudeClient.AddFinalResponse("completed", "end_turn");
+
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("write_file", "ok");
+
+        var securityPolicy = new MockSecurityPolicy();
+        securityPolicy.SetApprovalRequired("write_file", true);
+
+        var auditLogger = new MockAuditLogger();
+        var autonomyProvider = CreateProvider(AutonomyLevel.SemiAutonomous);
+
+        // Provide CorrelationContext so that LogToolExecution is actually called
+        var correlationContext = new CorrelationContext(Guid.NewGuid());
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient: claudeClient,
+            toolRegistry: toolRegistry,
+            securityPolicy: securityPolicy,
+            auditLogger: auditLogger,
+            correlationContext: correlationContext,
+            autonomyLevelProvider: autonomyProvider);
+
+        // Act
+        await foreach (var _ in orchestrator.RunAsync("do something", "system"))
+        {
+        }
+
+        // Assert: tool execution was logged as approved=true (not as unapproved)
+        auditLogger.ToolExecutionLogs.Should().ContainSingle();
+        auditLogger.ToolExecutionLogs[0].Approved.Should().BeTrue(
+            "auto-approved tools must be recorded as approved in LogToolExecution");
+        auditLogger.ToolExecutionLogs[0].ToolName.Should().Be("write_file");
+    }
+
     // ── Helper factory ────────────────────────────────────────────────────────
 
     private static AutonomyLevelProvider CreateProvider(AutonomyLevel level)
@@ -524,13 +607,19 @@ public sealed class AutonomyLevelProviderTests
     private sealed class MockAuditLogger : IAuditLogger
     {
         public List<AuditEvent> Events { get; } = [];
+        public List<(string ToolName, bool Approved)> ToolExecutionLogs { get; } = [];
 
         public void Log(AuditEvent auditEvent) => Events.Add(auditEvent);
 
         public void LogUserInput(CorrelationContext correlationContext, string content) { }
         public void LogClaudeApiRequest(CorrelationContext correlationContext, string model, int tokenCount, int toolCount) { }
         public void LogClaudeApiResponse(CorrelationContext correlationContext, string stopReason, int inputTokens, int outputTokens) { }
-        public void LogToolExecution(CorrelationContext correlationContext, string toolName, bool approved, bool alwaysApprove, long durationMs, int resultLength, string? errorMessage = null) { }
+
+        public void LogToolExecution(CorrelationContext correlationContext, string toolName, bool approved, bool alwaysApprove, long durationMs, int resultLength, string? errorMessage = null)
+        {
+            ToolExecutionLogs.Add((toolName, approved));
+        }
+
         public void LogCompaction(CorrelationContext correlationContext, int beforeTokenCount, int afterTokenCount, int messagesRemoved) { }
         public void LogSecurityViolation(CorrelationContext correlationContext, string violationType, string blockedValue, string context) { }
         public void LogCommandClassification(CorrelationContext correlationContext, string executable, string arguments, CommandRiskTier tier, bool autoApproved, string? trustedDirectory, string reason) { }

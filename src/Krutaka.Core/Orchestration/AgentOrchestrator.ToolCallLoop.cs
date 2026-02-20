@@ -240,87 +240,105 @@ public sealed partial class AgentOrchestrator
         var approvalRequired = _securityPolicy.IsApprovalRequired(toolCall.Name);
         var alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
 
-        if (approvalRequired && !alwaysApprove)
+        // Determine effective approval requirement considering autonomy level (v0.5.0).
+        // With a provider: ShouldAutoApprove drives the decision for ALL tiers including Safe,
+        // so Supervised (Level 0) will prompt even for tools the security policy marks as Safe.
+        // Without a provider: fall back to existing binary behavior (backward compatible).
+        bool isAutoApproved = false;
+        bool needsHumanApproval;
+
+        if (alwaysApprove)
         {
-            // Check if the autonomy level auto-approves this tool call (v0.5.0)
-            if (_autonomyLevelProvider?.ShouldAutoApprove(toolCall.Name, approvalRequired) == true)
+            needsHumanApproval = false;
+        }
+        else if (_autonomyLevelProvider != null)
+        {
+            isAutoApproved = _autonomyLevelProvider.ShouldAutoApprove(toolCall.Name, approvalRequired);
+            needsHumanApproval = !isAutoApproved;
+        }
+        else
+        {
+            // No provider: existing behavior — only prompt when security policy requires it
+            needsHumanApproval = approvalRequired;
+        }
+
+        if (isAutoApproved)
+        {
+            _auditLogger?.Log(new ToolAutoApprovedEvent
             {
-                _auditLogger?.Log(new ToolAutoApprovedEvent
-                {
-                    SessionId = _correlationContext?.SessionId ?? Guid.Empty,
-                    TurnId = _correlationContext?.TurnId ?? 0,
-                    RequestId = _correlationContext?.RequestId,
-                    ToolName = toolCall.Name,
-                    Level = _autonomyLevelProvider.GetLevel(),
-                    WasApprovalRequired = approvalRequired
-                });
+                SessionId = _correlationContext?.SessionId ?? Guid.Empty,
+                TurnId = _correlationContext?.TurnId ?? 0,
+                RequestId = _correlationContext?.RequestId,
+                ToolName = toolCall.Name,
+                Level = _autonomyLevelProvider!.GetLevel(),
+                WasApprovalRequired = approvalRequired
+            });
+        }
+        else if (needsHumanApproval)
+        {
+            // Create a TaskCompletionSource to block until the caller approves or denies
+            // Lock to ensure atomic assignment of pending state
+            TaskCompletionSource<bool> approvalTcs;
+            lock (_approvalStateLock)
+            {
+                approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _pendingApproval = approvalTcs;
+                _pendingToolUseId = toolCall.Id;
+                _pendingToolName = toolCall.Name;
             }
-            else
+
+            yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
+
+            // Block until ApproveTool or DenyTool is called.
+            // Use try-finally to ensure _pendingApproval is cleaned up even on cancellation.
+            bool approved;
+            try
             {
-                // Create a TaskCompletionSource to block until the caller approves or denies
-                // Lock to ensure atomic assignment of pending state
-                TaskCompletionSource<bool> approvalTcs;
+                // Apply approval timeout if configured
+                if (_approvalTimeout != Timeout.InfiniteTimeSpan)
+                {
+                    using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+                    try
+                    {
+                        approved = await approvalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                    {
+                        // Approval timeout occurred (not user cancellation)
+                        throw new TimeoutException($"Approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for tool '{toolCall.Name}'. " +
+                            "The user did not respond to the approval request in time.");
+                    }
+                }
+                else
+                {
+                    // No timeout - wait indefinitely (or until user cancels)
+                    approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                // Lock to prevent race with concurrent approval/denial
                 lock (_approvalStateLock)
                 {
-                    approvalTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    _pendingApproval = approvalTcs;
-                    _pendingToolUseId = toolCall.Id;
-                    _pendingToolName = toolCall.Name;
+                    _pendingApproval = null;
+                    _pendingToolUseId = null;
+                    _pendingToolName = null;
                 }
-
-                yield return new HumanApprovalRequired(toolCall.Name, toolCall.Id, toolCall.Input);
-
-                // Block until ApproveTool or DenyTool is called.
-                // Use try-finally to ensure _pendingApproval is cleaned up even on cancellation.
-                bool approved;
-                try
-                {
-                    // Apply approval timeout if configured
-                    if (_approvalTimeout != Timeout.InfiniteTimeSpan)
-                    {
-                        using var timeoutCts = new CancellationTokenSource(_approvalTimeout);
-                        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-
-                        try
-                        {
-                            approved = await approvalTcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
-                        }
-                        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-                        {
-                            // Approval timeout occurred (not user cancellation)
-                            throw new TimeoutException($"Approval timeout ({_approvalTimeout.TotalSeconds}s) exceeded for tool '{toolCall.Name}'. " +
-                                "The user did not respond to the approval request in time.");
-                        }
-                    }
-                    else
-                    {
-                        // No timeout - wait indefinitely (or until user cancels)
-                        approved = await approvalTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                finally
-                {
-                    // Lock to prevent race with concurrent approval/denial
-                    lock (_approvalStateLock)
-                    {
-                        _pendingApproval = null;
-                        _pendingToolUseId = null;
-                        _pendingToolName = null;
-                    }
-                }
-
-                if (!approved)
-                {
-                    // Tool was denied - send denial message as tool result (is_error=true to align with ToolCallFailed)
-                    var denialMessage = $"The user denied execution of {toolCall.Name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
-                    yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMessage);
-                    toolResults.Add(CreateToolResult(toolCall.Id, denialMessage, true));
-                    yield break;
-                }
-
-                // Update alwaysApprove state (may have been set by caller)
-                alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
             }
+
+            if (!approved)
+            {
+                // Tool was denied - send denial message as tool result (is_error=true to align with ToolCallFailed)
+                var denialMessage = $"The user denied execution of {toolCall.Name}. The user chose not to allow this operation. Please try a different approach or ask the user for clarification.";
+                yield return new ToolCallFailed(toolCall.Name, toolCall.Id, denialMessage);
+                toolResults.Add(CreateToolResult(toolCall.Id, denialMessage, true));
+                yield break;
+            }
+
+            // Update alwaysApprove state (may have been set by caller)
+            alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
         }
 
         // Execute the tool with timeout - may throw DirectoryAccessRequiredException or CommandApprovalRequiredException
@@ -330,7 +348,7 @@ public sealed partial class AgentOrchestrator
 
         try
         {
-            toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+            toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, isAutoApproved, cancellationToken).ConfigureAwait(false);
         }
         catch (DirectoryAccessRequiredException ex)
         {
@@ -432,7 +450,7 @@ public sealed partial class AgentOrchestrator
                 try
                 {
                     // Retry the tool execution now that access is granted
-                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, false, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -464,7 +482,7 @@ public sealed partial class AgentOrchestrator
 
                 try
                 {
-                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, false, cancellationToken).ConfigureAwait(false);
                     _commandApprovalCache?.RemoveApproval(commandSignature);
                 }
 #pragma warning disable CA1031 // Catching Exception is appropriate here to handle any retry failure
@@ -554,7 +572,7 @@ public sealed partial class AgentOrchestrator
                 // Retry execution
                 try
                 {
-                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, false, cancellationToken).ConfigureAwait(false);
 
                     // Remove approval from cache after successful execution
                     _commandApprovalCache?.RemoveApproval(commandSignature);
