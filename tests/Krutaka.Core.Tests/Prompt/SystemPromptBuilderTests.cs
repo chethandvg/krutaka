@@ -1055,12 +1055,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - INFO log emitted for AGENTS.md truncation
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.Received().Log(
             LogLevel.Information,
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1082,12 +1084,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - no log emitted when content is under the cap
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.DidNotReceive().Log(
             Arg.Any<LogLevel>(),
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1109,12 +1113,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - INFO log emitted for MEMORY.md truncation
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.Received().Log(
             LogLevel.Information,
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1138,12 +1144,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - WARNING log emitted for total cap truncation
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.Received().Log(
             LogLevel.Warning,
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1187,12 +1195,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - log message contains original (25000) and truncated (20000) char counts
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.Received().Log(
             LogLevel.Information,
             Arg.Any<EventId>(),
             Arg.Is<object>(o => o.ToString()!.Contains("25000") && o.ToString()!.Contains("20000")),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1216,12 +1226,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - no log emitted when all content is under both caps
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.DidNotReceive().Log(
             Arg.Any<LogLevel>(),
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1245,12 +1257,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - two separate INFO log calls (one per truncated file)
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.Received(2).Log(
             LogLevel.Information,
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1272,12 +1286,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         await builder.BuildAsync();
 
         // Assert - file at exact cap should not trigger truncation log
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.DidNotReceive().Log(
             Arg.Any<LogLevel>(),
             Arg.Any<EventId>(),
             Arg.Any<object>(),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 
     [Fact]
@@ -1306,12 +1322,14 @@ public sealed class SystemPromptBuilderTests : IDisposable
         // text and therefore exceeds totalCap. The warning must log result.Length, not totalCap.
         result.Length.Should().BeGreaterThan(totalCap, "Layer 2 security instructions are always preserved");
 
+#pragma warning disable CA1873 // Avoid evaluating arguments when logging is disabled - acceptable in tests
         logger.Received().Log(
             LogLevel.Warning,
             Arg.Any<EventId>(),
             Arg.Is<object>(o => o.ToString()!.Contains(result.Length.ToString(System.Globalization.CultureInfo.InvariantCulture))),
             Arg.Any<Exception?>(),
             Arg.Any<Func<object, Exception?, string>>());
+#pragma warning restore CA1873
     }
 }
 
