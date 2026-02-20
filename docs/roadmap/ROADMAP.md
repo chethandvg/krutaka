@@ -459,10 +459,11 @@ FTS5 keyword search fails for conceptual queries. "What was the approach we disc
 ### Key Components
 
 1. **Local ONNX Embeddings**
-   - Model: `bge-micro-v2` or similar lightweight model (~25MB)
+   - Model: `bge-micro-v2` or similar lightweight model (~25MB) (Note: Add a couple more models like nomic-embed-text-v1.5, Snowflake-Arctic-Embed-XS, all-MiniLM-L6-v2 or any other if required which can be picked on the go)
    - Runs locally via `Microsoft.ML.OnnxRuntime` — no external API calls
    - Embedding dimension: 384 (configurable)
    - Generation: on memory store, cached for deduplication
+   - research if we can use tags/labels (by creating new if required or identify and using the once that are more related. May be we can get some when we make the LLM call) to help this process. Use it if it makes the application efficient
 
 2. **sqlite-vec Integration**
    - SQLite virtual table for vector similarity search
