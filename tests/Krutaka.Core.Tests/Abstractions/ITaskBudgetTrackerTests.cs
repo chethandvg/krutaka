@@ -30,18 +30,20 @@ public class ITaskBudgetTrackerTests
 
         public bool TryConsume(BudgetDimension dimension, int amount)
         {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
+
             switch (dimension)
             {
-                case BudgetDimension.Tokens when _tokens + amount <= _budget.MaxClaudeTokens:
+                case BudgetDimension.Tokens when (long)_tokens + amount <= _budget.MaxClaudeTokens:
                     _tokens += amount;
                     return true;
-                case BudgetDimension.ToolCalls when _toolCalls + amount <= _budget.MaxToolCalls:
+                case BudgetDimension.ToolCalls when (long)_toolCalls + amount <= _budget.MaxToolCalls:
                     _toolCalls += amount;
                     return true;
-                case BudgetDimension.FilesModified when _filesModified + amount <= _budget.MaxFilesModified:
+                case BudgetDimension.FilesModified when (long)_filesModified + amount <= _budget.MaxFilesModified:
                     _filesModified += amount;
                     return true;
-                case BudgetDimension.ProcessesSpawned when _processesSpawned + amount <= _budget.MaxProcessesSpawned:
+                case BudgetDimension.ProcessesSpawned when (long)_processesSpawned + amount <= _budget.MaxProcessesSpawned:
                     _processesSpawned += amount;
                     return true;
                 default:
@@ -135,5 +137,32 @@ public class ITaskBudgetTrackerTests
         snapshot.ToolCallsConsumed.Should().Be(3);
         snapshot.TokensPercentage.Should().BeApproximately(0.5, 1e-9);
         snapshot.ToolCallsPercentage.Should().BeApproximately(0.3, 1e-9);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MinValue)]
+    public void TryConsume_Should_Throw_WhenAmountIsNotPositive(int invalidAmount)
+    {
+        // Arrange
+        ITaskBudgetTracker tracker = new StubTracker();
+
+        // Act & Assert
+        Assert.Throws<ArgumentOutOfRangeException>(() => tracker.TryConsume(BudgetDimension.Tokens, invalidAmount));
+    }
+
+    [Fact]
+    public void TryConsume_Should_ReturnFalse_WhenAmountWouldCauseOverflow()
+    {
+        // Arrange — budget is large enough that int overflow would previously make the sum negative
+        ITaskBudgetTracker tracker = new StubTracker(new TaskBudget(MaxClaudeTokens: int.MaxValue));
+        tracker.TryConsume(BudgetDimension.Tokens, int.MaxValue);
+
+        // Act — attempt to consume 1 more; counter is already at MaxValue so this should return false
+        bool result = tracker.TryConsume(BudgetDimension.Tokens, 1);
+
+        // Assert
+        result.Should().BeFalse();
     }
 }
