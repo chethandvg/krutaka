@@ -888,6 +888,7 @@ Cross-manager communication:
 4. **Architecture drift**: Security reviewer checks every PR against architecture docs
 5. **Dependency update**: Milestone planner tracks dependency versions, triggers upgrade tasks
 6. **Documentation sync**: Documentation writer monitors code changes, triggers doc updates
+7. When main agent asks human user for clarification, Human user can ask questions on top of it to come into conclusion and then send final verfict. Or he can assign/spun up another agent to clarify and give final verdict.  
 
 ---
 
