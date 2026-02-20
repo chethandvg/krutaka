@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-20 (v0.4.6 Issue #220 Complete — 2,051 tests passing, 2 skipped, 2,053 total)
+> **Last updated:** 2026-02-20 (v0.5.0 Issue #243 In Progress — 2,051 tests passing, 2 skipped, 2,053 total)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3612,3 +3612,72 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 - [x] `docs/versions/v0.4.6.md` status updated to ✅ Complete
 - [x] `docs/status/PROGRESS.md` updated with Issue #220
 - [x] All prior v0.4.6 acceptance criteria met (from Issue #219)
+
+---
+
+## v0.5.0 — Autonomous Agent Mode (In Progress)
+
+> **Status:** 🚧 **In Progress**
+> **Reference:** See `docs/versions/v0.5.0.md` for complete architecture design, security invariants, and implementation roadmap.
+> **Predecessor:** v0.4.6 (✅ Complete — 2,051 tests passing, 2 skipped)
+> **Epic Issue:** #242
+> **Estimated New Tests:** ~350
+
+### Phase Summary
+
+| Phase | Focus | Issues | Status |
+|-------|-------|--------|--------|
+| A | Documentation, Instructions & Agent State | #243, #244 | 🚧 In Progress |
+| B | Autonomy Level Implementation | #245, #246 | 📋 Pending |
+| C | Task Budget Tracker | #247, #248 | 📋 Pending |
+| D | Git Checkpoint Service | #249, #250 | 📋 Pending |
+| E | Deadman's Switch | #251, #252 | 📋 Pending |
+| F | Behavior Anomaly Detector | #253, #254 | 📋 Pending |
+| G | Session Steering Commands | #255, #256 | 📋 Pending |
+| H | Console + Telegram Integration | #257, #258 | 📋 Pending |
+| I | Adversarial Tests & Release | #259, #260, #261 | 📋 Pending |
+
+### Issue Status
+
+| # | Issue | Phase | Status | Date Completed |
+|---|-------|-------|--------|----------------|
+| 242 | v0.5.0 Autonomous Agent Mode — EPIC | — | 🚧 In Progress | — |
+| 243 | v0.5.0 Custom Instructions, AGENTS.md, and Documentation Updates | A | ✅ Complete | 2026-02-20 |
+| 244 | Agent State Machine (Running/Paused/Aborted) | A | 📋 Pending | — |
+| 245 | AutonomyLevelProvider + Orchestrator Integration | B | 📋 Pending | — |
+| 246 | `/autonomy` Command (Console + Telegram) | B | 📋 Pending | — |
+| 247 | TaskBudgetTracker Implementation + Orchestrator Integration | C | 📋 Pending | — |
+| 248 | `/budget` Command (Console + Telegram) | C | 📋 Pending | — |
+| 249 | GitCheckpointService Implementation + Orchestrator Integration | D | 📋 Pending | — |
+| 250 | `/rollback` and `/checkpoint` Commands | D | 📋 Pending | — |
+| 251 | DeadmanSwitch Implementation + SessionManager Integration | E | 📋 Pending | — |
+| 252 | DeadmanSwitch Notifications (Console + Telegram) | E | 📋 Pending | — |
+| 253 | BehaviorAnomalyDetector Implementation + Orchestrator Integration | F | 📋 Pending | — |
+| 254 | Anomaly Detection Configuration + Thresholds | F | 📋 Pending | — |
+| 255 | `/steer`, `/pause`, `/continue` Commands | G | 📋 Pending | — |
+| 256 | `/abort` Command with Rollback Integration | G | 📋 Pending | — |
+| 257 | Console UI v0.5.0 Features Integration | H | 📋 Pending | — |
+| 258 | Telegram UI v0.5.0 Features Integration | H | 📋 Pending | — |
+| 259 | Autonomy + Budget Adversarial Security Tests | I | 📋 Pending | — |
+| 260 | Checkpoint + Anomaly + Deadman Adversarial Security Tests | I | 📋 Pending | — |
+| 261 | v0.5.0 Release Documentation, CHANGELOG, and Verification | I | 📋 Pending | — |
+
+### Issue #243 Details (2026-02-20)
+
+**Summary:** Updated `.github/copilot-instructions.md`, `AGENTS.md`, and created `.github/instructions/v0.5.0-autonomy.instructions.md` to prepare the codebase for v0.5.0 implementation.
+
+**Files changed:**
+
+- `.github/copilot-instructions.md` — Updated Implementation Status to v0.5.0 in progress; added security invariants S9–S15; added `docs/versions/v0.5.0.md` to Key Documentation; expanded per-session component list to include `ITaskBudgetTracker`, `IGitCheckpointService`, `IBehaviorAnomalyDetector`, `DeadmanSwitch`; added autonomy-level and budget escalation notes
+- `AGENTS.md` — Updated Implementation Status to v0.5.0 in progress; added v0.5.0 task completion rule (item 8) in "After Completing Any Task"; added `docs/versions/v0.5.0.md` to Key Files Reference
+- `.github/instructions/v0.5.0-autonomy.instructions.md` — Created new path-specific instruction file (`applyTo: src/Krutaka.Core/Orchestration/**,src/Krutaka.Tools/Session/**`) covering orchestrator modification rules, per-session lifecycle rules, tool call loop integration points, state machine transitions, and security invariants
+- `docs/status/PROGRESS.md` — Added v0.5.0 section with phase summary, issue status table, and issue #243 details; updated header timestamp
+
+**Acceptance criteria:**
+- [x] `.github/copilot-instructions.md` updated with v0.5.0 context
+- [x] `AGENTS.md` updated with v0.5.0 task completion rules
+- [x] `.github/instructions/v0.5.0-autonomy.instructions.md` created
+- [x] `docs/status/PROGRESS.md` updated with v0.5.0 section and issue #243
+- [x] No code changes — documentation only
+- [x] `dotnet build` — zero warnings
+- [x] `dotnet test` — all 2,051 tests pass (2 skipped), zero regressions

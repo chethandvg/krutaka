@@ -4,7 +4,7 @@
 
 Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an OpenClaw-inspired AI agent that uses the Claude API for agentic task execution with security-hardened tool use.
 
-**Implementation Status:** ✅ **v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites Complete** — v0.4.6 complete with 2,051 tests passing (2 skipped). All 14 projects restructured into logical subdirectories with per-project READMEs, SessionManager/SessionFactory tests added, bootstrap truncation logging, ADR-014, production deployment and troubleshooting guides, v0.5.0 prerequisite interfaces, and forward-looking roadmap. See `docs/status/PROGRESS.md` for detailed status.
+**Implementation Status:** 🚧 **v0.5.0 Autonomous Agent Mode In Progress** — v0.4.6 complete with 2,051 tests passing (2 skipped). v0.5.0 is now in active development: autonomy levels, task budgets, git checkpoints, deadman's switch, and behavior anomaly detection. See `docs/status/PROGRESS.md` for detailed status.
 
 **Host Modes:** The application supports three operating modes via `appsettings.json` `"Mode"` setting or `--mode` CLI argument:
 - **Console** (default): Single-session local console UI, no Telegram services loaded
@@ -51,7 +51,7 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - ALWAYS wrap untrusted content in `<untrusted_content>` tags when sending to Claude
 - ALWAYS wrap Telegram user input in `<untrusted_content source="telegram:user:{userId}">` tags before sending to Claude
 - ALWAYS use `CancellationToken` for cancellable operations
-- ALWAYS ensure per-session state (orchestrator, correlation context, session store, access store, approval cache, tool registry, context compactor) is instantiated per-session, NEVER as a singleton
+- ALWAYS ensure per-session state (orchestrator, correlation context, session store, access store, approval cache, tool registry, context compactor, `ITaskBudgetTracker`, `IGitCheckpointService`, `IBehaviorAnomalyDetector`, `DeadmanSwitch`) is instantiated per-session via `ISessionFactory`, NEVER as a singleton
 - ALWAYS validate Telegram inline keyboard callbacks with HMAC-SHA256 before processing
 - NEVER log sensitive data — use the log redaction filter
 - NEVER store Telegram bot tokens in `appsettings.json` — use `ISecretsProvider` (Windows Credential Manager) or environment variables
@@ -59,6 +59,13 @@ Krutaka is a C#/.NET 10 console application targeting Windows (x64). It is an Op
 - Tool result pruning MUST NOT modify JSONL session files — only modify in-memory snapshots before API calls
 - Pre-compaction memory flush MUST wrap conversation content in `<untrusted_content>` tags
 - Bootstrap file caps MUST NOT truncate Layer 2 security instructions (hardcoded in `GetSecurityInstructions()`)
+- **S9: Autonomy level MUST NOT escalate at runtime** — set once at session start from config, immutable thereafter
+- **S10: Budget MUST NOT increase without explicit user action** — agent cannot extend its own budget
+- **S11: Checkpoints are local-only** — no `git push` without Elevated approval
+- **S12: Deadman's switch timer runs in `SessionManager`** — agent cannot access or reset it
+- **S13: Anomaly detector runs independently** — agent cannot disable or modify thresholds
+- **S14: Dangerous tier commands are ALWAYS blocked** — regardless of autonomy level
+- **S15: All steering input (`/steer`) MUST be wrapped in `<untrusted_content>` tags** — no exception
 
 ### Dependencies
 - Use only packages declared in `Directory.Packages.props`
@@ -77,6 +84,7 @@ Before making changes, read:
 - `docs/versions/v0.4.0.md` — v0.4.0 Telegram integration and multi-session architecture design
 - `docs/versions/v0.4.5.md` — v0.4.5 Session Resilience, API Hardening & Context Intelligence design
 - `docs/versions/v0.4.6.md` — v0.4.6 Project Structure, Code Quality & v0.5.0 Prerequisites design
+- `docs/versions/v0.5.0.md` — v0.5.0 Autonomous Agent Mode architecture, security invariants, and implementation roadmap
 - `docs/roadmap/ROADMAP.md` — Forward-looking roadmap (v0.5.0 through v1.3.0+)
 - `docs/architecture/MULTI-SESSION.md` — Multi-session isolation architecture
 - `docs/architecture/TELEGRAM.md` — Telegram security architecture
