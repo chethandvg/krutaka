@@ -60,29 +60,34 @@ C:\Services\Krutaka\
 
 ## Step 2: Configure Secrets
 
-Krutaka **never** stores secrets in `appsettings.json`. Production deployments must supply secrets via environment variables scoped to the Windows Service account.
+Krutaka **never** stores secrets in `appsettings.json`. Each secret uses a different storage mechanism:
 
-### Anthropic API Key (`KRUTAKA_ANTHROPIC_API_KEY`)
+- **Anthropic API key** — stored in **Windows Credential Manager** (read via `ISecretsProvider`)
+- **Telegram bot token** — supplied via **environment variable** (`KRUTAKA_TELEGRAM_BOT_TOKEN`)
 
-> **Note:** In interactive (console) mode, the API key is stored in Windows Credential Manager via the setup wizard. For a Windows Service (which has no interactive session), use the environment variable instead.
+### Anthropic API Key (Windows Credential Manager)
 
-Set the environment variable for the **System** scope (visible to Windows Services):
+Krutaka reads the Anthropic API key **only** from Windows Credential Manager via `ISecretsProvider`. Environment variables are **not** used for the API key.
 
-```powershell
-# Run as Administrator
-[System.Environment]::SetEnvironmentVariable(
-    'KRUTAKA_ANTHROPIC_API_KEY',
-    'sk-ant-api03-YOUR-KEY-HERE',
-    'Machine'
-)
-```
+For an interactive console deployment, the built-in setup wizard handles this automatically. For a Windows Service running under a dedicated service account:
 
-> ⚠️ **Security:** Machine-scoped environment variables are visible to all processes on the machine. If multiple services share this machine, consider a dedicated service account with User-scoped variables, or use a secrets vault (Azure Key Vault, HashiCorp Vault).
+1. **Log on as (or impersonate) the service account** — open an interactive session under the account that will run the service.
+2. **Run the setup wizard once** to store the API key under that account's Credential Manager:
+   ```powershell
+   C:\Services\Krutaka\Krutaka.Console.exe
+   ```
+   The wizard prompts for the key and stores it under `Krutaka_ApiKey` in Windows Credential Manager for the current user.
+3. **Verify the credential** — open `Control Panel > User Accounts > Credential Manager > Windows Credentials > Generic Credentials` for the service account and confirm `Krutaka_ApiKey` is present.
+
+> ⚠️ **Important:** The credential is stored per-user in Windows Credential Manager. It must be stored under the **same account** that the Windows Service runs as, not the administrator account used to install the service.
 
 ### Telegram Bot Token (`KRUTAKA_TELEGRAM_BOT_TOKEN`)
 
+Set the environment variable scoped to the Windows Service account:
+
 ```powershell
-# Run as Administrator
+# Machine scope — inherited by all services (use only if the machine is single-tenant)
+# Run as Administrator:
 [System.Environment]::SetEnvironmentVariable(
     'KRUTAKA_TELEGRAM_BOT_TOKEN',
     '1234567890:ABCdefGHIjklMNOpqrsTUVwxyz123456789',
@@ -90,12 +95,11 @@ Set the environment variable for the **System** scope (visible to Windows Servic
 )
 ```
 
-### Verify Variables Are Set
+> ⚠️ **Security:** Machine-scoped environment variables are visible to all processes on the machine. For multi-tenant machines, use NSSM's `AppEnvironmentExtra` setting (see Option B below) to scope the variable to the Krutaka service only.
 
-After setting, verify both variables before continuing:
+### Verify the Bot Token Is Set
 
 ```powershell
-[System.Environment]::GetEnvironmentVariable('KRUTAKA_ANTHROPIC_API_KEY', 'Machine')
 [System.Environment]::GetEnvironmentVariable('KRUTAKA_TELEGRAM_BOT_TOKEN', 'Machine')
 ```
 
@@ -124,12 +128,10 @@ Edit `C:\Services\Krutaka\appsettings.json` for headless Telegram-only productio
     "CommandTimeoutSeconds": 60,
     "ToolTimeoutSeconds": 60,
     "RequireApprovalForWrites": true,
-    "MaxToolResultCharacters": 0
-  },
-  "Retry": {
-    "MaxAttempts": 3,
-    "InitialDelaySeconds": 1,
-    "MaxDelaySeconds": 30
+    "MaxToolResultCharacters": 0,
+    "RetryMaxAttempts": 3,
+    "RetryInitialDelayMs": 1000,
+    "RetryMaxDelayMs": 30000
   },
   "ContextCompaction": {
     "PruneToolResultsAfterTurns": 6,
@@ -263,9 +265,9 @@ nssm set "Krutaka" AppRestartDelay 5000
 # Startup type: automatic
 nssm set "Krutaka" Start SERVICE_AUTO_START
 
-# Per-service environment variables (alternative to Machine-scoped)
+# Per-service environment variable for Telegram bot token
+# (scopes it to this service only, instead of Machine-wide)
 nssm set "Krutaka" AppEnvironmentExtra `
-    "KRUTAKA_ANTHROPIC_API_KEY=sk-ant-api03-YOUR-KEY-HERE" `
     "KRUTAKA_TELEGRAM_BOT_TOKEN=1234567890:YOUR-TOKEN-HERE"
 ```
 
@@ -293,50 +295,42 @@ nssm remove "Krutaka" confirm
 
 ## Step 5: Log Rotation and Retention
 
-Krutaka uses Serilog with a rolling file sink. By default, logs are written to `%USERPROFILE%\.krutaka\logs\` for the account running the service.
+Krutaka configures Serilog directly in code (`Program.cs`) with a hardcoded base path of `%USERPROFILE%\.krutaka\logs\`. The rolling file settings (daily rotation, 30-day retention) are also set in code and **cannot be overridden via `appsettings.json`**.
 
-For a production Windows Service, the `%USERPROFILE%` path resolves to the service account's profile (e.g., `C:\Windows\System32\config\systemprofile\.krutaka\logs\` for `LocalSystem`). To use a predictable path, configure the log path explicitly in `appsettings.json`:
+For a Windows Service, `%USERPROFILE%` resolves to the service account's profile:
 
-```json
-{
-  "Serilog": {
-    "WriteTo": [
-      {
-        "Name": "File",
-        "Args": {
-          "path": "C:\\Services\\Krutaka\\logs\\krutaka-.log",
-          "rollingInterval": "Day",
-          "retainedFileCountLimit": 30,
-          "fileSizeLimitBytes": 104857600,
-          "rollOnFileSizeLimit": true,
-          "outputTemplate": "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}"
-        }
-      }
-    ]
-  }
-}
-```
+| Service Account | Resolved Log Path |
+|---|---|
+| `LocalSystem` | `C:\Windows\System32\config\systemprofile\.krutaka\logs\` |
+| `LocalService` | `C:\Windows\ServiceProfiles\LocalService\.krutaka\logs\` |
+| Custom user account | `C:\Users\{username}\.krutaka\logs\` |
 
-### Log Retention Policy
+> **Recommendation:** Run the service under a **dedicated named service account** (e.g., `svc-krutaka`) rather than `LocalSystem`. This gives you a predictable, accessible log path at `C:\Users\svc-krutaka\.krutaka\logs\` and limits the service's system privileges.
 
-| Setting | Recommended Value | Effect |
+### Built-in Log Rotation Settings
+
+The following settings are configured in `Program.cs` and apply to all deployments:
+
+| Setting | Value | Effect |
 |---|---|---|
-| `rollingInterval` | `"Day"` | New log file each day |
-| `retainedFileCountLimit` | `30` | Keep last 30 days of logs |
-| `fileSizeLimitBytes` | `104857600` (100 MB) | Roll when file reaches 100 MB |
-| `rollOnFileSizeLimit` | `true` | Create new file when size limit hit |
+| Rolling interval | Daily | New log file each day (`krutaka-YYYYMMDD.log`) |
+| Retained file count | 30 | Keeps last 30 days of log files |
+| Format | `{Timestamp} [{Level}] {Message}` | Structured text output |
 
 ### Monitoring Log Files
 
 ```powershell
-# View the current day's log
-Get-Content "C:\Services\Krutaka\logs\krutaka-$(Get-Date -Format yyyyMMdd).log" -Tail 50
+# Replace {LogDir} with the resolved path for your service account, e.g.:
+$logDir = "C:\Users\svc-krutaka\.krutaka\logs"
+
+# View the current day's log (last 50 lines)
+Get-Content "$logDir\krutaka-$(Get-Date -Format yyyyMMdd).log" -Tail 50
 
 # Follow logs in real-time (PowerShell equivalent of `tail -f`)
-Get-Content "C:\Services\Krutaka\logs\krutaka-$(Get-Date -Format yyyyMMdd).log" -Wait -Tail 20
+Get-Content "$logDir\krutaka-$(Get-Date -Format yyyyMMdd).log" -Wait -Tail 20
 
-# Search logs for errors
-Select-String -Path "C:\Services\Krutaka\logs\*.log" -Pattern "\[ERR\]|\[WRN\]"
+# Search all log files for errors and warnings
+Select-String -Path "$logDir\*.log" -Pattern "\[ERR\]|\[WRN\]"
 ```
 
 ### Log Redaction
@@ -507,7 +501,8 @@ sqlite3 "C:\...\memory.db" ".backup 'D:\Backups\Krutaka\memory-$(Get-Date -Forma
 7. **Verify the service started correctly:**
    ```powershell
    sc.exe query "Krutaka"
-   Get-Content "C:\Services\Krutaka\logs\krutaka-$(Get-Date -Format yyyyMMdd).log" -Tail 20
+   # Check the service account's log directory, e.g.:
+   Get-Content "C:\Users\svc-krutaka\.krutaka\logs\krutaka-$(Get-Date -Format yyyyMMdd).log" -Tail 20
    ```
 
 ### Rollback Procedure
@@ -529,13 +524,12 @@ sc.exe start "Krutaka"
 Before going live, verify:
 
 - [ ] `appsettings.json` contains **no secrets** (no API keys, no bot tokens)
-- [ ] `KRUTAKA_ANTHROPIC_API_KEY` is set as an environment variable (not in config)
+- [ ] Anthropic API key is stored in **Windows Credential Manager** under the service account (`Krutaka_ApiKey`)
 - [ ] `KRUTAKA_TELEGRAM_BOT_TOKEN` is set as an environment variable (not in config)
 - [ ] `Telegram.AllowedUsers` is configured with explicit user IDs (not empty)
 - [ ] `Telegram.RequireConfirmationForElevated` is `true`
 - [ ] `Agent.WorkingDirectory` points to a specific project directory (not `.`)
-- [ ] Log files are written to a known, accessible path
-- [ ] `retainedFileCountLimit` is set to limit disk usage
+- [ ] Log directory for the service account is known and accessible
 - [ ] Backup schedule is configured and tested
 - [ ] At least one Admin user is configured for health notifications
 - [ ] Service account has minimal permissions (read/write only to workspace, no admin rights)

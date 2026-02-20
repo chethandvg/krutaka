@@ -213,7 +213,7 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 
 **Gap:** No documentation on deploying Krutaka to production (Windows Service, systemd, Docker, etc.).
 
-**Resolution:** Added `docs/guides/PRODUCTION-DEPLOYMENT.md` covering Windows Service installation via `sc.exe` and NSSM, environment variable management for secrets (`KRUTAKA_ANTHROPIC_API_KEY`, `KRUTAKA_TELEGRAM_BOT_TOKEN`), headless Telegram-only mode configuration, Serilog log rotation and retention, health monitoring via Telegram admin notifications and Windows Event Log, backup strategy for session JSONL files and SQLite memory database, and update/rollback procedures.
+**Resolution:** Added `docs/guides/PRODUCTION-DEPLOYMENT.md` covering Windows Service installation via `sc.exe` and NSSM, secrets management (Anthropic API key via Windows Credential Manager under the service account; Telegram bot token via `KRUTAKA_TELEGRAM_BOT_TOKEN` environment variable), headless Telegram-only mode configuration, Serilog log rotation and retention (hardcoded daily rolling, 30-day retention in the service account's `%USERPROFILE%\.krutaka\logs\`), health monitoring via Telegram admin notifications and Windows Event Log, backup strategy for session JSONL files and SQLite memory database, and update/rollback procedures.
 
 ---
 
@@ -221,7 +221,7 @@ This document tracks tasks that were identified during v0.4.0 and v0.4.5 develop
 
 **Gap:** No centralized troubleshooting documentation. Users must search through architecture docs or ask maintainer.
 
-**Resolution:** Added `docs/guides/TROUBLESHOOTING.md` covering all common issues: "API key not found" (Credential Manager and environment variable resolution), "Telegram user not authorized" (`AllowedUsers` configuration), "Session resume crash" (v0.4.5 fixes, upgrade path from v0.4.0), "Rate limit exceeded" (v0.4.5 retry behavior and configuration), "Compaction fails" (v0.4.5 non-fatal handling), "Bot not responding" (polling lock file, token validity, rate limits, lockouts), "Tests failing after file moves" (namespace rules and `.csproj` explicit references), plus a complete common error messages reference table.
+**Resolution:** Added `docs/guides/TROUBLESHOOTING.md` covering all common issues: "API key not found" (Windows Credential Manager only — no env var fallback; service account credential must match the running account), "Telegram user not authorized" (`AllowedUsers` configuration), "Session resume crash" (v0.4.5 fixes, upgrade path from v0.4.0), "Rate limit exceeded" (v0.4.5 retry behavior and correct `Agent:RetryMaxAttempts`/`Agent:RetryInitialDelayMs`/`Agent:RetryMaxDelayMs` configuration keys), "Compaction fails" (v0.4.5 non-fatal handling), "Bot not responding" (polling lock at `%USERPROFILE%\.krutaka\.polling.lock`, token validity, rate limits, lockouts), "Tests failing after file moves" (namespace rules and `.csproj` explicit references), plus a complete common error messages reference table.
 
 ---
 

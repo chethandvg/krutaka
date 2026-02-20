@@ -37,10 +37,10 @@ This guide consolidates common errors and their solutions in one place. For setu
 
 **Symptom:** The application fails to start with an error like:
 ```
-[ERR] Anthropic API key not found. Run the setup wizard or set KRUTAKA_ANTHROPIC_API_KEY.
+Claude API key not found in secure credential store. Please run the setup wizard to configure your Anthropic API key.
 ```
 
-**Cause:** Krutaka cannot locate the API key in Windows Credential Manager or the environment variable.
+**Cause:** Krutaka cannot locate the API key in Windows Credential Manager. The API key is read **only** from Windows Credential Manager via `ISecretsProvider` — environment variables are not used for the Anthropic API key.
 
 **Solutions (try in order):**
 
@@ -52,15 +52,7 @@ This guide consolidates common errors and their solutions in one place. For setu
 
 2. **Verify Credential Manager** — Open `Control Panel > User Accounts > Credential Manager > Windows Credentials > Generic Credentials` and look for `Krutaka_ApiKey`. If missing, run the wizard again.
 
-3. **Use an environment variable** — For headless/service deployments, set the key as an environment variable instead of using Credential Manager:
-   ```powershell
-   # User scope (interactive sessions)
-   [System.Environment]::SetEnvironmentVariable('KRUTAKA_ANTHROPIC_API_KEY', 'sk-ant-...', 'User')
-
-   # Machine scope (Windows Services, required for service accounts)
-   [System.Environment]::SetEnvironmentVariable('KRUTAKA_ANTHROPIC_API_KEY', 'sk-ant-...', 'Machine')
-   ```
-   Then restart your terminal or the service for the change to take effect.
+3. **Check the running account** — For Windows Service deployments, the credential must be stored under the **same user account** the service runs as. If the service runs as `svc-krutaka`, log in as `svc-krutaka` and run the setup wizard once to store the credential in that account's Credential Manager.
 
 4. **Delete and re-store** — If the credential is corrupted, delete `Krutaka_ApiKey` from Credential Manager and re-run the setup wizard.
 
@@ -73,7 +65,7 @@ This guide consolidates common errors and their solutions in one place. For setu
 [ERR] API key has invalid format. Expected key starting with 'sk-ant-'.
 ```
 
-**Cause:** The key stored in Credential Manager or the environment variable was truncated, corrupted, or is from a different API provider.
+**Cause:** The key stored in Credential Manager was truncated, corrupted, or is from a different API provider.
 
 **Fix:** Get a fresh API key from [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) (keys start with `sk-ant-api03-...`) and re-run the setup wizard.
 
@@ -106,12 +98,12 @@ Or after retries are exhausted:
    }
    ```
 
-4. **Adjust retry configuration** — If retries are triggering too aggressively:
+4. **Adjust retry configuration** — Retry settings live under the `Agent` section in `appsettings.json`. The keys use milliseconds:
    ```json
-   "Retry": {
-     "MaxAttempts": 5,
-     "InitialDelaySeconds": 2,
-     "MaxDelaySeconds": 60
+   "Agent": {
+     "RetryMaxAttempts": 5,
+     "RetryInitialDelayMs": 2000,
+     "RetryMaxDelayMs": 60000
    }
    ```
 
@@ -188,8 +180,8 @@ Or after retries are exhausted:
 
 2. **Delete the stale lock file** (if the previous instance crashed without cleanup):
    ```powershell
-   # Lock file is in the user profile temp directory
-   Remove-Item "$env:TEMP\krutaka-polling.lock" -ErrorAction SilentlyContinue
+   # Lock file is at {UserProfile}\.krutaka\.polling.lock
+   Remove-Item "$env:USERPROFILE\.krutaka\.polling.lock" -ErrorAction SilentlyContinue
    ```
 
 3. **Restart your instance** — After removing the stale lock, start Krutaka again.
