@@ -1,5 +1,4 @@
 using System.Globalization;
-using Anthropic.Exceptions;
 using Krutaka.AI;
 using Krutaka.Console;
 using Krutaka.Console.Logging;
@@ -10,7 +9,6 @@ using Krutaka.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Serilog;
 using Spectre.Console;
 
@@ -242,76 +240,6 @@ try
     var maxTokenBudget = configuration.GetValue<int>("Agent:MaxTokenBudget", 200_000);
     var maxToolCallBudget = configuration.GetValue<int>("Agent:MaxToolCallBudget", 1000);
 
-    // Helper function to create memory writer delegate for pre-compaction flush
-    static Func<string, CancellationToken, Task>? CreateMemoryWriter(IServiceProvider serviceProvider)
-    {
-        var memoryFileService = serviceProvider.GetService<MemoryFileService>();
-        var toolOptions = serviceProvider.GetService<IToolOptions>();
-        
-        if (memoryFileService != null && toolOptions?.EnablePreCompactionFlush == true)
-        {
-            return async (content, ct) => await memoryFileService.AppendRawMarkdownAsync(content, ct).ConfigureAwait(false);
-        }
-        
-        return null;
-    }
-
-    // Helper function to create SystemPromptBuilder using session's tool registry
-    static SystemPromptBuilder CreateSystemPromptBuilder(IToolRegistry toolRegistry, string workingDirectory, IServiceProvider serviceProvider)
-    {
-        // Try to locate AGENTS.md in multiple locations
-        var agentsPromptPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "..", "..", "..", "..", "..", // Navigate to repo root from bin/Debug/net10.0-windows
-            "prompts", "AGENTS.md");
-
-        // Normalize the path
-        agentsPromptPath = Path.GetFullPath(agentsPromptPath);
-
-        // Fallback 1: Check if running from published location
-        if (!File.Exists(agentsPromptPath))
-        {
-            agentsPromptPath = Path.Combine(AppContext.BaseDirectory, "prompts", "AGENTS.md");
-        }
-
-        // Fallback 2: Try current working directory
-        if (!File.Exists(agentsPromptPath))
-        {
-            agentsPromptPath = Path.Combine(workingDirectory, "prompts", "AGENTS.md");
-        }
-
-        // Final check - if still not found, log warning and use empty path (will fail at runtime)
-        if (!File.Exists(agentsPromptPath))
-        {
-            Log.Warning("AGENTS.md not found. SystemPromptBuilder may fail at runtime. Searched: {BaseDir}, {WorkingDir}",
-                AppContext.BaseDirectory, workingDirectory);
-            agentsPromptPath = "prompts/AGENTS.md"; // Let it fail with a clear error
-        }
-
-        var skillRegistry = serviceProvider.GetService<ISkillRegistry>();
-        var memoryService = serviceProvider.GetService<IMemoryService>();
-        var memoryFileService = serviceProvider.GetService<MemoryFileService>();
-        var commandRiskClassifier = serviceProvider.GetService<ICommandRiskClassifier>();
-        var toolOptions = serviceProvider.GetService<IToolOptions>();
-        var promptLogger = serviceProvider.GetService<ILogger<SystemPromptBuilder>>();
-
-        Func<CancellationToken, Task<string>>? memoryFileReader = null;
-        if (memoryFileService != null)
-        {
-            memoryFileReader = async (ct) => await memoryFileService.ReadMemoryAsync(ct).ConfigureAwait(false);
-        }
-
-        return new SystemPromptBuilder(
-            toolRegistry,
-            agentsPromptPath,
-            skillRegistry,
-            memoryService,
-            memoryFileReader,
-            commandRiskClassifier,
-            toolOptions,
-            logger: promptLogger);
-    }
-
     // Three-step resume pattern for disk sessions: Create with preserved ID + SessionStore.ReconstructMessagesAsync + RestoreConversationHistory
     // Check if there's an existing session to auto-resume from disk
     Guid? existingSessionId = null;
@@ -336,7 +264,7 @@ try
         // so we use SessionFactory directly to create with the preserved ID
         Log.Information("Found existing session {SessionId}, creating with preserved ID", existingSessionId.Value);
         
-        var memoryWriter = CreateMemoryWriter(host.Services);
+        var memoryWriter = ConsoleSessionHelpers.CreateMemoryWriter(host.Services);
         var sessionRequest = new SessionRequest(
             ProjectPath: workingDirectory,
             MaxTokenBudget: maxTokenBudget,
@@ -373,7 +301,7 @@ try
     {
         // Create new session
         Log.Information("No previous session found, creating new session");
-        var memoryWriter = CreateMemoryWriter(host.Services);
+        var memoryWriter = ConsoleSessionHelpers.CreateMemoryWriter(host.Services);
         var sessionRequest = new SessionRequest(
             ProjectPath: workingDirectory,
             MaxTokenBudget: maxTokenBudget,
@@ -386,352 +314,23 @@ try
         Log.Information("Created new session {SessionId}", currentSession.SessionId);
     }
 
-    // Create SystemPromptBuilder using the session's tool registry
-    // We need to access the tool registry from the session's orchestrator
-    // Since AgentOrchestrator doesn't expose IToolRegistry, we'll need to use reflection or create it inline
-    // For now, let's extract the tool registry creation logic to a helper
-    sessionToolRegistry = CreateSessionToolRegistry(currentSession);
-    systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
+    // Create the session tool registry and system prompt builder
+    sessionToolRegistry = ConsoleSessionHelpers.CreateSessionToolRegistry(currentSession);
+    systemPromptBuilder = ConsoleSessionHelpers.CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
 
-    // Helper to extract tool registry from session (via reflection since it's not exposed)
-    static IToolRegistry CreateSessionToolRegistry(ManagedSession session)
-    {
-        // The SessionFactory creates the tool registry and passes it to the orchestrator
-        // We need to extract it from the orchestrator using reflection
-        var orchestratorType = session.Orchestrator.GetType();
-        var toolRegistryField = orchestratorType.GetField("_toolRegistry", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (toolRegistryField != null)
-        {
-            var registry = toolRegistryField.GetValue(session.Orchestrator) as IToolRegistry;
-            if (registry != null)
-            {
-                return registry;
-            }
-        }
-        
-        // Fallback: this should never happen, but if reflection fails, throw an error
-        throw new InvalidOperationException("Unable to extract tool registry from session. This is a programming error.");
-    }
-
-    // Display banner
-    ui.DisplayBanner();
-
-    // Main interaction loop
-    while (!ui.ShutdownToken.IsCancellationRequested)
-    {
-        var input = ui.GetUserInput();
-
-        // Handle Ctrl+C or null input
-        if (input == null || ui.ShutdownToken.IsCancellationRequested)
-        {
-            break;
-        }
-
-        // Handle empty input
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            continue;
-        }
-
-        // Handle commands
-        if (input.StartsWith('/'))
-        {
-            var command = input.ToUpperInvariant().Trim();
-
-            if (command is "/EXIT" or "/QUIT")
-            {
-                break;
-            }
-            else if (command == "/HELP")
-            {
-                AnsiConsole.MarkupLine("[bold cyan]Available Commands:[/]");
-                AnsiConsole.MarkupLine("  [cyan]/help[/]     - Show this help message");
-                AnsiConsole.MarkupLine("  [cyan]/sessions[/] - List recent sessions for this project");
-                AnsiConsole.MarkupLine("  [cyan]/new[/]      - Start a fresh session");
-                AnsiConsole.MarkupLine("  [cyan]/resume[/]   - Reload current session from disk");
-                AnsiConsole.MarkupLine("  [cyan]/autonomy[/] - Show current autonomy level");
-                AnsiConsole.MarkupLine("  [cyan]/exit[/]     - Exit the application");
-                AnsiConsole.MarkupLine("  [cyan]/quit[/]     - Exit the application");
-                AnsiConsole.WriteLine();
-                continue;
-            }
-            else if (command == "/SESSIONS")
-            {
-                // Combine active sessions from SessionManager with persisted sessions from disk
-                var activeSessions = sessionManager.ListActiveSessions();
-                var persistedSessions = SessionStore.ListSessions(workingDirectory, limit: 10);
-
-                if (persistedSessions.Count == 0 && activeSessions.Count == 0)
-                {
-                    AnsiConsole.MarkupLine("[yellow]No previous sessions found for this project.[/]");
-                }
-                else
-                {
-                    var table = new Table()
-                        .Border(TableBorder.Rounded)
-                        .BorderColor(Color.Grey)
-                        .AddColumn("#")
-                        .AddColumn("Session ID")
-                        .AddColumn("Last Modified")
-                        .AddColumn("Messages")
-                        .AddColumn("Preview");
-
-                    for (int i = 0; i < persistedSessions.Count; i++)
-                    {
-                        var session = persistedSessions[i];
-                        var isCurrent = session.SessionId == currentSession.SessionId ? "[green]►[/] " : "";
-                        var shortId = session.SessionId.ToString("N")[..8]; // N format is 32 chars without hyphens
-                        var preview = session.FirstUserMessage ?? "(empty)";
-
-                        table.AddRow(
-                            $"{i + 1}",
-                            $"{isCurrent}{shortId}...",
-                            session.LastModified.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
-                            session.MessageCount.ToString(CultureInfo.InvariantCulture),
-                            Markup.Escape(preview)
-                        );
-                    }
-
-                    AnsiConsole.Write(table);
-                    AnsiConsole.MarkupLine("[dim]Tip: Use /new to start a fresh session[/]");
-                }
-
-                AnsiConsole.WriteLine();
-                continue;
-            }
-            else if (command == "/NEW")
-            {
-                // Terminate the current session and dispose resources
-                await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
-                currentSessionStore.Dispose();
-
-                // Create new session via SessionManager
-                var memoryWriter = CreateMemoryWriter(host.Services);
-                var sessionRequest = new SessionRequest(
-                    ProjectPath: workingDirectory,
-                    MaxTokenBudget: maxTokenBudget,
-                    MaxToolCallBudget: maxToolCallBudget,
-                    MemoryWriter: memoryWriter);
-                currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
-#pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
-                currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
-#pragma warning restore CA2000
-                
-                // Recreate SystemPromptBuilder with new session's tool registry
-                sessionToolRegistry = CreateSessionToolRegistry(currentSession);
-                systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
-
-                AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
-                Log.Information("User started new session {SessionId}", currentSession.SessionId);
-                AnsiConsole.WriteLine();
-                continue;
-            }
-            else if (command == "/RESUME")
-            {
-                try
-                {
-                    // Reload current session from disk using three-step pattern
-                    var messages = await currentSessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
-                    if (messages.Count == 0)
-                    {
-                        AnsiConsole.MarkupLine("[yellow]Current session is empty.[/]");
-                    }
-                    else
-                    {
-                        currentSession.Orchestrator.RestoreConversationHistory(messages);
-                        AnsiConsole.MarkupLine($"[green]✓ Reloaded {messages.Count} messages from disk[/]");
-                        Log.Information("Session reloaded with {MessageCount} messages", messages.Count);
-                    }
-                }
-#pragma warning disable CA1031 // Do not catch general exception types
-                catch (Exception ex)
-#pragma warning restore CA1031
-                {
-                    AnsiConsole.MarkupLine($"[red]Error reloading session: {Markup.Escape(ex.Message)}[/]");
-                    Log.Error(ex, "Failed to reload session");
-                }
-
-                AnsiConsole.WriteLine();
-                continue;
-            }
-            else if (command == "/AUTONOMY")
-            {
-                ui.DisplayAutonomyLevel(currentSession.AutonomyLevelProvider);
-                continue;
-            }
-            else
-            {
-                AnsiConsole.MarkupLine($"[yellow]Unknown command: {Markup.Escape(input)}[/]");
-                AnsiConsole.MarkupLine("[dim]Type /help for available commands[/]");
-                AnsiConsole.WriteLine();
-                continue;
-            }
-        }
-
-        try
-        {
-            // Increment turn ID for new user input
-            currentSession.CorrelationContext.IncrementTurn();
-
-            // Log user input
-            auditLogger.LogUserInput(currentSession.CorrelationContext, input);
-
-            // Build system prompt
-            var systemPrompt = await systemPromptBuilder.BuildAsync(input, ui.ShutdownToken).ConfigureAwait(false);
-
-            // Log session event
-            await currentSessionStore.AppendAsync(
-                new SessionEvent("user", "user", input, DateTimeOffset.UtcNow),
-                ui.ShutdownToken).ConfigureAwait(false);
-
-            // Run agent orchestrator and display streaming response
-            // Wrap events to persist assistant responses and tool events to session store
-            var rawEvents = currentSession.Orchestrator.RunAsync(input, systemPrompt, ui.ShutdownToken);
-            var events = WrapWithSessionPersistence(rawEvents, currentSessionStore, ui.ShutdownToken);
-            await ui.DisplayStreamingResponseAsync(events,
-                onApprovalDecision: (toolUseId, approved, alwaysApprove) =>
-                {
-                    if (approved)
-                    {
-                        currentSession.Orchestrator.ApproveTool(toolUseId, alwaysApprove);
-                    }
-                    else
-                    {
-                        currentSession.Orchestrator.DenyTool(toolUseId);
-                    }
-                },
-                onDirectoryAccessDecision: (approved, grantedLevel, createSessionGrant) =>
-                {
-                    if (approved && grantedLevel.HasValue)
-                    {
-                        currentSession.Orchestrator.ApproveDirectoryAccess(grantedLevel.Value, createSessionGrant);
-                    }
-                    else
-                    {
-                        currentSession.Orchestrator.DenyDirectoryAccess();
-                    }
-                },
-                onCommandApprovalDecision: (approved, alwaysApprove) =>
-                {
-                    if (approved)
-                    {
-                        currentSession.Orchestrator.ApproveCommand(alwaysApprove);
-                    }
-                    else
-                    {
-                        currentSession.Orchestrator.DenyCommand();
-                    }
-                },
-                cancellationToken: ui.ShutdownToken).ConfigureAwait(false);
-
-            AnsiConsole.WriteLine();
-            AnsiConsole.WriteLine();
-        }
-        catch (OperationCanceledException)
-        {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[yellow]⚠ Operation cancelled[/]");
-            AnsiConsole.WriteLine();
-        }
-        catch (AnthropicBadRequestException ex)
-        {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[red]Error: The API returned a bad request error[/]");
-            AnsiConsole.MarkupLine($"[dim]{Markup.Escape(ex.Message)}[/]");
-            Log.Error(ex, "AnthropicBadRequestException in main loop");
-            AnsiConsole.WriteLine();
-
-            // Offer recovery options
-            var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<RecoveryOption>()
-                    .Title("How would you like to proceed?")
-                    .AddChoices(RecoveryOption.ReloadSession, RecoveryOption.StartNew)
-                    .UseConverter(option => option switch
-                    {
-                        RecoveryOption.ReloadSession => "[yellow][[R]]eload session - Repair and reload from disk[/]",
-                        RecoveryOption.StartNew => "[green][[N]]ew session - Start fresh[/]",
-                        _ => option.ToString()
-                    }));
-
-            if (choice == RecoveryOption.ReloadSession)
-            {
-                try
-                {
-                    // Execute 2-step resume pattern: ReconstructMessagesAsync → RestoreConversationHistory (same as /resume)
-                    AnsiConsole.MarkupLine("[yellow]Reloading session from disk...[/]");
-                    var messages = await currentSessionStore.ReconstructMessagesAsync(ui.ShutdownToken).ConfigureAwait(false);
-                    if (messages.Count == 0)
-                    {
-                        // Clear in-memory conversation to prevent re-hitting the same API error
-                        currentSession.Orchestrator.RestoreConversationHistory(messages);
-                        AnsiConsole.MarkupLine("[yellow]Current session is empty. Conversation history cleared.[/]");
-                        Log.Information("Session reloaded after API error with empty history - conversation cleared");
-                    }
-                    else
-                    {
-                        currentSession.Orchestrator.RestoreConversationHistory(messages);
-                        AnsiConsole.MarkupLine($"[green]✓ Reloaded {messages.Count} messages from disk[/]");
-                        Log.Information("Session reloaded after API error with {MessageCount} messages", messages.Count);
-                    }
-                }
-#pragma warning disable CA1031 // Do not catch general exception types
-                catch (Exception reloadEx)
-#pragma warning restore CA1031
-                {
-                    AnsiConsole.MarkupLine($"[red]Error reloading session: {Markup.Escape(reloadEx.Message)}[/]");
-                    AnsiConsole.MarkupLine("[yellow]Consider using /new to start a fresh session[/]");
-                    Log.Error(reloadEx, "Failed to reload session after API error");
-                }
-            }
-            else // RecoveryOption.StartNew
-            {
-                try
-                {
-                    // Execute /new logic: terminate current session and create new one
-                    await sessionManager.TerminateSessionAsync(currentSession.SessionId, ui.ShutdownToken).ConfigureAwait(false);
-                    currentSessionStore.Dispose();
-
-                    var memoryWriter = CreateMemoryWriter(host.Services);
-                    var sessionRequest = new SessionRequest(
-                        ProjectPath: workingDirectory,
-                        MaxTokenBudget: maxTokenBudget,
-                        MaxToolCallBudget: maxToolCallBudget,
-                        MemoryWriter: memoryWriter);
-                    currentSession = await sessionManager.CreateSessionAsync(sessionRequest, ui.ShutdownToken).ConfigureAwait(false);
-#pragma warning disable CA2000 // SessionStore will be disposed in shutdown section or on next /new
-                    currentSessionStore = new SessionStore(workingDirectory, currentSession.SessionId);
-#pragma warning restore CA2000
-
-                    // Recreate SystemPromptBuilder with new session's tool registry
-                    sessionToolRegistry = CreateSessionToolRegistry(currentSession);
-                    systemPromptBuilder = CreateSystemPromptBuilder(sessionToolRegistry, workingDirectory, host.Services);
-
-                    AnsiConsole.MarkupLine("[green]✓ Started new session[/]");
-                    Log.Information("User started new session after API error {SessionId}", currentSession.SessionId);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Gracefully handle cancellation during recovery
-                    AnsiConsole.WriteLine();
-                    AnsiConsole.MarkupLine("[yellow]⚠ Session creation cancelled during recovery[/]");
-                    Log.Information("Session creation cancelled during error recovery");
-                    throw; // Re-throw to allow outer handler to process graceful shutdown
-                }
-            }
-
-            AnsiConsole.WriteLine();
-        }
-#pragma warning disable CA1031 // Do not catch general exception types
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[red]Error: {Markup.Escape(ex.Message)}[/]");
-            Log.Error(ex, "Unhandled exception in main loop");
-            AnsiConsole.MarkupLine("[dim]Tip: If this error persists, try /new to start a fresh session[/]");
-            AnsiConsole.WriteLine();
-        }
-    }
+    // Run the main interaction loop
+    var runLoop = new ConsoleRunLoop(
+        ui,
+        sessionManager,
+        auditLogger,
+        host.Services,
+        workingDirectory,
+        maxTokenBudget,
+        maxToolCallBudget,
+        currentSession,
+        currentSessionStore,
+        systemPromptBuilder);
+    await runLoop.RunAsync(ui.ShutdownToken).ConfigureAwait(false);
 
     // ========================================
     // Graceful Shutdown
@@ -743,7 +342,7 @@ try
     Log.Information("Krutaka shutting down");
     
     // Dispose current session store
-    currentSessionStore.Dispose();
+    runLoop.Dispose();
     
     // Dispose session manager (terminates all active sessions)
     await sessionManager.DisposeAsync().ConfigureAwait(false);
@@ -765,106 +364,3 @@ finally
 {
     await Log.CloseAndFlushAsync().ConfigureAwait(false);
 }
-
-/// <summary>
-/// Wraps an event stream with session persistence, appending assistant responses
-/// and tool events to the session store as they flow through.
-/// </summary>
-static async IAsyncEnumerable<AgentEvent> WrapWithSessionPersistence(
-    IAsyncEnumerable<AgentEvent> events,
-    SessionStore sessionStore,
-    [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
-{
-    var textAccumulator = new System.Text.StringBuilder();
-
-    await foreach (var evt in events.WithCancellation(cancellationToken))
-    {
-        switch (evt)
-        {
-            case TextDelta delta:
-                textAccumulator.Append(delta.Text);
-                break;
-
-            case ToolCallStarted tool:
-                // Flush any accumulated assistant text before the tool_use event so that
-                // resume reconstructs content blocks in the same order Claude produced them
-                // (text first, then tool_use).
-                if (textAccumulator.Length > 0)
-                {
-                    await sessionStore.AppendAsync(
-                        new SessionEvent("assistant", "assistant", textAccumulator.ToString(), DateTimeOffset.UtcNow),
-                        cancellationToken).ConfigureAwait(false);
-                    textAccumulator.Clear();
-                }
-
-                // CRITICAL TIMING WINDOW: The tool_use event is persisted IMMEDIATELY when emitted by Claude.
-                // If the process crashes/terminates between this point and the corresponding
-                // ToolCallCompleted/ToolCallFailed event being persisted, the session will have
-                // an orphaned tool_use block. This is handled by SessionStore.RepairOrphanedToolUseBlocks()
-                // which detects missing tool_result blocks and injects synthetic error responses during resume.
-                await sessionStore.AppendAsync(
-                    new SessionEvent("tool_use", "assistant", tool.Input, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
-                    cancellationToken).ConfigureAwait(false);
-                break;
-
-            case ToolCallCompleted tool:
-                await sessionStore.AppendAsync(
-                    new SessionEvent("tool_result", "user", tool.Result, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
-                    cancellationToken).ConfigureAwait(false);
-                break;
-
-            case ToolCallFailed tool:
-                // Use "tool_error" type so resume can reconstruct the is_error flag
-                await sessionStore.AppendAsync(
-                    new SessionEvent("tool_error", "user", tool.Error, DateTimeOffset.UtcNow, tool.ToolName, tool.ToolUseId),
-                    cancellationToken).ConfigureAwait(false);
-                break;
-
-            case FinalResponse final:
-                // Persist any remaining assistant text that wasn't flushed before a tool call.
-                // In non-tool-use turns the text is only emitted here.
-                if (textAccumulator.Length > 0 || !string.IsNullOrEmpty(final.Content))
-                {
-                    var content = textAccumulator.Length > 0 ? textAccumulator.ToString() : final.Content;
-                    await sessionStore.AppendAsync(
-                        new SessionEvent("assistant", "assistant", content, DateTimeOffset.UtcNow),
-                        cancellationToken).ConfigureAwait(false);
-                }
-                // Reset for next response in the same turn (multi-turn tool calls)
-                textAccumulator.Clear();
-                break;
-
-            case CompactionCompleted compaction:
-                // Persist compaction event with metadata for debugging
-                await sessionStore.AppendAsync(
-                    new SessionEvent(
-                        Type: "compaction",
-                        Role: null,
-                        Content: compaction.Summary,
-                        Timestamp: compaction.Timestamp,
-                        TokensBefore: compaction.TokensBefore,
-                        TokensAfter: compaction.TokensAfter,
-                        MessagesRemoved: compaction.MessagesRemoved),
-                    cancellationToken).ConfigureAwait(false);
-                break;
-        }
-
-        yield return evt;
-    }
-}
-
-// ========================================
-// Recovery Options Enum
-// ========================================
-
-/// <summary>
-/// Represents recovery options when an API error occurs.
-/// </summary>
-internal enum RecoveryOption
-{
-    /// <summary>Reload the current session using the 2-step resume pattern.</summary>
-    ReloadSession,
-    /// <summary>Start a new session.</summary>
-    StartNew
-}
-
