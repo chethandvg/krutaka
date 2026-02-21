@@ -419,14 +419,12 @@ public sealed class AgentOrchestratorBudgetTests
     [Fact]
     public async Task RunAsync_Should_YieldBudgetExhausted_WhenToolCallLimitReached()
     {
-        // Budget: 1 tool call. First tool call consumes budget. Second is blocked with BudgetExhausted.
+        // Two tool calls arrive in a single Claude response with MaxToolCalls=1.
+        // The first call consumes the entire ToolCalls budget (0→1=limit).
+        // The second call must be pre-blocked, emitting BudgetExhausted.
         var claudeClient = new BudgetMockClaudeClient();
 
-        // First round: one tool call (consumes the 1 budget)
         claudeClient.AddToolCallStarted("read_file", "tc_1", "{\"path\":\"file.txt\"}");
-        claudeClient.AddFinalResponse("", "tool_use");
-
-        // Second round: another tool call (should be blocked)
         claudeClient.AddToolCallStarted("read_file", "tc_2", "{\"path\":\"file2.txt\"}");
         claudeClient.AddFinalResponse("", "tool_use");
         claudeClient.AddFinalResponse("Done", "end_turn");
@@ -447,7 +445,7 @@ public sealed class AgentOrchestratorBudgetTests
         // The second tool call should be blocked by BudgetExhausted
         events.OfType<BudgetExhausted>().Should()
             .Contain(e => e.Dimension == BudgetDimension.ToolCalls,
-                "second tool call should exceed the MaxToolCalls=1 budget");
+                "second tool call must be pre-blocked when MaxToolCalls=1 budget is exhausted");
     }
 
     [Fact]
@@ -620,8 +618,149 @@ public sealed class AgentOrchestratorBudgetTests
     }
 
     // -------------------------------------------------------------------------
-    // Mock infrastructure
+    // Fix 1: Outer loop must stop on budget exhaustion even without state manager
     // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task RunAsync_Should_StopLoop_WhenToolCallBudgetExhausted_WithNoStateManager()
+    {
+        // Verifies the outer agentic loop terminates on budget exhaustion even when
+        // _stateManager is null (normal session wiring via SessionFactory).
+        // After the first tool call consumes MaxToolCalls=1, IsExhausted=true and the
+        // top-of-loop guard must prevent a second Claude API call.
+        int claudeCallCount = 0;
+        var claudeClient = new CountingMockClaudeClient(callIdx =>
+        {
+            claudeCallCount = callIdx + 1;
+            return callIdx switch
+            {
+                // First call: one tool use that consumes the entire ToolCalls budget
+                0 => [new ToolCallStarted("read_file", "tc_1", "{\"path\":\"f.txt\"}"), new FinalResponse("", "tool_use")],
+                // Second call must NOT happen — budget is exhausted
+                _ => [new FinalResponse("Should not reach here", "end_turn")]
+            };
+        });
+
+        var budget = new TaskBudget(MaxToolCalls: 1);
+        var tracker = new TaskBudgetTracker(budget);
+
+        // Deliberately do NOT pass a stateManager — this is the normal wiring path
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, new BudgetMockToolRegistry(), new BudgetMockSecurityPolicy(),
+            budgetTracker: tracker);
+
+        await foreach (var _ in orchestrator.RunAsync("Do something", "system"))
+        {
+            // consume all events
+        }
+
+        // After the first tool call consumes 1/1 of the ToolCalls budget, IsExhausted
+        // becomes true and the top-of-loop guard must prevent a second Claude API call.
+        claudeCallCount.Should().Be(1,
+            "the outer loop must not make a second Claude API call after ToolCalls budget is exhausted");
+    }
+
+    // -------------------------------------------------------------------------
+    // Fix 2: No extra side-effect past FilesModified/ProcessesSpawned cap
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task RunAsync_Should_BlockWriteFile_WhenFilesModifiedBudgetAlreadyExhausted()
+    {
+        // Two write_file calls arrive in one Claude response with MaxFilesModified=1.
+        // The first call pre-consumes the full FilesModified budget (0→1=limit).
+        // The second call must be pre-blocked — the side effect must NOT occur.
+        var executedTools = new List<string>();
+        var claudeClient = new BudgetMockClaudeClient();
+
+        // Both tool calls in a single Claude response
+        claudeClient.AddToolCallStarted("write_file", "tc_wf1", "{\"path\":\"f1.txt\",\"content\":\"a\"}");
+        claudeClient.AddToolCallStarted("write_file", "tc_wf2", "{\"path\":\"f2.txt\",\"content\":\"b\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        // MaxFilesModified=1: first write_file exhausts the budget; second must be blocked
+        var budget = new TaskBudget(MaxToolCalls: 10, MaxFilesModified: 1);
+        var tracker = new TaskBudgetTracker(budget);
+        var trackingRegistry = new TrackingToolRegistry(executedTools);
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, trackingRegistry, new BudgetMockSecurityPolicy(),
+            budgetTracker: tracker);
+
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Write files", "system"))
+        {
+            events.Add(evt);
+        }
+
+        // First write_file executed; second was pre-blocked before any side-effect
+        executedTools.Should().HaveCount(1, "only the first write_file may execute when MaxFilesModified=1");
+
+        // BudgetExhausted must be emitted for the FilesModified dimension
+        events.OfType<BudgetExhausted>().Should()
+            .Contain(e => e.Dimension == BudgetDimension.FilesModified,
+                "BudgetExhausted must be emitted for FilesModified when cap is reached");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_BlockRunCommand_WhenProcessesSpawnedBudgetAlreadyExhausted()
+    {
+        // Two run_command calls arrive in one Claude response with MaxProcessesSpawned=1.
+        // The first call pre-consumes the full ProcessesSpawned budget.
+        // The second call must be pre-blocked — no extra spawn occurs.
+        var executedTools = new List<string>();
+        var claudeClient = new BudgetMockClaudeClient();
+
+        claudeClient.AddToolCallStarted("run_command", "tc_rc1", "{\"executable\":\"echo\",\"arguments\":[\"1\"]}");
+        claudeClient.AddToolCallStarted("run_command", "tc_rc2", "{\"executable\":\"echo\",\"arguments\":[\"2\"]}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var budget = new TaskBudget(MaxToolCalls: 10, MaxProcessesSpawned: 1);
+        var tracker = new TaskBudgetTracker(budget);
+        var trackingRegistry = new TrackingToolRegistry(executedTools);
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, trackingRegistry, new BudgetMockSecurityPolicy(),
+            budgetTracker: tracker);
+
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Run cmds", "system"))
+        {
+            events.Add(evt);
+        }
+
+        executedTools.Should().HaveCount(1, "only the first run_command may execute when MaxProcessesSpawned=1");
+        events.OfType<BudgetExhausted>().Should()
+            .Contain(e => e.Dimension == BudgetDimension.ProcessesSpawned,
+                "BudgetExhausted must be emitted for ProcessesSpawned when cap is reached");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_ConsumesFilesModified_PreExecution_WhenWriteFileTool()
+    {
+        // After a successful write_file, the FilesModified counter should be 1 (consumed pre-execution)
+        var claudeClient = new BudgetMockClaudeClient();
+        claudeClient.AddToolCallStarted("write_file", "tc_wf", "{\"path\":\"f.txt\",\"content\":\"x\"}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Written", "end_turn");
+
+        var budget = new TaskBudget(MaxToolCalls: 10, MaxFilesModified: 5);
+        var tracker = new TaskBudgetTracker(budget);
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient, new BudgetMockToolRegistry(), new BudgetMockSecurityPolicy(),
+            budgetTracker: tracker);
+
+        await foreach (var _ in orchestrator.RunAsync("Write file", "system"))
+        {
+            // consume all events
+        }
+
+        tracker.GetSnapshot().FilesModified.Should().Be(1,
+            "FilesModified should be consumed (pre-execution) after a successful write_file");
+    }
 
     private sealed class BudgetMockClaudeClient : IClaudeClient
     {
@@ -692,5 +831,48 @@ public sealed class AgentOrchestratorBudgetTests
 
         public IDictionary<string, string?> ScrubEnvironment(IDictionary<string, string?> environment)
             => new Dictionary<string, string?>(environment);
+    }
+
+    private sealed class CountingMockClaudeClient : IClaudeClient
+    {
+        private readonly Func<int, IEnumerable<AgentEvent>> _onCall;
+        private int _callIndex;
+
+        public CountingMockClaudeClient(Func<int, IEnumerable<AgentEvent>> onCall) => _onCall = onCall;
+
+        public async IAsyncEnumerable<AgentEvent> SendMessageAsync(
+            IEnumerable<object> messages,
+            string systemPrompt,
+            object? tools = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            foreach (var evt in _onCall(_callIndex++))
+            {
+                yield return evt;
+            }
+        }
+
+        public Task<int> CountTokensAsync(
+            IEnumerable<object> messages,
+            string systemPrompt,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(100);
+    }
+
+    private sealed class TrackingToolRegistry : IToolRegistry
+    {
+        private readonly List<string> _executedTools;
+
+        public TrackingToolRegistry(List<string> executedTools) => _executedTools = executedTools;
+
+        public void Register(ITool tool) { }
+        public object GetToolDefinitions() => Array.Empty<object>();
+
+        public Task<string> ExecuteAsync(string name, JsonElement input, CancellationToken cancellationToken)
+        {
+            _executedTools.Add(name);
+            return Task.FromResult("tool result");
+        }
     }
 }

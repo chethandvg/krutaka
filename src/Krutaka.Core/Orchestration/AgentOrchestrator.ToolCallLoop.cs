@@ -33,6 +33,7 @@ public sealed partial class AgentOrchestrator
         bool consumed = _budgetTracker.TryConsume(dimension, amount);
         if (!consumed)
         {
+            _budgetExhausted = true;
             return (null, new BudgetExhausted(dimension));
         }
 
@@ -81,7 +82,12 @@ public sealed partial class AgentOrchestrator
             // Enforce terminal Aborted state — must block all Claude API calls.
             // This ensures no tokens are consumed and no assistant output is emitted
             // after an abort command (deadman switch, anomaly stop, or user abort).
-            if (_stateManager?.CurrentState == AgentState.Aborted)
+            // Also guard against a budget that was fully consumed in a prior iteration:
+            // IsExhausted covers the case where a dimension just reached its cap (counter == limit),
+            // while _budgetExhausted handles mid-batch TryConsume failures (no state manager needed).
+            if (_stateManager?.CurrentState == AgentState.Aborted ||
+                _budgetTracker?.IsExhausted == true ||
+                _budgetExhausted)
             {
                 break;
             }
@@ -253,15 +259,16 @@ public sealed partial class AgentOrchestrator
                     yield return evt;
                 }
 
-                // Exit tool call loop if agent was aborted during processing
-                if (_stateManager?.CurrentState == AgentState.Aborted)
+                // Exit tool call loop if agent was aborted or budget was exhausted during processing.
+                // The budget check covers the case where _stateManager is null (normal session wiring).
+                if (_stateManager?.CurrentState == AgentState.Aborted || _budgetExhausted)
                 {
                     break;
                 }
             }
 
-            // Exit agentic loop if agent was aborted during tool processing (including budget exhaustion)
-            if (_stateManager?.CurrentState == AgentState.Aborted)
+            // Exit agentic loop if agent was aborted or budget was exhausted during tool processing (including budget exhaustion)
+            if (_stateManager?.CurrentState == AgentState.Aborted || _budgetExhausted)
             {
                 break;
             }
@@ -331,6 +338,34 @@ public sealed partial class AgentOrchestrator
                 yield return new ToolCallFailed(toolCall.Name, toolCall.Id, exhaustMsg);
                 toolResults.Add(CreateToolResult(toolCall.Id, exhaustMsg, true));
                 yield break;
+            }
+
+            // Pre-check FilesModified/ProcessesSpawned budget before tools that cause side effects (v0.5.0, S10).
+            // This prevents exceeding the cap by one extra mutation/spawn when the limit is already reached.
+            BudgetDimension? secondaryDimension = toolCall.Name switch
+            {
+                "write_file" or "edit_file" => BudgetDimension.FilesModified,
+                "run_command" => BudgetDimension.ProcessesSpawned,
+                _ => null
+            };
+
+            if (secondaryDimension.HasValue)
+            {
+                var (secWarning, secExhausted) = ConsumeAndCheckBudget(secondaryDimension.Value, 1);
+                if (secWarning != null)
+                {
+                    yield return secWarning;
+                }
+
+                if (secExhausted != null)
+                {
+                    var exhaustMsg = $"{secondaryDimension.Value} budget exhausted. The agent has reached the maximum allowed limit.";
+                    yield return secExhausted;
+                    _stateManager?.RequestAbort($"{secondaryDimension.Value} budget exhausted.");
+                    yield return new ToolCallFailed(toolCall.Name, toolCall.Id, exhaustMsg);
+                    toolResults.Add(CreateToolResult(toolCall.Id, exhaustMsg, true));
+                    yield break;
+                }
             }
         }
 
@@ -696,32 +731,6 @@ public sealed partial class AgentOrchestrator
         else
         {
             yield return new ToolCallCompleted(toolCall.Name, toolCall.Id, toolResult.Content);
-
-            // Consume dimension-specific budget for successful tool executions (v0.5.0)
-            if (_budgetTracker != null)
-            {
-                BudgetDimension? secondaryDimension = toolCall.Name switch
-                {
-                    "write_file" or "edit_file" => BudgetDimension.FilesModified,
-                    "run_command" => BudgetDimension.ProcessesSpawned,
-                    _ => null
-                };
-
-                if (secondaryDimension.HasValue)
-                {
-                    var (secWarning, secExhausted) = ConsumeAndCheckBudget(secondaryDimension.Value, 1);
-                    if (secWarning != null)
-                    {
-                        yield return secWarning;
-                    }
-
-                    if (secExhausted != null)
-                    {
-                        yield return secExhausted;
-                        _stateManager?.RequestAbort($"{secondaryDimension.Value} budget exhausted.");
-                    }
-                }
-            }
         }
 
         toolResults.Add(CreateToolResult(toolCall.Id, toolResult.Content, toolResult.IsError));

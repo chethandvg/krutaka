@@ -42,6 +42,7 @@ public sealed partial class AgentOrchestrator : IDisposable
     private readonly IAutonomyLevelProvider? _autonomyLevelProvider; // Optional autonomy level provider for auto-approval decisions (v0.5.0)
     private readonly ITaskBudgetTracker? _budgetTracker; // Optional per-session budget tracker (v0.5.0)
     private readonly HashSet<BudgetDimension> _budgetWarnedDimensions = []; // Tracks which dimensions have already fired BudgetWarning
+    private bool _budgetExhausted; // Set when TryConsume actually fails mid-loop; drives inner/outer loop exit regardless of _stateManager presence
     private readonly ConcurrentDictionary<string, bool> _sessionCommandApprovals = new(); // Tracks session-level "Always" command approvals (v0.3.0)
     private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
