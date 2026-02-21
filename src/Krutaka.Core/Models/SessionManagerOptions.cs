@@ -9,13 +9,15 @@ namespace Krutaka.Core;
 /// <param name="GlobalMaxTokensPerHour">Global token budget per hour across all sessions. Default is 1,000,000.</param>
 /// <param name="MaxSessionsPerUser">Maximum sessions per user (identified by UserId). Default is 3.</param>
 /// <param name="EvictionStrategy">Strategy for evicting sessions when limits are reached. Default is SuspendOldestIdle.</param>
+/// <param name="DeadmanSwitch">Configuration for the per-session deadman switch timer. Default is 30-minute unattended duration.</param>
 public record SessionManagerOptions(
     int MaxActiveSessions = 10,
     TimeSpan? IdleTimeout = null,
     TimeSpan? SuspendedTtl = null,
     int GlobalMaxTokensPerHour = 1_000_000,
     int MaxSessionsPerUser = 3,
-    EvictionStrategy EvictionStrategy = EvictionStrategy.SuspendOldestIdle)
+    EvictionStrategy EvictionStrategy = EvictionStrategy.SuspendOldestIdle,
+    DeadmanSwitchOptions? DeadmanSwitch = null)
 {
     /// <summary>
     /// Gets the validated maximum active sessions count.
@@ -50,6 +52,11 @@ public record SessionManagerOptions(
     /// Gets the suspended session TTL. Defaults to 24 hours if not specified.
     /// </summary>
     public TimeSpan SuspendedTtlValue => SuspendedTtl ?? TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Gets the deadman switch configuration. Defaults to a 30-minute unattended duration if not specified.
+    /// </summary>
+    public DeadmanSwitchOptions DeadmanSwitchValue => DeadmanSwitch ?? new DeadmanSwitchOptions();
 
     private static int ValidateMaxActiveSessions(int maxActiveSessions)
     {

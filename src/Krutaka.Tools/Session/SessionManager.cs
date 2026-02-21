@@ -52,6 +52,9 @@ public sealed class SessionManager : ISessionManager
     private readonly Task? _idleDetectionTask;
     private readonly CancellationTokenSource _disposeCts = new();
 
+    // Per-session deadman switches: SessionId → DeadmanSwitch (S12: only SessionManager can reset)
+    private readonly ConcurrentDictionary<Guid, DeadmanSwitch> _deadmanSwitches = new();
+
     private bool _disposed;
 
     /// <summary>
@@ -151,6 +154,9 @@ public sealed class SessionManager : ISessionManager
             _logger?.LogInformation(
                 "Session {SessionId} created for project '{ProjectPath}' with ExternalKey '{ExternalKey}', UserId '{UserId}'",
                 session.SessionId, request.ProjectPath, request.ExternalKey, request.UserId);
+
+            // Arm the deadman switch for this session if enabled (S12: only SessionManager holds it)
+            ArmDeadmanSwitch(session);
 
             return session;
         }
@@ -310,6 +316,9 @@ public sealed class SessionManager : ISessionManager
                     "Caller is responsible for reconstructing conversation history from JSONL.",
                     sessionId);
 
+                // Re-arm the deadman switch for the resumed session (S12)
+                ArmDeadmanSwitch(session);
+
                 return session;
             }
             catch (Exception ex)
@@ -348,6 +357,9 @@ public sealed class SessionManager : ISessionManager
 
             // Clean up idle tracking
             _idleSince.TryRemove(sessionId, out _);
+
+            // Dispose and remove the deadman switch for this session (S12)
+            DisarmDeadmanSwitch(sessionId);
 
             _logger?.LogInformation("Session {SessionId} terminated.", sessionId);
         }
@@ -454,6 +466,15 @@ public sealed class SessionManager : ISessionManager
 
             _logger?.LogDebug("Recorded {Tokens} tokens. Global hourly total: {Total}/{Limit}",
                 tokens, _globalTokensThisHour, _options.GlobalMaxTokensPerHour);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void NotifyUserInteraction(Guid sessionId)
+    {
+        if (_deadmanSwitches.TryGetValue(sessionId, out var deadmanSwitch))
+        {
+            deadmanSwitch.ResetTimer();
         }
     }
 
@@ -601,6 +622,9 @@ public sealed class SessionManager : ISessionManager
 
         // Remove from active sessions BEFORE disposal so it is no longer observable as active
         _activeSessions.TryRemove(session.SessionId, out _);
+
+        // Disarm the deadman switch for the suspended session (will be re-armed on resume)
+        DisarmDeadmanSwitch(session.SessionId);
 
         // Dispose orchestrator to free memory (JSONL remains on disk)
         await DisposeSessionAsync(session).ConfigureAwait(false);
@@ -757,6 +781,38 @@ public sealed class SessionManager : ISessionManager
     private static async ValueTask DisposeSessionAsync(ManagedSession session)
     {
         await session.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Arms the deadman switch for a newly created or resumed session, if enabled in options.
+    /// Only called by SessionManager — the agent cannot access or reset the timer (S12).
+    /// </summary>
+    private void ArmDeadmanSwitch(ManagedSession session)
+    {
+        var dsOptions = _options.DeadmanSwitchValue;
+        if (dsOptions.MaxUnattendedMinutes <= 0 || session.AgentStateManager is null)
+        {
+            return;
+        }
+
+        var duration = TimeSpan.FromMinutes(dsOptions.MaxUnattendedMinutes);
+        var deadmanSwitch = new DeadmanSwitch(session.AgentStateManager, duration);
+        _deadmanSwitches[session.SessionId] = deadmanSwitch;
+
+        _logger?.LogDebug(
+            "Deadman switch armed for session {SessionId} with duration {Duration}.",
+            session.SessionId, duration);
+    }
+
+    /// <summary>
+    /// Disposes and removes the deadman switch for a terminated session.
+    /// </summary>
+    private void DisarmDeadmanSwitch(Guid sessionId)
+    {
+        if (_deadmanSwitches.TryRemove(sessionId, out var deadmanSwitch))
+        {
+            deadmanSwitch.Dispose();
+        }
     }
 
     /// <summary>

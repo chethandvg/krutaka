@@ -75,6 +75,13 @@ public sealed class ManagedSession : IAsyncDisposable
     /// </summary>
     public IGitCheckpointService? GitCheckpointService { get; }
 
+    /// <summary>
+    /// Gets the per-session agent state manager for pause/resume/abort lifecycle control (v0.5.0).
+    /// Used by <see cref="SessionManager"/> to wire the deadman's switch timer (S12).
+    /// May be null if not configured (e.g., in tests or legacy sessions).
+    /// </summary>
+    public IAgentStateManager? AgentStateManager { get; }
+
     private bool _disposed;
     private readonly HashSet<string> _tempDirectoriesToCleanup = new(StringComparer.OrdinalIgnoreCase);
 
@@ -91,6 +98,7 @@ public sealed class ManagedSession : IAsyncDisposable
     /// <param name="autonomyLevelProvider">Optional per-session autonomy level provider (immutable per S9).</param>
     /// <param name="taskBudgetTracker">Optional per-session task budget tracker for resource consumption monitoring.</param>
     /// <param name="gitCheckpointService">Optional per-session git checkpoint service for manual checkpoint/rollback.</param>
+    /// <param name="agentStateManager">Optional per-session agent state manager for pause/resume/abort lifecycle control (v0.5.0).</param>
     public ManagedSession(
         Guid sessionId,
         string projectPath,
@@ -101,7 +109,8 @@ public sealed class ManagedSession : IAsyncDisposable
         ISessionAccessStore? sessionAccessStore = null,
         IAutonomyLevelProvider? autonomyLevelProvider = null,
         ITaskBudgetTracker? taskBudgetTracker = null,
-        IGitCheckpointService? gitCheckpointService = null)
+        IGitCheckpointService? gitCheckpointService = null,
+        IAgentStateManager? agentStateManager = null)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(correlationContext);
@@ -118,6 +127,7 @@ public sealed class ManagedSession : IAsyncDisposable
         AutonomyLevelProvider = autonomyLevelProvider;
         TaskBudgetTracker = taskBudgetTracker;
         GitCheckpointService = gitCheckpointService;
+        AgentStateManager = agentStateManager;
         CreatedAt = DateTimeOffset.UtcNow;
         LastActivity = CreatedAt;
         State = SessionState.Active;
