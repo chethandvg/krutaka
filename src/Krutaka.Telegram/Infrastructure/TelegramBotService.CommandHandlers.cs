@@ -81,9 +81,12 @@ public sealed partial class TelegramBotService
                 await HandleAutonomyCommandAsync(authResult, update, cancellationToken).ConfigureAwait(false);
                 break;
 
+            case TelegramCommand.Budget:
+                await HandleBudgetCommandAsync(authResult, update, cancellationToken).ConfigureAwait(false);
+                break;
+
             case TelegramCommand.Status:
             case TelegramCommand.Sessions:
-            case TelegramCommand.Budget:
             case TelegramCommand.New:
             case TelegramCommand.SwitchSession:
             case TelegramCommand.Ask:
@@ -226,6 +229,75 @@ public sealed partial class TelegramBotService
             🚫 Blocked: Dangerous \(always\)
 
             _Level cannot change during this session_
+            """;
+    }
+
+    /// <summary>
+    /// Handles the /budget command by displaying the current task budget consumption.
+    /// </summary>
+    private async Task HandleBudgetCommandAsync(
+        AuthResult authResult,
+        Update update,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
+            var session = await _sessionBridge.GetOrCreateSessionAsync(
+                authResult.ChatId,
+                authResult.UserId,
+                chatType,
+                cancellationToken).ConfigureAwait(false);
+
+            var message = FormatBudgetMessage(session.TaskBudgetTracker);
+
+            await _botClient.SendMessage(
+                authResult.ChatId,
+                message,
+                parseMode: ParseMode.MarkdownV2,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Error handling budget command");
+
+            await _botClient.SendMessage(
+                authResult.ChatId,
+                "❌ An error occurred while retrieving the budget.",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Formats the budget message for Telegram MarkdownV2.
+    /// </summary>
+    internal static string FormatBudgetMessage(ITaskBudgetTracker? tracker)
+    {
+        if (tracker == null)
+        {
+            return "📊 *Task Budget*\n\n_Budget tracking not enabled for this session_";
+        }
+
+        var snapshot = tracker.GetSnapshot();
+        var budget = tracker.GetBudget();
+
+        static string Emoji(double pct) => pct >= 1.0 ? "🛑" : pct >= 0.8 ? "⚠️" : "✅";
+        static string PctLabel(double pct) => ((int)(pct * 100)).ToString(System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+        var tokensLine = $"Tokens:    `{snapshot.TokensConsumed.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxClaudeTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.TokensPercentage)}\\) {Emoji(snapshot.TokensPercentage)}";
+        var toolsLine = $"Tool Calls: `{snapshot.ToolCallsConsumed.ToString(System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxToolCalls.ToString(System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.ToolCallsPercentage)}\\) {Emoji(snapshot.ToolCallsPercentage)}";
+        var filesLine = $"Files:      `{snapshot.FilesModified.ToString(System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxFilesModified.ToString(System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.FilesModifiedPercentage)}\\) {Emoji(snapshot.FilesModifiedPercentage)}";
+        var procsLine = $"Processes:  `{snapshot.ProcessesSpawned.ToString(System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxProcessesSpawned.ToString(System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.ProcessesSpawnedPercentage)}\\) {Emoji(snapshot.ProcessesSpawnedPercentage)}";
+
+        return $"""
+            📊 *Task Budget*
+
+            {tokensLine}
+            {toolsLine}
+            {filesLine}
+            {procsLine}
+
+            _Budget cannot be extended by the agent_
             """;
     }
 

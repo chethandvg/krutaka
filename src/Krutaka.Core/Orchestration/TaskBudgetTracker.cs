@@ -37,6 +37,9 @@ public sealed class TaskBudgetTracker : ITaskBudgetTracker
     }
 
     /// <inheritdoc/>
+    public TaskBudget GetBudget() => _budget;
+
+    /// <inheritdoc/>
     public bool TryConsume(BudgetDimension dimension, int amount)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);

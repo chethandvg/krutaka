@@ -137,6 +137,36 @@ public class ManagedSessionTests
         exception.ParamName.Should().Be("projectPath");
     }
 
+    [Fact]
+    public void TaskBudgetTracker_Should_BeNullByDefault()
+    {
+        // Arrange & Act
+        var session = CreateTestSession();
+
+        // Assert — no tracker passed → property is null
+        session.TaskBudgetTracker.Should().BeNull();
+    }
+
+    [Fact]
+    public void TaskBudgetTracker_Should_ReturnPassedTracker()
+    {
+        // Arrange
+        var tracker = new TaskBudgetTracker(new TaskBudget(MaxClaudeTokens: 100_000));
+
+        // Act
+        var session = new ManagedSession(
+            Guid.NewGuid(),
+            "/test/path",
+            null,
+            CreateMockOrchestrator(),
+            new CorrelationContext(),
+            new SessionBudget(100_000, 50),
+            taskBudgetTracker: tracker);
+
+        // Assert
+        session.TaskBudgetTracker.Should().BeSameAs(tracker);
+    }
+
     private static ManagedSession CreateTestSession()
     {
         return new ManagedSession(

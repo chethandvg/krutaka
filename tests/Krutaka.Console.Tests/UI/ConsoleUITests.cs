@@ -241,4 +241,95 @@ public class ConsoleUITests
         var act = () => ui.DisplayAutonomyLevel(provider);
         act.Should().NotThrow();
     }
+
+    [Fact]
+    public void DisplayBudget_WithNullTracker_DoesNotThrow()
+    {
+        // Arrange
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+
+        // Act & Assert — null tracker should display graceful "not enabled" message, not throw
+        var act = () => ui.DisplayBudget(null);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void DisplayBudget_WithFreshTracker_AllZeroPercent_DoesNotThrow()
+    {
+        // Arrange
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+        var tracker = new TaskBudgetTracker(new TaskBudget());
+
+        // Act & Assert — fresh tracker (all 0%) should render cleanly without throwing
+        var act = () => ui.DisplayBudget(tracker);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void DisplayBudget_WithHalfConsumption_DoesNotThrow()
+    {
+        // Arrange
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+        var tracker = new TaskBudgetTracker(new TaskBudget(MaxClaudeTokens: 200_000, MaxToolCalls: 100, MaxFilesModified: 20, MaxProcessesSpawned: 10));
+        tracker.TryConsume(BudgetDimension.Tokens, 100_000);
+        tracker.TryConsume(BudgetDimension.ToolCalls, 50);
+
+        // Act & Assert
+        var act = () => ui.DisplayBudget(tracker);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void DisplayBudget_WithWarningLevel_DoesNotThrow()
+    {
+        // Arrange — tokens at 85% (warning zone)
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+        var tracker = new TaskBudgetTracker(new TaskBudget(MaxClaudeTokens: 100, MaxToolCalls: 100));
+        tracker.TryConsume(BudgetDimension.Tokens, 85);
+
+        // Act & Assert — 85% should show yellow progress without throwing
+        var act = () => ui.DisplayBudget(tracker);
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void DisplayBudget_WithExhaustedDimension_DoesNotThrow()
+    {
+        // Arrange — tool calls at 100% (exhausted)
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+        var tracker = new TaskBudgetTracker(new TaskBudget(MaxToolCalls: 10));
+        tracker.TryConsume(BudgetDimension.ToolCalls, 10);
+
+        // Act & Assert — 100% should show red progress without throwing
+        var act = () => ui.DisplayBudget(tracker);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(0.0, "░░░░░░░░░░")]   // 0% → all empty
+    [InlineData(0.5, "█████░░░░░")]    // 50% → 5 filled
+    [InlineData(0.95, "█████████░")]   // 95% → 9 filled (not 10 — must not show full bar below 100%)
+    [InlineData(1.0, "██████████")]    // 100% → all filled
+    public void FormatProgressBar_ShouldProduceCorrectBlockCount(double pct, string expectedBlocks)
+    {
+        // Act
+        var result = ConsoleUI.FormatProgressBar(pct);
+
+        // Assert — bar block pattern must be exactly as expected
+        result.Should().Contain(expectedBlocks,
+            $"{pct * 100:F0}% should produce '{expectedBlocks}'");
+    }
+
+    [Fact]
+    public void FormatProgressBar_At95Percent_ShouldNotShowFullBar()
+    {
+        // 95% rounds to 10/10 with Math.Round but should be 9/10 with Math.Floor
+        var result = ConsoleUI.FormatProgressBar(0.95);
+        result.Should().NotContain("██████████ ", because: "a bar at 95% must not appear fully filled");
+    }
 }

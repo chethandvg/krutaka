@@ -61,6 +61,8 @@ public class ITaskBudgetTrackerTests
             FilesModifiedPercentage: _budget.MaxFilesModified > 0 ? (double)_filesModified / _budget.MaxFilesModified : 0.0,
             ProcessesSpawnedPercentage: _budget.MaxProcessesSpawned > 0 ? (double)_processesSpawned / _budget.MaxProcessesSpawned : 0.0
         );
+
+        public TaskBudget GetBudget() => _budget;
     }
 
     [Fact]

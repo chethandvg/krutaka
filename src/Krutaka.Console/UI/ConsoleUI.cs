@@ -402,6 +402,71 @@ internal sealed class ConsoleUI : IDisposable
     }
 
     /// <summary>
+    /// Displays the current task budget consumption across all four dimensions.
+    /// If the tracker is null, displays a graceful "not enabled" message.
+    /// </summary>
+    /// <param name="tracker">The task budget tracker, or null if not configured.</param>
+    public void DisplayBudget(ITaskBudgetTracker? tracker)
+    {
+        if (tracker == null)
+        {
+            AnsiConsole.MarkupLine("[dim]Budget tracking not enabled for this session[/]");
+            AnsiConsole.WriteLine();
+            return;
+        }
+
+        var snapshot = tracker.GetSnapshot();
+        var budget = tracker.GetBudget();
+
+        var table = new Table()
+            .Border(TableBorder.Simple)
+            .BorderColor(Color.Grey)
+            .AddColumn("[bold]Dimension[/]")
+            .AddColumn("[bold]Used / Max[/]")
+            .AddColumn("[bold]Progress[/]");
+
+        table.AddRow(
+            "Tokens",
+            $"{snapshot.TokensConsumed.ToString("N0", CultureInfo.InvariantCulture)} / {budget.MaxClaudeTokens.ToString("N0", CultureInfo.InvariantCulture)}",
+            FormatProgressBar(snapshot.TokensPercentage));
+
+        table.AddRow(
+            "Tool Calls",
+            $"{snapshot.ToolCallsConsumed.ToString(CultureInfo.InvariantCulture)} / {budget.MaxToolCalls.ToString(CultureInfo.InvariantCulture)}",
+            FormatProgressBar(snapshot.ToolCallsPercentage));
+
+        table.AddRow(
+            "Files Modified",
+            $"{snapshot.FilesModified.ToString(CultureInfo.InvariantCulture)} / {budget.MaxFilesModified.ToString(CultureInfo.InvariantCulture)}",
+            FormatProgressBar(snapshot.FilesModifiedPercentage));
+
+        table.AddRow(
+            "Processes",
+            $"{snapshot.ProcessesSpawned.ToString(CultureInfo.InvariantCulture)} / {budget.MaxProcessesSpawned.ToString(CultureInfo.InvariantCulture)}",
+            FormatProgressBar(snapshot.ProcessesSpawnedPercentage));
+
+        var panel = new Panel(table)
+            .Header("[blue]Task Budget[/]")
+            .Border(BoxBorder.Rounded)
+            .BorderColor(Color.Blue);
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.MarkupLine("[dim]ⓘ Budget cannot be extended by the agent (S10)[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    internal static string FormatProgressBar(double percentage)
+    {
+        var pct = Math.Min(1.0, Math.Max(0.0, percentage));
+        var filled = pct >= 1.0 ? 10 : (int)Math.Floor(pct * 10);
+        var empty = 10 - filled;
+        var bar = new string('█', filled) + new string('░', empty);
+        var label = (pct * 100).ToString("F0", CultureInfo.InvariantCulture) + "%";
+        var color = pct >= 1.0 ? "red" : pct >= 0.8 ? "yellow" : "green";
+        return $"[{color}]{bar} {label}[/]";
+    }
+
+    /// <summary>
     /// Displays a confirmation that compaction has been triggered.
     /// </summary>
     /// <param name="beforeTokens">Token count before compaction.</param>

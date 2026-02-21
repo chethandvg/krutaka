@@ -63,6 +63,12 @@ public sealed class ManagedSession : IAsyncDisposable
     /// </summary>
     public IAutonomyLevelProvider? AutonomyLevelProvider { get; }
 
+    /// <summary>
+    /// Gets the per-session task budget tracker for monitoring resource consumption.
+    /// May be null if not configured (e.g., in tests or legacy sessions).
+    /// </summary>
+    public ITaskBudgetTracker? TaskBudgetTracker { get; }
+
     private bool _disposed;
     private readonly HashSet<string> _tempDirectoriesToCleanup = new(StringComparer.OrdinalIgnoreCase);
 
@@ -77,6 +83,7 @@ public sealed class ManagedSession : IAsyncDisposable
     /// <param name="budget">The session budget tracker.</param>
     /// <param name="sessionAccessStore">Optional per-session access store for directory grants.</param>
     /// <param name="autonomyLevelProvider">Optional per-session autonomy level provider (immutable per S9).</param>
+    /// <param name="taskBudgetTracker">Optional per-session task budget tracker for resource consumption monitoring.</param>
     public ManagedSession(
         Guid sessionId,
         string projectPath,
@@ -85,7 +92,8 @@ public sealed class ManagedSession : IAsyncDisposable
         CorrelationContext correlationContext,
         SessionBudget budget,
         ISessionAccessStore? sessionAccessStore = null,
-        IAutonomyLevelProvider? autonomyLevelProvider = null)
+        IAutonomyLevelProvider? autonomyLevelProvider = null,
+        ITaskBudgetTracker? taskBudgetTracker = null)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(correlationContext);
@@ -100,6 +108,7 @@ public sealed class ManagedSession : IAsyncDisposable
         Budget = budget;
         SessionAccessStore = sessionAccessStore;
         AutonomyLevelProvider = autonomyLevelProvider;
+        TaskBudgetTracker = taskBudgetTracker;
         CreatedAt = DateTimeOffset.UtcNow;
         LastActivity = CreatedAt;
         State = SessionState.Active;
