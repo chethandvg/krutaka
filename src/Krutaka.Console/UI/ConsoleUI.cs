@@ -360,6 +360,48 @@ internal sealed class ConsoleUI : IDisposable
     }
 
     /// <summary>
+    /// Displays the current autonomy level and its meaning.
+    /// If the provider is null, displays a graceful "not configured" message.
+    /// </summary>
+    /// <param name="provider">The autonomy level provider, or null if not configured.</param>
+    public void DisplayAutonomyLevel(IAutonomyLevelProvider? provider)
+    {
+        if (provider == null)
+        {
+            AnsiConsole.MarkupLine("[yellow]Autonomy level not configured.[/]");
+            AnsiConsole.WriteLine();
+            return;
+        }
+
+        var level = provider.GetLevel();
+        var (levelLine, autoApproved, prompted) = level switch
+        {
+            AutonomyLevel.Supervised => ("[red]Level: 0 — Supervised[/]", "None", "Safe, Moderate, Elevated"),
+            AutonomyLevel.Guided => ("[yellow]Level: 1 — Guided[/]", "Safe", "Moderate, Elevated"),
+            AutonomyLevel.SemiAutonomous => ("[green]Level: 2 — Semi-Autonomous[/]", "Safe, Moderate, Elevated", "None"),
+            AutonomyLevel.Autonomous => ("[bold green]Level: 3 — Autonomous[/]", "Safe, Moderate, Elevated", "None"),
+            _ => ($"Level: {(int)level} — Unknown", "Unknown", "Unknown")
+        };
+
+        var panel = new Panel(
+            $"""
+            {levelLine}
+
+            [bold]Auto-Approved:[/]  {autoApproved}
+            [bold]Prompted:[/]       {prompted}
+            [bold]Blocked:[/]        Dangerous (always)
+
+            [dim]ⓘ Level cannot change during this session (S9)[/]
+            """)
+            .Header("[blue]Autonomy Level[/]")
+            .Border(BoxBorder.Rounded)
+            .BorderColor(Color.Blue);
+
+        AnsiConsole.Write(panel);
+        AnsiConsole.WriteLine();
+    }
+
+    /// <summary>
     /// Displays a confirmation that compaction has been triggered.
     /// </summary>
     /// <param name="beforeTokens">Token count before compaction.</param>

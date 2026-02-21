@@ -282,6 +282,23 @@ public class TelegramCommandRouterTests
     }
 
     [Fact]
+    public async Task RouteAsync_Should_RouteAutonomyCommand_AsNonAdminNoSanitization()
+    {
+        // Arrange
+        var update = CreateUpdate(messageText: "/autonomy");
+        var authResult = AuthResult.Valid(userId: 12345678, chatId: 111, role: TelegramUserRole.User);
+
+        // Act
+        var result = await _router.RouteAsync(update, authResult, CancellationToken.None);
+
+        // Assert
+        result.Command.Should().Be(TelegramCommand.Autonomy);
+        result.IsAdminOnly.Should().BeFalse();
+        result.SanitizedInput.Should().BeNull();
+        result.Routed.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task RouteAsync_Should_ReturnUnrouted_ForUnknownCommand()
     {
         // Arrange

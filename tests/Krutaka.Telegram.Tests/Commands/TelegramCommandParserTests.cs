@@ -269,4 +269,32 @@ public class TelegramCommandParserTests
         command.Should().Be(TelegramCommand.Task);
         arguments.Should().Be("refactor the session manager\nand add new tests");
     }
+
+    [Fact]
+    public void Parse_Should_ReturnAutonomy_ForAutonomyCommand()
+    {
+        // Arrange
+        var messageText = "/autonomy";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Autonomy);
+        arguments.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_Should_ReturnAutonomy_ForAutonomyCommandWithBotMention()
+    {
+        // Arrange
+        var messageText = "/autonomy@krutaka_bot";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Autonomy);
+        arguments.Should().BeNull();
+    }
 }

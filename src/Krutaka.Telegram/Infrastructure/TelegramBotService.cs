@@ -392,6 +392,10 @@ public sealed class TelegramBotService : BackgroundService
                 await HandleHelpCommandAsync(authResult.ChatId, cancellationToken).ConfigureAwait(false);
                 break;
 
+            case TelegramCommand.Autonomy:
+                await HandleAutonomyCommandAsync(authResult, update, cancellationToken).ConfigureAwait(false);
+                break;
+
             case TelegramCommand.Status:
             case TelegramCommand.Sessions:
             case TelegramCommand.Budget:
@@ -458,6 +462,7 @@ public sealed class TelegramBotService : BackgroundService
             • /new \- Start a new session
             • /session \<id\> \- Switch to a specific session
             • /budget \- Show token budget usage
+            • /autonomy \- Show current autonomy level
             • /killswitch \- Emergency shutdown \(admin only\)
             """;
 
@@ -466,6 +471,77 @@ public sealed class TelegramBotService : BackgroundService
             helpText,
             parseMode: ParseMode.MarkdownV2,
             cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Handles the /autonomy command by displaying the current autonomy level for the session.
+    /// </summary>
+    private async Task HandleAutonomyCommandAsync(
+        AuthResult authResult,
+        Update update,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
+            var session = await _sessionBridge.GetOrCreateSessionAsync(
+                authResult.ChatId,
+                authResult.UserId,
+                chatType,
+                cancellationToken).ConfigureAwait(false);
+
+            var message = FormatAutonomyMessage(session.AutonomyLevelProvider);
+
+            await _botClient.SendMessage(
+                authResult.ChatId,
+                message,
+                parseMode: ParseMode.MarkdownV2,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Error handling autonomy command");
+
+            await _botClient.SendMessage(
+                authResult.ChatId,
+                "❌ An error occurred while retrieving the autonomy level.",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Formats the autonomy level message for Telegram MarkdownV2.
+    /// </summary>
+    private static string FormatAutonomyMessage(IAutonomyLevelProvider? provider)
+    {
+        if (provider == null)
+        {
+            return "🔒 *Autonomy Level*\n\n_Not configured_";
+        }
+
+        var level = provider.GetLevel();
+        var (levelCode, levelName, autoApproved, prompted) = level switch
+        {
+            AutonomyLevel.Supervised => (0, "Supervised", "None", "Safe, Moderate, Elevated"),
+            AutonomyLevel.Guided => (1, "Guided", "Safe", "Moderate, Elevated"),
+            AutonomyLevel.SemiAutonomous => (2, "Semi-Autonomous", "Safe, Moderate, Elevated", "None"),
+            AutonomyLevel.Autonomous => (3, "Autonomous", "Safe, Moderate, Elevated", "None"),
+            _ => ((int)level, "Unknown", "Unknown", "Unknown")
+        };
+
+        var autoApprovedEmoji = autoApproved == "None" ? "❌" : "✅";
+
+        return $"""
+            🔒 *Autonomy Level*
+
+            Level: `{levelCode} — {levelName}`
+
+            {autoApprovedEmoji} Auto\-Approved: {autoApproved}
+            ⚠️ Prompted: {prompted}
+            🚫 Blocked: Dangerous \(always\)
+
+            _Level cannot change during this session_
+            """;
     }
 
     /// <summary>

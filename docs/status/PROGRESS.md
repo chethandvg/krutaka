@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-20 (v0.5.0 Issue #243 In Progress — 2,051 tests passing, 2 skipped, 2,053 total)
+> **Last updated:** 2026-02-21 (v0.5.0 Issue #246 Complete — 2,061 tests passing, 2 skipped, 2,063 total)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3645,7 +3645,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | 243 | v0.5.0 Custom Instructions, AGENTS.md, and Documentation Updates | A | ✅ Complete | 2026-02-20 |
 | 244 | Agent State Machine (Running/Paused/Aborted) | A | ✅ Complete | 2026-02-20 |
 | 245 | AutonomyLevelProvider + Orchestrator Integration | B | ✅ Complete | 2026-02-20 |
-| 246 | `/autonomy` Command (Console + Telegram) | B | 📋 Pending | — |
+| 246 | `/autonomy` Command (Console + Telegram) | B | ✅ Complete | 2026-02-21 |
 | 247 | TaskBudgetTracker Implementation + Orchestrator Integration | C | 📋 Pending | — |
 | 248 | `/budget` Command (Console + Telegram) | C | 📋 Pending | — |
 | 249 | GitCheckpointService Implementation + Orchestrator Integration | D | 📋 Pending | — |
