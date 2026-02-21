@@ -21,12 +21,7 @@ public sealed partial class TelegramBotService
     {
         try
         {
-            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
-            var session = await _sessionBridge.GetOrCreateSessionAsync(
-                authResult.ChatId,
-                authResult.UserId,
-                chatType,
-                cancellationToken).ConfigureAwait(false);
+            var session = await GetSessionAndNotifyAsync(authResult, update, cancellationToken).ConfigureAwait(false);
 
             var checkpointService = session.GitCheckpointService;
             if (checkpointService is null)
@@ -81,12 +76,7 @@ public sealed partial class TelegramBotService
     {
         try
         {
-            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
-            var session = await _sessionBridge.GetOrCreateSessionAsync(
-                authResult.ChatId,
-                authResult.UserId,
-                chatType,
-                cancellationToken).ConfigureAwait(false);
+            var session = await GetSessionAndNotifyAsync(authResult, update, cancellationToken).ConfigureAwait(false);
 
             var checkpointService = session.GitCheckpointService;
             if (checkpointService is null)

@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-21 (v0.5.0 Issue #248 Complete — 2,182 tests passing, 2 skipped, 2,184 total)
+> **Last updated:** 2026-02-21 (v0.5.0 Issue #251 Complete — 2,208 tests passing, 2 skipped, 2,210 total)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3631,7 +3631,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | B | Autonomy Level Implementation | #245, #246 | 🚧 In Progress |
 | C | Task Budget Tracker | #247, #248 | ✅ Complete |
 | D | Git Checkpoint Service | #249, #250 | 📋 Pending |
-| E | Deadman's Switch | #251, #252 | 📋 Pending |
+| E | Deadman's Switch | #251, #252 | 🚧 In Progress |
 | F | Behavior Anomaly Detector | #253, #254 | 📋 Pending |
 | G | Session Steering Commands | #255, #256 | 📋 Pending |
 | H | Console + Telegram Integration | #257, #258 | 📋 Pending |
@@ -3650,7 +3650,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | 248 | `/budget` Command (Console + Telegram) | C | ✅ Complete | 2026-02-21 |
 | 249 | GitCheckpointService Implementation + Orchestrator Integration | D | 📋 Pending | — |
 | 250 | `/rollback` and `/checkpoint` Commands | D | ✅ Complete | 2026-02-21 |
-| 251 | DeadmanSwitch Implementation + SessionManager Integration | E | 📋 Pending | — |
+| 251 | DeadmanSwitch Implementation + SessionManager Integration | E | ✅ Complete | 2026-02-21 |
 | 252 | DeadmanSwitch Notifications (Console + Telegram) | E | 📋 Pending | — |
 | 253 | BehaviorAnomalyDetector Implementation + Orchestrator Integration | F | 📋 Pending | — |
 | 254 | Anomaly Detection Configuration + Thresholds | F | 📋 Pending | — |

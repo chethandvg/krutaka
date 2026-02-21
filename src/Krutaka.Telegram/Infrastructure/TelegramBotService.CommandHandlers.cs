@@ -183,12 +183,7 @@ public sealed partial class TelegramBotService
     {
         try
         {
-            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
-            var session = await _sessionBridge.GetOrCreateSessionAsync(
-                authResult.ChatId,
-                authResult.UserId,
-                chatType,
-                cancellationToken).ConfigureAwait(false);
+            var session = await GetSessionAndNotifyAsync(authResult, update, cancellationToken).ConfigureAwait(false);
 
             var message = FormatAutonomyMessage(session.AutonomyLevelProvider);
 
@@ -254,12 +249,7 @@ public sealed partial class TelegramBotService
     {
         try
         {
-            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
-            var session = await _sessionBridge.GetOrCreateSessionAsync(
-                authResult.ChatId,
-                authResult.UserId,
-                chatType,
-                cancellationToken).ConfigureAwait(false);
+            var session = await GetSessionAndNotifyAsync(authResult, update, cancellationToken).ConfigureAwait(false);
 
             var message = FormatBudgetMessage(session.TaskBudgetTracker);
 
@@ -324,13 +314,8 @@ public sealed partial class TelegramBotService
     {
         try
         {
-            // Get or create session for this chat
-            var chatType = update.Message?.Chat.Type ?? ChatType.Private;
-            var session = await _sessionBridge.GetOrCreateSessionAsync(
-                authResult.ChatId,
-                authResult.UserId,
-                chatType,
-                cancellationToken).ConfigureAwait(false);
+            // Get or create session for this chat and notify deadman switch (S12)
+            var session = await GetSessionAndNotifyAsync(authResult, update, cancellationToken).ConfigureAwait(false);
 
             // TODO: Execute command against session orchestrator and stream response
             // This will be implemented in Phase 3 when we wire the full pipeline
@@ -354,5 +339,25 @@ public sealed partial class TelegramBotService
                 "❌ An error occurred while processing your request.",
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Gets or creates the session for the given user interaction and notifies the deadman switch
+    /// timer that genuine user activity occurred (S12: only SessionManager can reset the timer).
+    /// </summary>
+    private async Task<ManagedSession> GetSessionAndNotifyAsync(
+        AuthResult authResult,
+        Update update,
+        CancellationToken cancellationToken)
+    {
+        var chatType = update.Message?.Chat.Type ?? ChatType.Private;
+        var session = await _sessionBridge.GetOrCreateSessionAsync(
+            authResult.ChatId,
+            authResult.UserId,
+            chatType,
+            cancellationToken).ConfigureAwait(false);
+
+        _sessionManager.NotifyUserInteraction(session.SessionId);
+        return session;
     }
 }

@@ -132,6 +132,9 @@ public sealed class SessionFactory : ISessionFactory
             actualSessionId.ToString("N"),
             _toolOptions.Checkpoint.MaxCheckpointsPerSession);
 
+        // Create per-session AgentStateManager (v0.5.0) — must be created before AgentOrchestrator
+        var agentStateManager = new AgentStateManager();
+
         // Create per-session AgentOrchestrator
         var orchestrator = new AgentOrchestrator(
             claudeClient: _claudeClient,
@@ -149,7 +152,8 @@ public sealed class SessionFactory : ISessionFactory
             pruneToolResultMinChars: _toolOptions.PruneToolResultMinChars,
             autonomyLevelProvider: autonomyLevelProvider,
             budgetTracker: budgetTracker,
-            checkpointService: _toolOptions.Checkpoint.AutoCheckpointOnFileModification ? checkpointService : null);
+            checkpointService: _toolOptions.Checkpoint.AutoCheckpointOnFileModification ? checkpointService : null,
+            stateManager: agentStateManager);
 
         // Create SessionBudget from request parameters
         var budget = new SessionBudget(
@@ -167,7 +171,8 @@ public sealed class SessionFactory : ISessionFactory
             sessionAccessStore: sessionAccessStore,
             autonomyLevelProvider: autonomyLevelProvider,
             taskBudgetTracker: budgetTracker,
-            gitCheckpointService: checkpointService);
+            gitCheckpointService: checkpointService,
+            agentStateManager: agentStateManager);
     }
 
     /// <summary>

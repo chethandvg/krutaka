@@ -68,4 +68,12 @@ public interface ISessionManager : IAsyncDisposable
     /// <param name="tokens">Number of tokens consumed. Must be non-negative.</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when tokens is negative.</exception>
     void RecordTokenUsage(int tokens);
+
+    /// <summary>
+    /// Notifies that genuine user interaction occurred for a session, resetting the deadman switch timer.
+    /// Only call this for genuine user input (messages, commands, approval decisions) —
+    /// never for agent-generated events (security invariant S12).
+    /// </summary>
+    /// <param name="sessionId">The session ID for which to reset the deadman switch timer.</param>
+    void NotifyUserInteraction(Guid sessionId);
 }
