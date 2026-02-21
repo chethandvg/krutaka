@@ -13,7 +13,7 @@ namespace Krutaka.Tools;
 /// <list type="bullet">
 ///   <item><description><b>S11</b>: No <c>git push</c> — all operations are local only.</description></item>
 ///   <item><description>AT4: Maximum checkpoint cap enforced; oldest checkpoint is pruned when the cap is reached.</description></item>
-///   <item><description>AT11: Non-git directories are detected via <c>.git</c> presence check and handled gracefully.</description></item>
+///   <item><description>AT11: Non-git directories are detected via <c>git rev-parse --git-dir</c> and handled gracefully — works for regular repos, worktrees, and repos with <c>--separate-git-dir</c>.</description></item>
 /// </list>
 /// Thread-safety: all public methods acquire a <see cref="SemaphoreSlim"/> before mutating state.
 /// </remarks>
@@ -25,6 +25,13 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
     private readonly List<CheckpointInfo> _checkpoints = [];
     private readonly SemaphoreSlim _lock = new(1, 1);
     private int _checkpointCounter;
+
+    /// <summary>
+    /// Creates a <see cref="PipeTarget"/> that reads and discards stdout output.
+    /// Using a real pipe (rather than <see cref="PipeTarget.Null"/>) prevents SIGPIPE (exit 141)
+    /// on Linux when the subprocess writes to a pipe whose read end is controlled by the test runner.
+    /// </summary>
+    private static PipeTarget DiscardPipe() => PipeTarget.ToStringBuilder(new StringBuilder());
 
     /// <summary>
     /// Initializes a new instance of the <see cref="GitCheckpointService"/> class.
@@ -52,6 +59,9 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
     ///   <item><description>The repository has no commits (stash requires at least one commit).</description></item>
     ///   <item><description>There are no local changes to stash (clean working tree).</description></item>
     /// </list>
+    /// The working tree is restored after stashing (non-destructive): changes remain visible to the
+    /// agent so subsequent tool calls can continue uninterrupted. The stash entry is kept as the
+    /// rollback snapshot and can be applied via <see cref="RollbackToCheckpointAsync"/>.
     /// </remarks>
     public async Task<string> CreateCheckpointAsync(string message, CancellationToken cancellationToken)
     {
@@ -60,8 +70,9 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // Graceful degradation: non-git directories are silently skipped (AT11)
-            if (!Directory.Exists(Path.Combine(_workingDirectory, ".git")))
+            // Graceful degradation: use git itself to detect repos (AT11). This handles regular
+            // repos, worktrees (.git file), and repos created with --separate-git-dir.
+            if (!await IsGitRepositoryAsync(cancellationToken).ConfigureAwait(false))
             {
                 return string.Empty;
             }
@@ -126,6 +137,20 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
                 return string.Empty;
             }
 
+            // Restore the working tree immediately so the checkpoint is non-destructive.
+            // The stash entry remains as the rollback snapshot; the agent can keep working
+            // against the same files without noticing the checkpoint was created.
+            // If the apply fails (e.g., conflicts), we still return the SHA — the snapshot
+            // is captured and remains available for manual rollback.
+            var applyBackOutput = new StringBuilder();
+            await Cli.Wrap("git")
+                .WithArguments(["stash", "apply", "stash@{0}"])
+                .WithWorkingDirectory(_workingDirectory)
+                .WithStandardOutputPipe(PipeTarget.ToStringBuilder(applyBackOutput))
+                .WithValidation(CommandResultValidation.None)
+                .ExecuteAsync(cancellationToken)
+                .ConfigureAwait(false);
+
             _checkpoints.Add(new CheckpointInfo(sha, message, DateTime.UtcNow, fileCount));
             return sha;
         }
@@ -172,6 +197,7 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
             await Cli.Wrap("git")
                 .WithArguments(["clean", "-fd"])
                 .WithWorkingDirectory(_workingDirectory)
+                .WithStandardOutputPipe(DiscardPipe())
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -180,14 +206,17 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
             await Cli.Wrap("git")
                 .WithArguments(["restore", "."])
                 .WithWorkingDirectory(_workingDirectory)
+                .WithStandardOutputPipe(DiscardPipe())
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             // Step 3: Apply the checkpoint stash (apply, not pop — keeps it available)
+            var applyOutput = new StringBuilder();
             var applyResult = await Cli.Wrap("git")
                 .WithArguments(["stash", "apply", $"stash@{{{stashIndex}}}"])
                 .WithWorkingDirectory(_workingDirectory)
+                .WithStandardOutputPipe(PipeTarget.ToStringBuilder(applyOutput))
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -220,6 +249,25 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
     }
 
     /// <summary>
+    /// Returns <see langword="true"/> if <see cref="_workingDirectory"/> is inside a git repository.
+    /// Uses <c>git rev-parse --git-dir</c> rather than checking for a <c>.git</c> directory so that
+    /// worktrees (where <c>.git</c> is a file), repos with <c>--separate-git-dir</c>, and submodules
+    /// are all correctly detected. Returns <see langword="false"/> when git is not installed.
+    /// </summary>
+    private async Task<bool> IsGitRepositoryAsync(CancellationToken cancellationToken)
+    {
+        var result = await Cli.Wrap("git")
+            .WithArguments(["rev-parse", "--git-dir"])
+            .WithWorkingDirectory(_workingDirectory)
+            .WithStandardOutputPipe(DiscardPipe())
+            .WithValidation(CommandResultValidation.None)
+            .ExecuteAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return result.ExitCode == 0;
+    }
+
+    /// <summary>
     /// Returns <see langword="true"/> if the git repository in <see cref="_workingDirectory"/>
     /// has at least one commit. Git stash requires a commit to exist.
     /// </summary>
@@ -228,6 +276,7 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
         var result = await Cli.Wrap("git")
             .WithArguments(["rev-parse", "HEAD"])
             .WithWorkingDirectory(_workingDirectory)
+            .WithStandardOutputPipe(DiscardPipe())
             .WithValidation(CommandResultValidation.None)
             .ExecuteAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -303,6 +352,7 @@ public sealed class GitCheckpointService : IGitCheckpointService, IDisposable
             await Cli.Wrap("git")
                 .WithArguments(["stash", "drop", $"stash@{{{idx}}}"])
                 .WithWorkingDirectory(_workingDirectory)
+                .WithStandardOutputPipe(DiscardPipe())
                 .WithValidation(CommandResultValidation.None)
                 .ExecuteAsync(cancellationToken)
                 .ConfigureAwait(false);
