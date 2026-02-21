@@ -166,7 +166,8 @@ public sealed class SessionFactory : ISessionFactory
             budget: budget,
             sessionAccessStore: sessionAccessStore,
             autonomyLevelProvider: autonomyLevelProvider,
-            taskBudgetTracker: budgetTracker);
+            taskBudgetTracker: budgetTracker,
+            gitCheckpointService: checkpointService);
     }
 
     /// <summary>

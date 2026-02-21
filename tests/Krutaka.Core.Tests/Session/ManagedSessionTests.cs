@@ -167,6 +167,36 @@ public class ManagedSessionTests
         session.TaskBudgetTracker.Should().BeSameAs(tracker);
     }
 
+    [Fact]
+    public void GitCheckpointService_Should_BeNull_WhenNotProvided()
+    {
+        // Act
+        var session = CreateTestSession();
+
+        // Assert
+        session.GitCheckpointService.Should().BeNull();
+    }
+
+    [Fact]
+    public void GitCheckpointService_Should_ReturnPassedService()
+    {
+        // Arrange
+        var checkpointService = new MockGitCheckpointService();
+
+        // Act
+        var session = new ManagedSession(
+            Guid.NewGuid(),
+            "/test/path",
+            null,
+            CreateMockOrchestrator(),
+            new CorrelationContext(),
+            new SessionBudget(100_000, 50),
+            gitCheckpointService: checkpointService);
+
+        // Assert
+        session.GitCheckpointService.Should().BeSameAs(checkpointService);
+    }
+
     private static ManagedSession CreateTestSession()
     {
         return new ManagedSession(
@@ -245,5 +275,17 @@ public class ManagedSessionTests
         {
             return environment;
         }
+    }
+
+    private sealed class MockGitCheckpointService : IGitCheckpointService
+    {
+        public Task<string> CreateCheckpointAsync(string message, CancellationToken cancellationToken)
+            => Task.FromResult("cp-test-123");
+
+        public Task RollbackToCheckpointAsync(string checkpointId, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<CheckpointInfo>> ListCheckpointsAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<CheckpointInfo>>([]);
     }
 }

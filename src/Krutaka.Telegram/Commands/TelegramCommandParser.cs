@@ -64,6 +64,8 @@ public static class TelegramCommandParser
             "BUDGET" => TelegramCommand.Budget,
             "AUTONOMY" => TelegramCommand.Autonomy,
             "NEW" => TelegramCommand.New,
+            "CHECKPOINT" => TelegramCommand.Checkpoint,
+            "ROLLBACK" => TelegramCommand.Rollback,
             _ => TelegramCommand.Unknown
         };
 

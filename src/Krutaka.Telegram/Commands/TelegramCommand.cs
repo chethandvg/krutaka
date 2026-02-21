@@ -71,6 +71,16 @@ public enum TelegramCommand
     New,
 
     /// <summary>
+    /// Create a manual git checkpoint. Triggered by /checkpoint.
+    /// </summary>
+    Checkpoint,
+
+    /// <summary>
+    /// Roll back to a previous git checkpoint. Triggered by /rollback.
+    /// </summary>
+    Rollback,
+
+    /// <summary>
     /// Unrecognized command.
     /// </summary>
     Unknown

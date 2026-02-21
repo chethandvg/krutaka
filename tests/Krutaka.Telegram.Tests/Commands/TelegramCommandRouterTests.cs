@@ -374,6 +374,60 @@ public class TelegramCommandRouterTests
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
 
+    [Fact]
+    public async Task RouteAsync_Should_RouteCheckpointCommand_WithoutSanitization()
+    {
+        // Arrange
+        var update = CreateUpdate(messageText: "/checkpoint");
+        var authResult = AuthResult.Valid(userId: 12345678, chatId: 111, role: TelegramUserRole.User);
+
+        // Act
+        var result = await _router.RouteAsync(update, authResult, CancellationToken.None);
+
+        // Assert
+        result.Command.Should().Be(TelegramCommand.Checkpoint);
+        result.Arguments.Should().BeNull();
+        result.SanitizedInput.Should().BeNull();
+        result.IsAdminOnly.Should().BeFalse();
+        result.Routed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RouteAsync_Should_RouteRollbackCommand_WithoutArguments()
+    {
+        // Arrange
+        var update = CreateUpdate(messageText: "/rollback");
+        var authResult = AuthResult.Valid(userId: 12345678, chatId: 111, role: TelegramUserRole.User);
+
+        // Act
+        var result = await _router.RouteAsync(update, authResult, CancellationToken.None);
+
+        // Assert
+        result.Command.Should().Be(TelegramCommand.Rollback);
+        result.Arguments.Should().BeNull();
+        result.SanitizedInput.Should().BeNull();
+        result.IsAdminOnly.Should().BeFalse();
+        result.Routed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RouteAsync_Should_RouteRollbackCommand_WithCheckpointId_AndSanitizeInput()
+    {
+        // Arrange
+        var update = CreateUpdate(messageText: "/rollback cp-20260220-143012");
+        var authResult = AuthResult.Valid(userId: 12345678, chatId: 111, role: TelegramUserRole.User);
+
+        // Act
+        var result = await _router.RouteAsync(update, authResult, CancellationToken.None);
+
+        // Assert
+        result.Command.Should().Be(TelegramCommand.Rollback);
+        result.Arguments.Should().Be("cp-20260220-143012");
+        result.SanitizedInput.Should().Be("<untrusted_content source=\"telegram:user:12345678\">cp-20260220-143012</untrusted_content>");
+        result.IsAdminOnly.Should().BeFalse();
+        result.Routed.Should().BeTrue();
+    }
+
     private static Update CreateUpdate(string? messageText)
     {
         return new Update
