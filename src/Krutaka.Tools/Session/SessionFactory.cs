@@ -118,6 +118,14 @@ public sealed class SessionFactory : ISessionFactory
         // Create per-session AutonomyLevelProvider (immutable level per S9)
         var autonomyLevelProvider = new AutonomyLevelProvider(_autonomyLevelOptions);
 
+        // Create per-session TaskBudgetTracker from request budget parameters (v0.5.0, S10)
+        var taskBudget = new TaskBudget(
+            MaxClaudeTokens: request.MaxTokenBudget,
+            MaxToolCalls: request.MaxToolCallBudget,
+            MaxFilesModified: request.MaxFilesModified,
+            MaxProcessesSpawned: request.MaxProcessesSpawned);
+        var budgetTracker = new TaskBudgetTracker(taskBudget);
+
         // Create per-session AgentOrchestrator
         var orchestrator = new AgentOrchestrator(
             claudeClient: _claudeClient,
@@ -133,7 +141,8 @@ public sealed class SessionFactory : ISessionFactory
             commandApprovalCache: commandApprovalCache,
             pruneToolResultsAfterTurns: _toolOptions.PruneToolResultsAfterTurns,
             pruneToolResultMinChars: _toolOptions.PruneToolResultMinChars,
-            autonomyLevelProvider: autonomyLevelProvider);
+            autonomyLevelProvider: autonomyLevelProvider,
+            budgetTracker: budgetTracker);
 
         // Create SessionBudget from request parameters
         var budget = new SessionBudget(

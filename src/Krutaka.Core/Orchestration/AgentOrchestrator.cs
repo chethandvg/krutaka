@@ -40,6 +40,9 @@ public sealed partial class AgentOrchestrator : IDisposable
     private readonly ICommandApprovalCache? _commandApprovalCache; // Tracks approved command signatures (v0.3.0, injected from DI)
     private readonly IAgentStateManager? _stateManager; // Optional state machine for pause/resume/abort (v0.5.0)
     private readonly IAutonomyLevelProvider? _autonomyLevelProvider; // Optional autonomy level provider for auto-approval decisions (v0.5.0)
+    private readonly ITaskBudgetTracker? _budgetTracker; // Optional per-session budget tracker (v0.5.0)
+    private readonly HashSet<BudgetDimension> _budgetWarnedDimensions = []; // Tracks which dimensions have already fired BudgetWarning
+    private bool _budgetExhausted; // Set when TryConsume actually fails mid-loop; drives inner/outer loop exit regardless of _stateManager presence
     private readonly ConcurrentDictionary<string, bool> _sessionCommandApprovals = new(); // Tracks session-level "Always" command approvals (v0.3.0)
     private readonly object _approvalStateLock = new(); // Protects approval state fields from race conditions
     private TaskCompletionSource<bool>? _pendingApproval; // Blocks until approval/denial decision for tools
@@ -69,6 +72,7 @@ public sealed partial class AgentOrchestrator : IDisposable
     /// <param name="pruneToolResultMinChars">Minimum character count for tool result pruning (default: 1000). v0.4.5 feature.</param>
     /// <param name="stateManager">Optional state manager for pause/resume/abort lifecycle control (v0.5.0).</param>
     /// <param name="autonomyLevelProvider">Optional autonomy level provider for graduated auto-approval decisions (v0.5.0).</param>
+    /// <param name="budgetTracker">Optional per-session task budget tracker for enforcing token/tool/file/process limits (v0.5.0).</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
@@ -84,7 +88,8 @@ public sealed partial class AgentOrchestrator : IDisposable
         int pruneToolResultsAfterTurns = 6,
         int pruneToolResultMinChars = 1000,
         IAgentStateManager? stateManager = null,
-        IAutonomyLevelProvider? autonomyLevelProvider = null)
+        IAutonomyLevelProvider? autonomyLevelProvider = null,
+        ITaskBudgetTracker? budgetTracker = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
@@ -96,6 +101,7 @@ public sealed partial class AgentOrchestrator : IDisposable
         _contextCompactor = contextCompactor;
         _stateManager = stateManager;
         _autonomyLevelProvider = autonomyLevelProvider;
+        _budgetTracker = budgetTracker;
         _maxToolResultCharacters = maxToolResultCharacters > 0 ? maxToolResultCharacters : DefaultMaxToolResultCharacters;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
         if (approvalTimeoutSeconds < 0)
