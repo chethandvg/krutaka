@@ -171,6 +171,15 @@ public sealed class ManagedSession : IAsyncDisposable
             disposableStore.Dispose();
         }
 
+        // Dispose GitCheckpointService if present (GitCheckpointService has SemaphoreSlim).
+        // When auto-checkpoint is enabled, AgentOrchestrator.Dispose() (called above) also disposes
+        // this instance, but GitCheckpointService.Dispose() only releases a SemaphoreSlim which is
+        // idempotent — so double-disposing is safe.
+        if (GitCheckpointService is IDisposable disposableCheckpoint)
+        {
+            disposableCheckpoint.Dispose();
+        }
+
         // Clean up registered temporary directories
         lock (_tempDirectoriesToCleanup)
         {

@@ -216,7 +216,7 @@ internal sealed partial class ConsoleRunLoop : IDisposable
             return false;
         }
 
-        if (command.StartsWith("/ROLLBACK", StringComparison.Ordinal))
+        if (command == "/ROLLBACK" || command.StartsWith("/ROLLBACK ", StringComparison.Ordinal))
         {
             var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             var rollbackArg = parts.Length > 1 ? parts[1].Trim() : null;

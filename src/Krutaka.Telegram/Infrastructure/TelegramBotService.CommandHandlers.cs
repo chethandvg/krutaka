@@ -85,6 +85,14 @@ public sealed partial class TelegramBotService
                 await HandleBudgetCommandAsync(authResult, update, cancellationToken).ConfigureAwait(false);
                 break;
 
+            case TelegramCommand.Checkpoint:
+                await HandleCheckpointCommandAsync(authResult, update, cancellationToken).ConfigureAwait(false);
+                break;
+
+            case TelegramCommand.Rollback:
+                await HandleRollbackCommandAsync(routeResult, authResult, update, cancellationToken).ConfigureAwait(false);
+                break;
+
             case TelegramCommand.Status:
             case TelegramCommand.Sessions:
             case TelegramCommand.New:
@@ -151,6 +159,10 @@ public sealed partial class TelegramBotService
             • /session \<id\> \- Switch to a specific session
             • /budget \- Show token budget usage
             • /autonomy \- Show current autonomy level
+            • /checkpoint \- Create a manual git checkpoint
+            • /rollback \- List available checkpoints
+            • /rollback latest \- Rollback to most recent checkpoint
+            • /rollback \<id\> \- Rollback to a specific checkpoint
             • /killswitch \- Emergency shutdown \(admin only\)
             """;
 

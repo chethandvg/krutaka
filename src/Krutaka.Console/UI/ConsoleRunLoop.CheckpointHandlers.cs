@@ -24,12 +24,20 @@ internal sealed partial class ConsoleRunLoop
         try
         {
             var checkpointId = await checkpointService.CreateCheckpointAsync("Manual checkpoint", cancellationToken).ConfigureAwait(false);
-            AnsiConsole.MarkupLine($"[green]✓ Checkpoint created: {Markup.Escape(checkpointId)} \"Manual checkpoint\"[/]");
-            Log.Information("Manual checkpoint created: {CheckpointId}", checkpointId);
+            if (string.IsNullOrEmpty(checkpointId))
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Nothing to checkpoint — working tree is clean or repository has no commits[/]");
+                Log.Information("Manual checkpoint skipped: nothing to checkpoint (clean working tree or no commits)");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[green]✓ Checkpoint created: {Markup.Escape(checkpointId)} \"Manual checkpoint\"[/]");
+                Log.Information("Manual checkpoint created: {CheckpointId}", checkpointId);
+            }
         }
         catch (Exception ex)
         {
-            AnsiConsole.MarkupLine("[yellow]⚠ Checkpoints not available — not a git repository[/]");
+            AnsiConsole.MarkupLine($"[red]✗ Failed to create checkpoint: {Markup.Escape(ex.Message)}[/]");
             Log.Warning(ex, "Failed to create manual checkpoint");
         }
 
@@ -73,7 +81,7 @@ internal sealed partial class ConsoleRunLoop
 
         if (string.IsNullOrWhiteSpace(argument))
         {
-            // No argument — show interactive selection
+            // No argument — show interactive selection via numbered table + numeric prompt
             var table = new Table()
                 .Border(TableBorder.Rounded)
                 .BorderColor(Color.Grey)
@@ -92,24 +100,21 @@ internal sealed partial class ConsoleRunLoop
 
             AnsiConsole.Write(table);
 
-            var choices = checkpoints
-                .Select((cp, i) => $"{i + 1}  {cp.CheckpointId}  {cp.Message}")
-                .ToList();
-            choices.Add("(cancel)");
+            var maxIndex = checkpoints.Count;
+            var selectedNumber = AnsiConsole.Prompt(
+                new TextPrompt<int>($"Select checkpoint [1-{maxIndex}] (0 = cancel):")
+                    .ValidationErrorMessage("[red]Please enter a valid number.[/]")
+                    .Validate(n => n is >= 0 && n <= maxIndex
+                        ? ValidationResult.Success()
+                        : ValidationResult.Error($"Value must be between 0 and {maxIndex}.")));
 
-            var selection = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("Select checkpoint to rollback to (or cancel):")
-                    .AddChoices(choices));
-
-            if (selection == "(cancel)")
+            if (selectedNumber == 0)
             {
                 AnsiConsole.WriteLine();
                 return;
             }
 
-            var selectedIndex = choices.IndexOf(selection);
-            target = checkpoints[selectedIndex];
+            target = checkpoints[selectedNumber - 1];
         }
         else if (argument.Equals("LATEST", StringComparison.OrdinalIgnoreCase))
         {

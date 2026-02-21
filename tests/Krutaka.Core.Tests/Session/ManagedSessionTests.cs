@@ -197,6 +197,27 @@ public class ManagedSessionTests
         session.GitCheckpointService.Should().BeSameAs(checkpointService);
     }
 
+    [Fact]
+    public async Task DisposeAsync_Should_DisposeGitCheckpointService_WhenProvided()
+    {
+        // Arrange
+        var checkpointService = new DisposableMockGitCheckpointService();
+        var session = new ManagedSession(
+            Guid.NewGuid(),
+            "/test/path",
+            null,
+            CreateMockOrchestrator(),
+            new CorrelationContext(),
+            new SessionBudget(100_000, 50),
+            gitCheckpointService: checkpointService);
+
+        // Act
+        await session.DisposeAsync();
+
+        // Assert
+        checkpointService.IsDisposed.Should().BeTrue();
+    }
+
     private static ManagedSession CreateTestSession()
     {
         return new ManagedSession(
@@ -279,6 +300,22 @@ public class ManagedSessionTests
 
     private sealed class MockGitCheckpointService : IGitCheckpointService
     {
+        public Task<string> CreateCheckpointAsync(string message, CancellationToken cancellationToken)
+            => Task.FromResult("cp-test-123");
+
+        public Task RollbackToCheckpointAsync(string checkpointId, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<CheckpointInfo>> ListCheckpointsAsync(CancellationToken cancellationToken)
+            => Task.FromResult<IReadOnlyList<CheckpointInfo>>([]);
+    }
+
+    private sealed class DisposableMockGitCheckpointService : IGitCheckpointService, IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+
+        public void Dispose() => IsDisposed = true;
+
         public Task<string> CreateCheckpointAsync(string message, CancellationToken cancellationToken)
             => Task.FromResult("cp-test-123");
 
