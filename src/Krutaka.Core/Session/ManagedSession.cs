@@ -57,6 +57,12 @@ public sealed class ManagedSession : IAsyncDisposable
     /// </summary>
     public ISessionAccessStore? SessionAccessStore { get; }
 
+    /// <summary>
+    /// Gets the per-session autonomy level provider (immutable level per S9).
+    /// May be null if not configured (e.g., in tests or legacy sessions).
+    /// </summary>
+    public IAutonomyLevelProvider? AutonomyLevelProvider { get; }
+
     private bool _disposed;
     private readonly HashSet<string> _tempDirectoriesToCleanup = new(StringComparer.OrdinalIgnoreCase);
 
@@ -70,6 +76,7 @@ public sealed class ManagedSession : IAsyncDisposable
     /// <param name="correlationContext">The per-session correlation context.</param>
     /// <param name="budget">The session budget tracker.</param>
     /// <param name="sessionAccessStore">Optional per-session access store for directory grants.</param>
+    /// <param name="autonomyLevelProvider">Optional per-session autonomy level provider (immutable per S9).</param>
     public ManagedSession(
         Guid sessionId,
         string projectPath,
@@ -77,7 +84,8 @@ public sealed class ManagedSession : IAsyncDisposable
         AgentOrchestrator orchestrator,
         CorrelationContext correlationContext,
         SessionBudget budget,
-        ISessionAccessStore? sessionAccessStore = null)
+        ISessionAccessStore? sessionAccessStore = null,
+        IAutonomyLevelProvider? autonomyLevelProvider = null)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(correlationContext);
@@ -91,6 +99,7 @@ public sealed class ManagedSession : IAsyncDisposable
         CorrelationContext = correlationContext;
         Budget = budget;
         SessionAccessStore = sessionAccessStore;
+        AutonomyLevelProvider = autonomyLevelProvider;
         CreatedAt = DateTimeOffset.UtcNow;
         LastActivity = CreatedAt;
         State = SessionState.Active;

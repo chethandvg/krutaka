@@ -61,6 +61,11 @@ public enum TelegramCommand
     Budget,
 
     /// <summary>
+    /// Show current autonomy level. Triggered by /autonomy.
+    /// </summary>
+    Autonomy,
+
+    /// <summary>
     /// Start a fresh session. Triggered by /new.
     /// </summary>
     New,

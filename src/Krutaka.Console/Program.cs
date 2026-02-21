@@ -449,6 +449,7 @@ try
                 AnsiConsole.MarkupLine("  [cyan]/sessions[/] - List recent sessions for this project");
                 AnsiConsole.MarkupLine("  [cyan]/new[/]      - Start a fresh session");
                 AnsiConsole.MarkupLine("  [cyan]/resume[/]   - Reload current session from disk");
+                AnsiConsole.MarkupLine("  [cyan]/autonomy[/] - Show current autonomy level");
                 AnsiConsole.MarkupLine("  [cyan]/exit[/]     - Exit the application");
                 AnsiConsole.MarkupLine("  [cyan]/quit[/]     - Exit the application");
                 AnsiConsole.WriteLine();
@@ -551,6 +552,11 @@ try
                 }
 
                 AnsiConsole.WriteLine();
+                continue;
+            }
+            else if (command == "/AUTONOMY")
+            {
+                ui.DisplayAutonomyLevel(currentSession.AutonomyLevelProvider);
                 continue;
             }
             else

@@ -148,7 +148,8 @@ public sealed class SessionFactory : ISessionFactory
             orchestrator: orchestrator,
             correlationContext: correlationContext,
             budget: budget,
-            sessionAccessStore: sessionAccessStore);
+            sessionAccessStore: sessionAccessStore,
+            autonomyLevelProvider: autonomyLevelProvider);
     }
 
     /// <summary>

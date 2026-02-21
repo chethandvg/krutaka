@@ -207,4 +207,38 @@ public class ConsoleUITests
         info1.Should().Be(info2);
         info1.Should().NotBe(info3);
     }
+
+    [Fact]
+    public void DisplayAutonomyLevel_WithNullProvider_DoesNotThrow()
+    {
+        // Arrange
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+
+        // Act & Assert — null provider should display graceful message, not throw
+        var act = () => ui.DisplayAutonomyLevel(null);
+        act.Should().NotThrow();
+    }
+
+    [Theory]
+    [InlineData(AutonomyLevel.Supervised)]
+    [InlineData(AutonomyLevel.Guided)]
+    [InlineData(AutonomyLevel.SemiAutonomous)]
+    [InlineData(AutonomyLevel.Autonomous)]
+    public void DisplayAutonomyLevel_AtEachLevel_DoesNotThrow(AutonomyLevel level)
+    {
+        // Arrange
+        var approvalHandler = new ApprovalHandler(Environment.CurrentDirectory, new SafeFileOperations(null));
+        using var ui = new ConsoleUI(approvalHandler);
+        var options = new AutonomyLevelOptions
+        {
+            Level = level,
+            AllowAutonomousMode = level == AutonomyLevel.Autonomous
+        };
+        IAutonomyLevelProvider provider = new AutonomyLevelProvider(options);
+
+        // Act & Assert
+        var act = () => ui.DisplayAutonomyLevel(provider);
+        act.Should().NotThrow();
+    }
 }
