@@ -117,3 +117,18 @@ public sealed record BudgetWarning(BudgetDimension Dimension, double Percentage)
 /// </summary>
 /// <param name="Dimension">The budget dimension that was exhausted.</param>
 public sealed record BudgetExhausted(BudgetDimension Dimension) : AgentEvent;
+
+/// <summary>
+/// Emitted after a git checkpoint is successfully created before a file-modifying tool call.
+/// Allows the user to roll back to this state if subsequent modifications are undesired.
+/// </summary>
+/// <param name="CheckpointId">The unique identifier (git stash SHA) of the created checkpoint.</param>
+/// <param name="Message">The human-readable description associated with this checkpoint.</param>
+public sealed record CheckpointCreated(string CheckpointId, string Message) : AgentEvent;
+
+/// <summary>
+/// Emitted when the agent is aborted and at least one checkpoint exists in the current session.
+/// Informs the user that a rollback to a prior checkpoint is available.
+/// </summary>
+/// <param name="CheckpointId">The identifier of the latest available checkpoint.</param>
+public sealed record CheckpointRollbackAvailable(string CheckpointId) : AgentEvent;

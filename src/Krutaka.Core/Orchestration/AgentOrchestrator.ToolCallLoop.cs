@@ -285,6 +285,36 @@ public sealed partial class AgentOrchestrator
                 }
             }
         }
+
+        // If the agent was aborted and checkpoints exist, emit CheckpointRollbackAvailable (v0.5.0).
+        // Computed outside try-catch because C# async iterators cannot yield inside try-catch.
+        CheckpointRollbackAvailable? rollbackEvent = null;
+        if ((_stateManager?.CurrentState == AgentState.Aborted || _budgetExhausted) && _checkpointService != null)
+        {
+            try
+            {
+                var checkpoints = await _checkpointService.ListCheckpointsAsync(cancellationToken).ConfigureAwait(false);
+                if (checkpoints.Count > 0)
+                {
+                    rollbackEvent = new CheckpointRollbackAvailable(checkpoints[^1].CheckpointId);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // Failure to list checkpoints must not prevent loop exit
+            catch
+#pragma warning restore CA1031
+            {
+                // Non-blocking: skip rollback event if listing fails
+            }
+        }
+
+        if (rollbackEvent != null)
+        {
+            yield return rollbackEvent;
+        }
     }
 
     /// <summary>
@@ -472,6 +502,40 @@ public sealed partial class AgentOrchestrator
 
             // Update alwaysApprove state (may have been set by caller)
             alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
+        }
+
+        // Auto-create checkpoint before file-modifying tools (v0.5.0).
+        // Computed outside try-catch because C# async iterators cannot yield inside try-catch.
+        CheckpointCreated? checkpointEvent = null;
+        if (_checkpointService != null && (toolCall.Name is "write_file" or "edit_file"))
+        {
+            try
+            {
+                var checkpointId = await _checkpointService.CreateCheckpointAsync(
+                    $"pre-modify: {toolCall.Name}",
+                    cancellationToken).ConfigureAwait(false);
+
+                if (!string.IsNullOrEmpty(checkpointId))
+                {
+                    checkpointEvent = new CheckpointCreated(checkpointId, $"pre-modify: {toolCall.Name}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+#pragma warning disable CA1031 // Checkpoint failure must not block tool execution (non-blocking by design)
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                System.Diagnostics.Debug.WriteLine($"WARNING: Checkpoint creation failed before {toolCall.Name}: {ex.Message}");
+            }
+        }
+
+        // Yield checkpoint event outside try-catch (C# constraint: cannot yield in try-catch)
+        if (checkpointEvent != null)
+        {
+            yield return checkpointEvent;
         }
 
         // Execute the tool with timeout - may throw DirectoryAccessRequiredException or CommandApprovalRequiredException

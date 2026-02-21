@@ -41,6 +41,7 @@ public sealed partial class AgentOrchestrator : IDisposable
     private readonly IAgentStateManager? _stateManager; // Optional state machine for pause/resume/abort (v0.5.0)
     private readonly IAutonomyLevelProvider? _autonomyLevelProvider; // Optional autonomy level provider for auto-approval decisions (v0.5.0)
     private readonly ITaskBudgetTracker? _budgetTracker; // Optional per-session budget tracker (v0.5.0)
+    private readonly IGitCheckpointService? _checkpointService; // Optional per-session git checkpoint service (v0.5.0)
     private readonly HashSet<BudgetDimension> _budgetWarnedDimensions = []; // Tracks which dimensions have already fired BudgetWarning
     private bool _budgetExhausted; // Set when TryConsume actually fails mid-loop; drives inner/outer loop exit regardless of _stateManager presence
     private readonly ConcurrentDictionary<string, bool> _sessionCommandApprovals = new(); // Tracks session-level "Always" command approvals (v0.3.0)
@@ -73,6 +74,7 @@ public sealed partial class AgentOrchestrator : IDisposable
     /// <param name="stateManager">Optional state manager for pause/resume/abort lifecycle control (v0.5.0).</param>
     /// <param name="autonomyLevelProvider">Optional autonomy level provider for graduated auto-approval decisions (v0.5.0).</param>
     /// <param name="budgetTracker">Optional per-session task budget tracker for enforcing token/tool/file/process limits (v0.5.0).</param>
+    /// <param name="checkpointService">Optional per-session git checkpoint service for pre-modification snapshots (v0.5.0).</param>
     public AgentOrchestrator(
         IClaudeClient claudeClient,
         IToolRegistry toolRegistry,
@@ -89,7 +91,8 @@ public sealed partial class AgentOrchestrator : IDisposable
         int pruneToolResultMinChars = 1000,
         IAgentStateManager? stateManager = null,
         IAutonomyLevelProvider? autonomyLevelProvider = null,
-        ITaskBudgetTracker? budgetTracker = null)
+        ITaskBudgetTracker? budgetTracker = null,
+        IGitCheckpointService? checkpointService = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _toolRegistry = toolRegistry ?? throw new ArgumentNullException(nameof(toolRegistry));
@@ -102,6 +105,7 @@ public sealed partial class AgentOrchestrator : IDisposable
         _stateManager = stateManager;
         _autonomyLevelProvider = autonomyLevelProvider;
         _budgetTracker = budgetTracker;
+        _checkpointService = checkpointService;
         _maxToolResultCharacters = maxToolResultCharacters > 0 ? maxToolResultCharacters : DefaultMaxToolResultCharacters;
         _toolTimeout = TimeSpan.FromSeconds(toolTimeoutSeconds);
         if (approvalTimeoutSeconds < 0)
@@ -424,6 +428,13 @@ public sealed partial class AgentOrchestrator : IDisposable
         }
 
         _turnLock.Dispose();
+
+        // Dispose checkpoint service if it implements IDisposable (GitCheckpointService owns a SemaphoreSlim)
+        if (_checkpointService is IDisposable disposableCheckpoint)
+        {
+            disposableCheckpoint.Dispose();
+        }
+
         _disposed = true;
     }
 
