@@ -297,4 +297,74 @@ public class TelegramCommandParserTests
         command.Should().Be(TelegramCommand.Autonomy);
         arguments.Should().BeNull();
     }
+
+    [Fact]
+    public void Parse_Should_ReturnCheckpoint_ForCheckpointCommand()
+    {
+        // Arrange
+        var messageText = "/checkpoint";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Checkpoint);
+        arguments.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_Should_ReturnCheckpoint_ForCheckpointCommandWithBotMention()
+    {
+        // Arrange
+        var messageText = "/checkpoint@krutaka_bot";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Checkpoint);
+        arguments.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_Should_ReturnRollback_ForRollbackCommand()
+    {
+        // Arrange
+        var messageText = "/rollback";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Rollback);
+        arguments.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_Should_ReturnRollback_ForRollbackCommandWithArgument()
+    {
+        // Arrange
+        var messageText = "/rollback cp-20260220-143012";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Rollback);
+        arguments.Should().Be("cp-20260220-143012");
+    }
+
+    [Fact]
+    public void Parse_Should_ReturnRollback_ForRollbackLatestCommand()
+    {
+        // Arrange
+        var messageText = "/rollback latest";
+
+        // Act
+        var (command, arguments) = TelegramCommandParser.Parse(messageText);
+
+        // Assert
+        command.Should().Be(TelegramCommand.Rollback);
+        arguments.Should().Be("latest");
+    }
 }

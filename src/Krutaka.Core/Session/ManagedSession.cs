@@ -69,6 +69,12 @@ public sealed class ManagedSession : IAsyncDisposable
     /// </summary>
     public ITaskBudgetTracker? TaskBudgetTracker { get; }
 
+    /// <summary>
+    /// Gets the per-session git checkpoint service for manual checkpoint and rollback operations.
+    /// May be null if git is not available or checkpoints are disabled for this session.
+    /// </summary>
+    public IGitCheckpointService? GitCheckpointService { get; }
+
     private bool _disposed;
     private readonly HashSet<string> _tempDirectoriesToCleanup = new(StringComparer.OrdinalIgnoreCase);
 
@@ -84,6 +90,7 @@ public sealed class ManagedSession : IAsyncDisposable
     /// <param name="sessionAccessStore">Optional per-session access store for directory grants.</param>
     /// <param name="autonomyLevelProvider">Optional per-session autonomy level provider (immutable per S9).</param>
     /// <param name="taskBudgetTracker">Optional per-session task budget tracker for resource consumption monitoring.</param>
+    /// <param name="gitCheckpointService">Optional per-session git checkpoint service for manual checkpoint/rollback.</param>
     public ManagedSession(
         Guid sessionId,
         string projectPath,
@@ -93,7 +100,8 @@ public sealed class ManagedSession : IAsyncDisposable
         SessionBudget budget,
         ISessionAccessStore? sessionAccessStore = null,
         IAutonomyLevelProvider? autonomyLevelProvider = null,
-        ITaskBudgetTracker? taskBudgetTracker = null)
+        ITaskBudgetTracker? taskBudgetTracker = null,
+        IGitCheckpointService? gitCheckpointService = null)
     {
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(correlationContext);
@@ -109,6 +117,7 @@ public sealed class ManagedSession : IAsyncDisposable
         SessionAccessStore = sessionAccessStore;
         AutonomyLevelProvider = autonomyLevelProvider;
         TaskBudgetTracker = taskBudgetTracker;
+        GitCheckpointService = gitCheckpointService;
         CreatedAt = DateTimeOffset.UtcNow;
         LastActivity = CreatedAt;
         State = SessionState.Active;
@@ -160,6 +169,15 @@ public sealed class ManagedSession : IAsyncDisposable
         if (SessionAccessStore is IDisposable disposableStore)
         {
             disposableStore.Dispose();
+        }
+
+        // Dispose GitCheckpointService if present (GitCheckpointService has SemaphoreSlim).
+        // When auto-checkpoint is enabled, AgentOrchestrator.Dispose() (called above) also disposes
+        // this instance, but GitCheckpointService.Dispose() only releases a SemaphoreSlim which is
+        // idempotent — so double-disposing is safe.
+        if (GitCheckpointService is IDisposable disposableCheckpoint)
+        {
+            disposableCheckpoint.Dispose();
         }
 
         // Clean up registered temporary directories

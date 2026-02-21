@@ -14,7 +14,7 @@ namespace Krutaka.Console;
 /// Encapsulates the main interactive console loop, including command handling,
 /// agent turn execution, and error recovery.
 /// </summary>
-internal sealed class ConsoleRunLoop : IDisposable
+internal sealed partial class ConsoleRunLoop : IDisposable
 {
     private readonly ConsoleUI _ui;
     private readonly ISessionManager _sessionManager;
@@ -104,14 +104,18 @@ internal sealed class ConsoleRunLoop : IDisposable
         if (command == "/HELP")
         {
             AnsiConsole.MarkupLine("[bold cyan]Available Commands:[/]");
-            AnsiConsole.MarkupLine("  [cyan]/help[/]     - Show this help message");
-            AnsiConsole.MarkupLine("  [cyan]/budget[/]   - Show task budget consumption");
-            AnsiConsole.MarkupLine("  [cyan]/sessions[/] - List recent sessions for this project");
-            AnsiConsole.MarkupLine("  [cyan]/new[/]      - Start a fresh session");
-            AnsiConsole.MarkupLine("  [cyan]/resume[/]   - Reload current session from disk");
-            AnsiConsole.MarkupLine("  [cyan]/autonomy[/] - Show current autonomy level");
-            AnsiConsole.MarkupLine("  [cyan]/exit[/]     - Exit the application");
-            AnsiConsole.MarkupLine("  [cyan]/quit[/]     - Exit the application");
+            AnsiConsole.MarkupLine("  [cyan]/help[/]         - Show this help message");
+            AnsiConsole.MarkupLine("  [cyan]/budget[/]       - Show task budget consumption");
+            AnsiConsole.MarkupLine("  [cyan]/sessions[/]     - List recent sessions for this project");
+            AnsiConsole.MarkupLine("  [cyan]/new[/]          - Start a fresh session");
+            AnsiConsole.MarkupLine("  [cyan]/resume[/]       - Reload current session from disk");
+            AnsiConsole.MarkupLine("  [cyan]/autonomy[/]     - Show current autonomy level");
+            AnsiConsole.MarkupLine("  [cyan]/checkpoint[/]   - Create a manual git checkpoint");
+            AnsiConsole.MarkupLine("  [cyan]/rollback[/]     - List and rollback to a previous checkpoint");
+            AnsiConsole.MarkupLine("  [cyan]/rollback latest[/] - Rollback to the most recent checkpoint");
+            AnsiConsole.MarkupLine("  [cyan]/rollback <id>[/] - Rollback to a specific checkpoint by ID");
+            AnsiConsole.MarkupLine("  [cyan]/exit[/]         - Exit the application");
+            AnsiConsole.MarkupLine("  [cyan]/quit[/]         - Exit the application");
             AnsiConsole.WriteLine();
             return false;
         }
@@ -203,6 +207,20 @@ internal sealed class ConsoleRunLoop : IDisposable
         if (command == "/BUDGET")
         {
             _ui.DisplayBudget(_currentSession.TaskBudgetTracker);
+            return false;
+        }
+
+        if (command == "/CHECKPOINT")
+        {
+            await HandleCheckpointCommandAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        if (command == "/ROLLBACK" || command.StartsWith("/ROLLBACK ", StringComparison.Ordinal))
+        {
+            var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            var rollbackArg = parts.Length > 1 ? parts[1].Trim() : null;
+            await HandleRollbackCommandAsync(rollbackArg, cancellationToken).ConfigureAwait(false);
             return false;
         }
 

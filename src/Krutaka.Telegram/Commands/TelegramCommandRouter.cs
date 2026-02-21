@@ -90,6 +90,7 @@ public sealed class TelegramCommandRouter : ITelegramCommandRouter
         return command is TelegramCommand.Ask
                        or TelegramCommand.Task
                        or TelegramCommand.SwitchSession
-                       or TelegramCommand.Audit;
+                       or TelegramCommand.Audit
+                       or TelegramCommand.Rollback;
     }
 }

@@ -3649,7 +3649,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | 247 | TaskBudgetTracker Implementation + Orchestrator Integration | C | ✅ Complete | 2026-02-21 |
 | 248 | `/budget` Command (Console + Telegram) | C | ✅ Complete | 2026-02-21 |
 | 249 | GitCheckpointService Implementation + Orchestrator Integration | D | 📋 Pending | — |
-| 250 | `/rollback` and `/checkpoint` Commands | D | 📋 Pending | — |
+| 250 | `/rollback` and `/checkpoint` Commands | D | ✅ Complete | 2026-02-21 |
 | 251 | DeadmanSwitch Implementation + SessionManager Integration | E | 📋 Pending | — |
 | 252 | DeadmanSwitch Notifications (Console + Telegram) | E | 📋 Pending | — |
 | 253 | BehaviorAnomalyDetector Implementation + Orchestrator Integration | F | 📋 Pending | — |
