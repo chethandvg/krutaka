@@ -786,6 +786,7 @@ public sealed class SessionManager : ISessionManager
     /// <summary>
     /// Arms the deadman switch for a newly created or resumed session, if enabled in options.
     /// Only called by SessionManager — the agent cannot access or reset the timer (S12).
+    /// Exception-safe: disposes any replaced switch, logs errors without throwing.
     /// </summary>
     private void ArmDeadmanSwitch(ManagedSession session)
     {
@@ -795,13 +796,39 @@ public sealed class SessionManager : ISessionManager
             return;
         }
 
+        // MaxUnattendedMinutes is validated non-negative by DeadmanSwitchOptions; no overflow possible for int.
         var duration = TimeSpan.FromMinutes(dsOptions.MaxUnattendedMinutes);
-        var deadmanSwitch = new DeadmanSwitch(session.AgentStateManager, duration);
-        _deadmanSwitches[session.SessionId] = deadmanSwitch;
 
-        _logger?.LogDebug(
-            "Deadman switch armed for session {SessionId} with duration {Duration}.",
-            session.SessionId, duration);
+        DeadmanSwitch? newSwitch = null;
+#pragma warning disable CA1031 // Exception-safe arm: all failure paths dispose newSwitch
+#pragma warning disable CA2000 // newSwitch is either stored in _deadmanSwitches or disposed in the catch block
+        try
+        {
+            newSwitch = new DeadmanSwitch(session.AgentStateManager, duration);
+
+            _deadmanSwitches.AddOrUpdate(
+                session.SessionId,
+                _ => newSwitch,
+                (_, existing) =>
+                {
+                    existing.Dispose();
+                    return newSwitch;
+                });
+
+            _logger?.LogDebug(
+                "Deadman switch armed for session {SessionId} with duration {Duration}.",
+                session.SessionId, duration);
+        }
+        catch (Exception ex)
+        {
+            newSwitch?.Dispose();
+            _logger?.LogError(
+                ex,
+                "Failed to arm deadman switch for session {SessionId}.",
+                session.SessionId);
+        }
+#pragma warning restore CA2000
+#pragma warning restore CA1031
     }
 
     /// <summary>

@@ -162,4 +162,59 @@ public class HostModeConfiguratorTests
         var act = () => HostModeConfigurator.ConfigureSessionManager(HostMode.Console, null!);
         act.Should().Throw<ArgumentNullException>();
     }
+
+    // --- DeadmanSwitch config binding ---
+
+    [Fact]
+    public void ConfigureSessionManager_ConsoleMode_Should_UseDefaultDeadmanSwitchOptions_WhenNotConfigured()
+    {
+        var opts = HostModeConfigurator.ConfigureSessionManager(HostMode.Console, EmptyConfig());
+        opts.DeadmanSwitchValue.MaxUnattendedMinutes.Should().Be(30);
+        opts.DeadmanSwitchValue.HeartbeatIntervalMinutes.Should().Be(5);
+    }
+
+    [Fact]
+    public void ConfigureSessionManager_ConsoleMode_Should_UseConfiguredDeadmanSwitchMaxUnattendedMinutes()
+    {
+        var config = Config(new Dictionary<string, string?> { ["Agent:DeadmanSwitch:MaxUnattendedMinutes"] = "45" });
+        var opts = HostModeConfigurator.ConfigureSessionManager(HostMode.Console, config);
+        opts.DeadmanSwitchValue.MaxUnattendedMinutes.Should().Be(45);
+    }
+
+    [Fact]
+    public void ConfigureSessionManager_ConsoleMode_Should_UseZeroMaxUnattendedMinutes_ToDisable()
+    {
+        var config = Config(new Dictionary<string, string?> { ["Agent:DeadmanSwitch:MaxUnattendedMinutes"] = "0" });
+        var opts = HostModeConfigurator.ConfigureSessionManager(HostMode.Console, config);
+        opts.DeadmanSwitchValue.MaxUnattendedMinutes.Should().Be(0);
+    }
+
+    [Fact]
+    public void ConfigureSessionManager_TelegramMode_Should_UseDefaultDeadmanSwitchOptions_WhenNotConfigured()
+    {
+        var opts = HostModeConfigurator.ConfigureSessionManager(HostMode.Telegram, EmptyConfig());
+        opts.DeadmanSwitchValue.MaxUnattendedMinutes.Should().Be(30);
+        opts.DeadmanSwitchValue.HeartbeatIntervalMinutes.Should().Be(5);
+    }
+
+    [Fact]
+    public void ConfigureSessionManager_TelegramMode_Should_UseConfiguredDeadmanSwitchOptions()
+    {
+        var config = Config(new Dictionary<string, string?>
+        {
+            ["Agent:DeadmanSwitch:MaxUnattendedMinutes"] = "20",
+            ["Agent:DeadmanSwitch:HeartbeatIntervalMinutes"] = "3"
+        });
+        var opts = HostModeConfigurator.ConfigureSessionManager(HostMode.Telegram, config);
+        opts.DeadmanSwitchValue.MaxUnattendedMinutes.Should().Be(20);
+        opts.DeadmanSwitchValue.HeartbeatIntervalMinutes.Should().Be(3);
+    }
+
+    [Fact]
+    public void ConfigureSessionManager_BothMode_Should_UseConfiguredDeadmanSwitchOptions()
+    {
+        var config = Config(new Dictionary<string, string?> { ["Agent:DeadmanSwitch:MaxUnattendedMinutes"] = "10" });
+        var opts = HostModeConfigurator.ConfigureSessionManager(HostMode.Both, config);
+        opts.DeadmanSwitchValue.MaxUnattendedMinutes.Should().Be(10);
+    }
 }

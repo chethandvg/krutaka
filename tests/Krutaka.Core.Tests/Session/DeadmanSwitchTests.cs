@@ -383,6 +383,27 @@ public sealed class DeadmanSwitchTests : IDisposable
     }
 
     [Fact]
+    public void DeadmanSwitchOptions_Should_ThrowArgumentOutOfRangeException_WhenMaxUnattendedMinutesIsNegative()
+    {
+        var act = () => new DeadmanSwitchOptions(MaxUnattendedMinutes: -1);
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("MaxUnattendedMinutes");
+    }
+
+    [Fact]
+    public void DeadmanSwitchOptions_Should_ThrowArgumentOutOfRangeException_WhenHeartbeatIntervalMinutesIsNegative()
+    {
+        var act = () => new DeadmanSwitchOptions(HeartbeatIntervalMinutes: -1);
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("HeartbeatIntervalMinutes");
+    }
+
+    [Fact]
+    public void DeadmanSwitchOptions_Should_AcceptZeroMaxUnattendedMinutes_ForDisabledMode()
+    {
+        var options = new DeadmanSwitchOptions(MaxUnattendedMinutes: 0);
+        options.MaxUnattendedMinutes.Should().Be(0);
+    }
+
+    [Fact]
     public void SessionManagerOptions_Should_HaveDeadmanSwitchValue_WithDefaults_WhenNotConfigured()
     {
         var options = new SessionManagerOptions();

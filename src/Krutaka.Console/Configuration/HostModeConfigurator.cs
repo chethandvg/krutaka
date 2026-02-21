@@ -86,7 +86,8 @@ internal static class HostModeConfigurator
                 EvictionStrategy = EvictionStrategy.TerminateOldest,
                 IdleTimeout = TimeSpan.Zero, // No idle timeout for Console
                 GlobalMaxTokensPerHour = 1_000_000, // 1M tokens/hour
-                MaxSessionsPerUser = 1 // Single user in Console mode
+                MaxSessionsPerUser = 1, // Single user in Console mode
+                DeadmanSwitch = ReadDeadmanSwitchOptions(configuration)
             },
             HostMode.Telegram or HostMode.Both => new SessionManagerOptions
             {
@@ -98,10 +99,22 @@ internal static class HostModeConfigurator
                     configuration.GetValue<int>("SessionManager:IdleTimeoutMinutes", 15)),
                 GlobalMaxTokensPerHour = configuration.GetValue<int>(
                     "SessionManager:GlobalMaxTokensPerHour", 1_000_000),
-                MaxSessionsPerUser = configuration.GetValue<int>("SessionManager:MaxSessionsPerUser", 3)
+                MaxSessionsPerUser = configuration.GetValue<int>("SessionManager:MaxSessionsPerUser", 3),
+                DeadmanSwitch = ReadDeadmanSwitchOptions(configuration)
             },
             _ => throw new InvalidOperationException($"Unexpected host mode: {mode}")
         };
+    }
+
+    /// <summary>
+    /// Reads DeadmanSwitch configuration from the Agent:DeadmanSwitch section.
+    /// Returns default options (30 min) if the section is absent or values are not specified.
+    /// </summary>
+    private static DeadmanSwitchOptions ReadDeadmanSwitchOptions(IConfiguration configuration)
+    {
+        var maxUnattendedMinutes = configuration.GetValue<int>("Agent:DeadmanSwitch:MaxUnattendedMinutes", 30);
+        var heartbeatIntervalMinutes = configuration.GetValue<int>("Agent:DeadmanSwitch:HeartbeatIntervalMinutes", 5);
+        return new DeadmanSwitchOptions(maxUnattendedMinutes, heartbeatIntervalMinutes);
     }
 
     /// <summary>

@@ -76,6 +76,9 @@ internal sealed partial class ConsoleRunLoop : IDisposable
                 continue;
             }
 
+            // Notify the deadman switch that genuine user interaction occurred (S12).
+            _sessionManager.NotifyUserInteraction(_currentSession.SessionId);
+
             if (input.StartsWith('/'))
             {
                 var shouldExit = await HandleCommandAsync(input.ToUpperInvariant().Trim(), cancellationToken).ConfigureAwait(false);
