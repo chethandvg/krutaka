@@ -126,6 +126,12 @@ public sealed class SessionFactory : ISessionFactory
             MaxProcessesSpawned: request.MaxProcessesSpawned);
         var budgetTracker = new TaskBudgetTracker(taskBudget);
 
+        // Create per-session GitCheckpointService scoped to the session's ProjectPath (v0.5.0, S11)
+        var checkpointService = new GitCheckpointService(
+            request.ProjectPath,
+            actualSessionId.ToString("N"),
+            _toolOptions.Checkpoint.MaxCheckpointsPerSession);
+
         // Create per-session AgentOrchestrator
         var orchestrator = new AgentOrchestrator(
             claudeClient: _claudeClient,
@@ -142,7 +148,8 @@ public sealed class SessionFactory : ISessionFactory
             pruneToolResultsAfterTurns: _toolOptions.PruneToolResultsAfterTurns,
             pruneToolResultMinChars: _toolOptions.PruneToolResultMinChars,
             autonomyLevelProvider: autonomyLevelProvider,
-            budgetTracker: budgetTracker);
+            budgetTracker: budgetTracker,
+            checkpointService: _toolOptions.Checkpoint.AutoCheckpointOnFileModification ? checkpointService : null);
 
         // Create SessionBudget from request parameters
         var budget = new SessionBudget(

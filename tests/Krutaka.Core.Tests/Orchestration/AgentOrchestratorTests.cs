@@ -1056,4 +1056,301 @@ public sealed class AgentOrchestratorTests
         // Assert
         orchestrator.ConversationHistory.Should().BeEmpty();
     }
+
+    // -------------------------------------------------------------------------
+    // GitCheckpointService integration (v0.5.0)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task RunAsync_Should_YieldCheckpointCreated_BeforeWriteFileTool()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("write_file", "{}", "File written");
+        claudeClient.AddToolCallStarted("write_file", "wf-1", "{}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var checkpointService = new MockCheckpointService();
+        checkpointService.SetCheckpointId("abc123def456abc123def456abc123def456abcd");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Write a file", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<CheckpointCreated>().Should().ContainSingle("checkpoint created before write_file");
+        var checkpointEvent = events.OfType<CheckpointCreated>().First();
+        checkpointEvent.CheckpointId.Should().Be("abc123def456abc123def456abc123def456abcd");
+        checkpointEvent.Message.Should().Be("pre-modify: write_file");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_YieldCheckpointCreated_BeforeEditFileTool()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("edit_file", "{}", "File edited");
+        claudeClient.AddToolCallStarted("edit_file", "ef-1", "{}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var checkpointService = new MockCheckpointService();
+        checkpointService.SetCheckpointId("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Edit a file", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<CheckpointCreated>().Should().ContainSingle("checkpoint created before edit_file");
+        events.OfType<CheckpointCreated>().First().Message.Should().Be("pre-modify: edit_file");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_NotYieldCheckpointCreated_ForNonFileModifyingTool()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("read_file", "{}", "File content");
+        claudeClient.AddToolCallStarted("read_file", "rf-1", "{}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var checkpointService = new MockCheckpointService();
+        checkpointService.SetCheckpointId("shouldnotappear");
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Read a file", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<CheckpointCreated>().Should().BeEmpty("read_file is not a file-modifying tool");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_ContinueToolExecution_WhenCheckpointServiceFails()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("write_file", "{}", "File written successfully");
+        claudeClient.AddToolCallStarted("write_file", "wf-fail", "{}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var checkpointService = new MockCheckpointService();
+        checkpointService.SetThrowOnCreate(new InvalidOperationException("Git not available"));
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Write a file", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert — tool should execute despite checkpoint failure
+        events.OfType<ToolCallCompleted>().Should().ContainSingle("tool executed despite checkpoint failure");
+        events.OfType<CheckpointCreated>().Should().BeEmpty("checkpoint failed so no event");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_NotYieldCheckpointCreated_WhenCheckpointReturnsEmpty()
+    {
+        // Arrange — checkpoint returns empty string (non-git dir or clean working tree)
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        toolRegistry.AddTool("write_file", "{}", "File written");
+        claudeClient.AddToolCallStarted("write_file", "wf-empty", "{}");
+        claudeClient.AddFinalResponse("", "tool_use");
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var checkpointService = new MockCheckpointService();
+        checkpointService.SetCheckpointId(string.Empty); // simulates non-git dir
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Write a file", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<CheckpointCreated>().Should().BeEmpty("empty ID means no checkpoint was created");
+        events.OfType<ToolCallCompleted>().Should().ContainSingle("tool still executes");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_YieldCheckpointRollbackAvailable_WhenAbortedWithCheckpoints()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        var toolRegistry = new MockToolRegistry();
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var stateManager = new AgentStateManager();
+        stateManager.RequestAbort("Test abort");
+
+        var checkpointService = new MockCheckpointService();
+        // Simulate a pre-existing checkpoint in the service
+        checkpointService.AddExistingCheckpoint(
+            new CheckpointInfo("sha123abc", "before write", DateTime.UtcNow, 1));
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            toolRegistry,
+            new MockSecurityPolicy(),
+            stateManager: stateManager,
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Do something", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<CheckpointRollbackAvailable>().Should().ContainSingle(
+            "rollback available event should be emitted on abort with checkpoints");
+        events.OfType<CheckpointRollbackAvailable>().First().CheckpointId.Should().Be("sha123abc");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_NotYieldCheckpointRollbackAvailable_WhenNoCheckpointsExist()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var stateManager = new AgentStateManager();
+        stateManager.RequestAbort("Test abort");
+
+        var checkpointService = new MockCheckpointService(); // No checkpoints
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            new MockToolRegistry(),
+            new MockSecurityPolicy(),
+            stateManager: stateManager,
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Do something", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert
+        events.OfType<CheckpointRollbackAvailable>().Should().BeEmpty(
+            "no rollback event when there are no checkpoints");
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_NotYieldCheckpointRollbackAvailable_WhenNotAborted()
+    {
+        // Arrange
+        var claudeClient = new MockClaudeClient();
+        claudeClient.AddFinalResponse("Done", "end_turn");
+
+        var checkpointService = new MockCheckpointService();
+        checkpointService.AddExistingCheckpoint(
+            new CheckpointInfo("sha123abc", "some checkpoint", DateTime.UtcNow, 1));
+
+        using var orchestrator = new AgentOrchestrator(
+            claudeClient,
+            new MockToolRegistry(),
+            new MockSecurityPolicy(),
+            checkpointService: checkpointService);
+
+        // Act
+        var events = new List<AgentEvent>();
+        await foreach (var evt in orchestrator.RunAsync("Normal task", "System"))
+        {
+            events.Add(evt);
+        }
+
+        // Assert — no rollback event for a successful (non-aborted) run
+        events.OfType<CheckpointRollbackAvailable>().Should().BeEmpty(
+            "rollback event only emitted when agent is aborted");
+    }
+
+    /// <summary>
+    /// Mock implementation of <see cref="IGitCheckpointService"/> for orchestrator tests.
+    /// </summary>
+    private sealed class MockCheckpointService : IGitCheckpointService
+    {
+        private string _checkpointId = string.Empty;
+        private Exception? _throwOnCreate;
+        private readonly List<CheckpointInfo> _existingCheckpoints = [];
+
+        public void SetCheckpointId(string id) => _checkpointId = id;
+
+        public void SetThrowOnCreate(Exception ex) => _throwOnCreate = ex;
+
+        public void AddExistingCheckpoint(CheckpointInfo info) => _existingCheckpoints.Add(info);
+
+        public Task<string> CreateCheckpointAsync(string message, CancellationToken cancellationToken)
+        {
+            if (_throwOnCreate != null)
+            {
+                throw _throwOnCreate;
+            }
+
+            return Task.FromResult(_checkpointId);
+        }
+
+        public Task RollbackToCheckpointAsync(string checkpointId, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<CheckpointInfo>> ListCheckpointsAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult<IReadOnlyList<CheckpointInfo>>(_existingCheckpoints.AsReadOnly());
+        }
+    }
 }

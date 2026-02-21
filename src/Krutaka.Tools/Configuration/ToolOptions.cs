@@ -112,4 +112,10 @@ public sealed class ToolOptions : IToolOptions
     /// v0.4.5 Session Resilience, API Hardening &amp; Context Intelligence feature.
     /// </summary>
     public int PruneToolResultMinChars { get; set; } = 1000;
+
+    /// <summary>
+    /// Gets or sets the checkpoint configuration for git-based pre-modification snapshots.
+    /// v0.5.0 Autonomous Agent Mode feature.
+    /// </summary>
+    public CheckpointOptions Checkpoint { get; set; } = new();
 }
