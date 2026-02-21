@@ -105,6 +105,7 @@ internal sealed class ConsoleRunLoop : IDisposable
         {
             AnsiConsole.MarkupLine("[bold cyan]Available Commands:[/]");
             AnsiConsole.MarkupLine("  [cyan]/help[/]     - Show this help message");
+            AnsiConsole.MarkupLine("  [cyan]/budget[/]   - Show task budget consumption");
             AnsiConsole.MarkupLine("  [cyan]/sessions[/] - List recent sessions for this project");
             AnsiConsole.MarkupLine("  [cyan]/new[/]      - Start a fresh session");
             AnsiConsole.MarkupLine("  [cyan]/resume[/]   - Reload current session from disk");
@@ -196,6 +197,12 @@ internal sealed class ConsoleRunLoop : IDisposable
         if (command == "/AUTONOMY")
         {
             _ui.DisplayAutonomyLevel(_currentSession.AutonomyLevelProvider);
+            return false;
+        }
+
+        if (command == "/BUDGET")
+        {
+            _ui.DisplayBudget(_currentSession.TaskBudgetTracker);
             return false;
         }
 

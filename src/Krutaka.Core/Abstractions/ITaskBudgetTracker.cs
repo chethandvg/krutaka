@@ -35,4 +35,10 @@ public interface ITaskBudgetTracker
     /// Gets a value indicating whether any budget dimension has reached or exceeded its limit.
     /// </summary>
     bool IsExhausted { get; }
+
+    /// <summary>
+    /// Returns the budget limits used to create this tracker.
+    /// </summary>
+    /// <returns>A <see cref="TaskBudget"/> containing the maximum limits for each dimension.</returns>
+    TaskBudget GetBudget();
 }
