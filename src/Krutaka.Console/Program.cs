@@ -119,6 +119,10 @@ try
     }
 
     // Register Tools with options
+    // Build AutonomyLevelOptions from Agent configuration section (v0.5.0)
+    var autonomyLevelOptions = new Krutaka.Core.AutonomyLevelOptions();
+    builder.Configuration.GetSection("Agent").Bind(autonomyLevelOptions);
+
     builder.Services.AddAgentTools(options =>
     {
         // Bind ToolOptions from configuration (CeilingDirectory, AutoGrantPatterns, etc.)
@@ -144,7 +148,7 @@ try
             var derivedMaxToolResultChars = Math.Clamp((long)maxTokens * 4L, 100_000L, int.MaxValue);
             options.MaxToolResultCharacters = (int)derivedMaxToolResultChars;
         }
-    });
+    }, autonomyLevelOptions);
 
     // Register Memory services
     builder.Services.AddMemory(options =>

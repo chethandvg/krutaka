@@ -240,7 +240,41 @@ public sealed partial class AgentOrchestrator
         var approvalRequired = _securityPolicy.IsApprovalRequired(toolCall.Name);
         var alwaysApprove = _approvalCache.ContainsKey(toolCall.Name);
 
-        if (approvalRequired && !alwaysApprove)
+        // Determine effective approval requirement considering autonomy level (v0.5.0).
+        // With a provider: ShouldAutoApprove drives the decision for ALL tiers including Safe,
+        // so Supervised (Level 0) will prompt even for tools the security policy marks as Safe.
+        // Without a provider: fall back to existing binary behavior (backward compatible).
+        bool isAutoApproved = false;
+        bool needsHumanApproval;
+
+        if (alwaysApprove)
+        {
+            needsHumanApproval = false;
+        }
+        else if (_autonomyLevelProvider != null)
+        {
+            isAutoApproved = _autonomyLevelProvider.ShouldAutoApprove(toolCall.Name, approvalRequired);
+            needsHumanApproval = !isAutoApproved;
+        }
+        else
+        {
+            // No provider: existing behavior — only prompt when security policy requires it
+            needsHumanApproval = approvalRequired;
+        }
+
+        if (isAutoApproved)
+        {
+            _auditLogger?.Log(new ToolAutoApprovedEvent
+            {
+                SessionId = _correlationContext?.SessionId ?? Guid.Empty,
+                TurnId = _correlationContext?.TurnId ?? 0,
+                RequestId = _correlationContext?.RequestId,
+                ToolName = toolCall.Name,
+                Level = _autonomyLevelProvider!.GetLevel(),
+                WasApprovalRequired = approvalRequired
+            });
+        }
+        else if (needsHumanApproval)
         {
             // Create a TaskCompletionSource to block until the caller approves or denies
             // Lock to ensure atomic assignment of pending state
@@ -314,7 +348,7 @@ public sealed partial class AgentOrchestrator
 
         try
         {
-            toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+            toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, isAutoApproved, cancellationToken).ConfigureAwait(false);
         }
         catch (DirectoryAccessRequiredException ex)
         {
@@ -416,7 +450,7 @@ public sealed partial class AgentOrchestrator
                 try
                 {
                     // Retry the tool execution now that access is granted
-                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired, alwaysApprove, false, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -448,7 +482,7 @@ public sealed partial class AgentOrchestrator
 
                 try
                 {
-                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, false, cancellationToken).ConfigureAwait(false);
                     _commandApprovalCache?.RemoveApproval(commandSignature);
                 }
 #pragma warning disable CA1031 // Catching Exception is appropriate here to handle any retry failure
@@ -538,7 +572,7 @@ public sealed partial class AgentOrchestrator
                 // Retry execution
                 try
                 {
-                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, cancellationToken).ConfigureAwait(false);
+                    toolResult = await ExecuteToolAsync(toolCall, approvalRequired: false, alwaysApprove, false, cancellationToken).ConfigureAwait(false);
 
                     // Remove approval from cache after successful execution
                     _commandApprovalCache?.RemoveApproval(commandSignature);

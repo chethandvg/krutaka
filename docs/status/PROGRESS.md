@@ -3628,7 +3628,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | Phase | Focus | Issues | Status |
 |-------|-------|--------|--------|
 | A | Documentation, Instructions & Agent State | #243, #244 | 🚧 In Progress |
-| B | Autonomy Level Implementation | #245, #246 | 📋 Pending |
+| B | Autonomy Level Implementation | #245, #246 | 🚧 In Progress |
 | C | Task Budget Tracker | #247, #248 | 📋 Pending |
 | D | Git Checkpoint Service | #249, #250 | 📋 Pending |
 | E | Deadman's Switch | #251, #252 | 📋 Pending |
@@ -3644,7 +3644,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | 242 | v0.5.0 Autonomous Agent Mode — EPIC | — | 🚧 In Progress | — |
 | 243 | v0.5.0 Custom Instructions, AGENTS.md, and Documentation Updates | A | ✅ Complete | 2026-02-20 |
 | 244 | Agent State Machine (Running/Paused/Aborted) | A | ✅ Complete | 2026-02-20 |
-| 245 | AutonomyLevelProvider + Orchestrator Integration | B | 📋 Pending | — |
+| 245 | AutonomyLevelProvider + Orchestrator Integration | B | ✅ Complete | 2026-02-20 |
 | 246 | `/autonomy` Command (Console + Telegram) | B | 📋 Pending | — |
 | 247 | TaskBudgetTracker Implementation + Orchestrator Integration | C | 📋 Pending | — |
 | 248 | `/budget` Command (Console + Telegram) | C | 📋 Pending | — |

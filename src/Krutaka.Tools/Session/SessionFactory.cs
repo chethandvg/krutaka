@@ -15,6 +15,7 @@ public sealed class SessionFactory : ISessionFactory
     private readonly IAccessPolicyEngine _accessPolicyEngine;
     private readonly ICommandRiskClassifier _commandRiskClassifier;
     private readonly ToolOptions _toolOptions;
+    private readonly AutonomyLevelOptions _autonomyLevelOptions;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SessionFactory"/> class.
@@ -25,13 +26,15 @@ public sealed class SessionFactory : ISessionFactory
     /// <param name="commandRiskClassifier">The command risk classifier (shared singleton).</param>
     /// <param name="toolOptions">The tool options (shared singleton).</param>
     /// <param name="auditLogger">The audit logger (shared singleton, optional).</param>
+    /// <param name="autonomyLevelOptions">The autonomy level options for per-session provider creation (optional, defaults to Guided).</param>
     public SessionFactory(
         IClaudeClient claudeClient,
         ISecurityPolicy securityPolicy,
         IAccessPolicyEngine accessPolicyEngine,
         ICommandRiskClassifier commandRiskClassifier,
         ToolOptions toolOptions,
-        IAuditLogger? auditLogger = null)
+        IAuditLogger? auditLogger = null,
+        AutonomyLevelOptions? autonomyLevelOptions = null)
     {
         _claudeClient = claudeClient ?? throw new ArgumentNullException(nameof(claudeClient));
         _securityPolicy = securityPolicy ?? throw new ArgumentNullException(nameof(securityPolicy));
@@ -39,6 +42,7 @@ public sealed class SessionFactory : ISessionFactory
         _commandRiskClassifier = commandRiskClassifier ?? throw new ArgumentNullException(nameof(commandRiskClassifier));
         _toolOptions = toolOptions ?? throw new ArgumentNullException(nameof(toolOptions));
         _auditLogger = auditLogger;
+        _autonomyLevelOptions = autonomyLevelOptions ?? new AutonomyLevelOptions();
     }
 
     /// <inheritdoc/>
@@ -111,6 +115,9 @@ public sealed class SessionFactory : ISessionFactory
             compactionClient: null,
             memoryWriter: request.MemoryWriter);
 
+        // Create per-session AutonomyLevelProvider (immutable level per S9)
+        var autonomyLevelProvider = new AutonomyLevelProvider(_autonomyLevelOptions);
+
         // Create per-session AgentOrchestrator
         var orchestrator = new AgentOrchestrator(
             claudeClient: _claudeClient,
@@ -125,7 +132,8 @@ public sealed class SessionFactory : ISessionFactory
             contextCompactor: contextCompactor,
             commandApprovalCache: commandApprovalCache,
             pruneToolResultsAfterTurns: _toolOptions.PruneToolResultsAfterTurns,
-            pruneToolResultMinChars: _toolOptions.PruneToolResultMinChars);
+            pruneToolResultMinChars: _toolOptions.PruneToolResultMinChars,
+            autonomyLevelProvider: autonomyLevelProvider);
 
         // Create SessionBudget from request parameters
         var budget = new SessionBudget(

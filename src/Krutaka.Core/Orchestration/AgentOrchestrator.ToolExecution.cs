@@ -10,7 +10,7 @@ public sealed partial class AgentOrchestrator
     /// Handles timeout and error cases, returning an appropriate result.
     /// </summary>
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Tool execution errors should not crash the agentic loop - errors are returned to Claude as tool results")]
-    private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, bool approvalRequired, bool alwaysApprove, CancellationToken cancellationToken)
+    private async Task<ToolResult> ExecuteToolAsync(ToolCall toolCall, bool approvalRequired, bool alwaysApprove, bool autoApproved, CancellationToken cancellationToken)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
@@ -59,7 +59,7 @@ public sealed partial class AgentOrchestrator
                 _auditLogger.LogToolExecution(
                     _correlationContext,
                     toolCall.Name,
-                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    autoApproved || !approvalRequired || alwaysApprove, // approved if auto-approved, no approval required, or always-approve set
                     alwaysApprove,
                     stopwatch.ElapsedMilliseconds,
                     result.Length,
@@ -80,7 +80,7 @@ public sealed partial class AgentOrchestrator
                 _auditLogger.LogToolExecution(
                     _correlationContext,
                     toolCall.Name,
-                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    autoApproved || !approvalRequired || alwaysApprove, // approved if auto-approved, no approval required, or always-approve set
                     alwaysApprove,
                     stopwatch.ElapsedMilliseconds,
                     0,
@@ -111,7 +111,7 @@ public sealed partial class AgentOrchestrator
                 _auditLogger.LogToolExecution(
                     _correlationContext,
                     toolCall.Name,
-                    !approvalRequired || alwaysApprove, // approved if no approval required, or if always-approve is set
+                    autoApproved || !approvalRequired || alwaysApprove, // approved if auto-approved, no approval required, or always-approve set
                     alwaysApprove,
                     stopwatch.ElapsedMilliseconds,
                     0,
