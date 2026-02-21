@@ -378,7 +378,7 @@ internal sealed class ConsoleUI : IDisposable
         {
             AutonomyLevel.Supervised => ("[red]Level: 0 — Supervised[/]", "None", "Safe, Moderate, Elevated"),
             AutonomyLevel.Guided => ("[yellow]Level: 1 — Guided[/]", "Safe", "Moderate, Elevated"),
-            AutonomyLevel.SemiAutonomous => ("[green]Level: 2 — Semi-Autonomous[/]", "Safe, Moderate", "Elevated"),
+            AutonomyLevel.SemiAutonomous => ("[green]Level: 2 — Semi-Autonomous[/]", "Safe, Moderate, Elevated", "None"),
             AutonomyLevel.Autonomous => ("[bold green]Level: 3 — Autonomous[/]", "Safe, Moderate, Elevated", "None"),
             _ => ($"Level: {(int)level} — Unknown", "Unknown", "Unknown")
         };
@@ -406,7 +406,8 @@ internal sealed class ConsoleUI : IDisposable
     /// </summary>
     /// <param name="beforeTokens">Token count before compaction.</param>
     /// <param name="afterTokens">Token count after compaction.</param>
-    public void DisplayCompactionResult(int beforeTokens, int afterTokens)    {
+    public void DisplayCompactionResult(int beforeTokens, int afterTokens)
+    {
         var saved = beforeTokens - afterTokens;
         var percentSaved = beforeTokens > 0
             ? (saved * 100.0) / beforeTokens

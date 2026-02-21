@@ -524,7 +524,7 @@ public sealed class TelegramBotService : BackgroundService
         {
             AutonomyLevel.Supervised => (0, "Supervised", "None", "Safe, Moderate, Elevated"),
             AutonomyLevel.Guided => (1, "Guided", "Safe", "Moderate, Elevated"),
-            AutonomyLevel.SemiAutonomous => (2, "Semi-Autonomous", "Safe, Moderate", "Elevated"),
+            AutonomyLevel.SemiAutonomous => (2, "Semi-Autonomous", "Safe, Moderate, Elevated", "None"),
             AutonomyLevel.Autonomous => (3, "Autonomous", "Safe, Moderate, Elevated", "None"),
             _ => ((int)level, "Unknown", "Unknown", "Unknown")
         };
