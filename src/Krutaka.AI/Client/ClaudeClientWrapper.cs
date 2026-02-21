@@ -102,6 +102,8 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient, IDisposable
 
         var textContent = new System.Text.StringBuilder();
         string stopReason = "end_turn";
+        int inputTokens = 0;
+        int outputTokens = 0;
 
         // Track tool use content block state for accumulating partial JSON input
         var toolUseBuilders = new Dictionary<long, (string Name, string Id, System.Text.StringBuilder JsonInput)>();
@@ -177,6 +179,11 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient, IDisposable
                     toolUseBuilders.Remove(contentBlockStop.Index);
                 }
             }
+            else if (chunk.TryPickStart(out var messageStart))
+            {
+                // message_start carries the initial input token count for this API call
+                inputTokens = (int)messageStart.Message.Usage.InputTokens;
+            }
             else if (chunk.TryPickDelta(out var messageDelta))
             {
                 // Message-level delta with stop reason and usage.
@@ -190,11 +197,14 @@ internal sealed partial class ClaudeClientWrapper : IClaudeClient, IDisposable
                         stopReason = reason;
                     }
                 }
+
+                // Capture output token count from the message_delta usage block
+                outputTokens = (int)messageDelta.Usage.OutputTokens;
             }
         }
 
-        // Emit final response with accumulated text and the actual stop reason
-        yield return new FinalResponse(textContent.ToString(), stopReason);
+        // Emit final response with accumulated text, stop reason, and token usage
+        yield return new FinalResponse(textContent.ToString(), stopReason, inputTokens, outputTokens);
     }
 
     /// <inheritdoc />

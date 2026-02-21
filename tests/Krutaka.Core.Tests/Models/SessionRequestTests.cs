@@ -52,9 +52,9 @@ public class SessionRequestTests
     public void RecordEquality_Should_WorkCorrectly()
     {
         // Arrange
-        var request1 = new SessionRequest("/test/path", "key1", "user1", 100_000, 50, TimeSpan.FromHours(1));
-        var request2 = new SessionRequest("/test/path", "key1", "user1", 100_000, 50, TimeSpan.FromHours(1));
-        var request3 = new SessionRequest("/test/path", "key2", "user1", 100_000, 50, TimeSpan.FromHours(1));
+        var request1 = new SessionRequest("/test/path", "key1", "user1", 100_000, 50, MaxDuration: TimeSpan.FromHours(1));
+        var request2 = new SessionRequest("/test/path", "key1", "user1", 100_000, 50, MaxDuration: TimeSpan.FromHours(1));
+        var request3 = new SessionRequest("/test/path", "key2", "user1", 100_000, 50, MaxDuration: TimeSpan.FromHours(1));
 
         // Assert
         request1.Should().Be(request2); // Equal
@@ -73,7 +73,7 @@ public class SessionRequestTests
         var maxDuration = TimeSpan.FromHours(2);
 
         // Act
-        var request = new SessionRequest(projectPath, externalKey, userId, maxTokenBudget, maxToolCallBudget, maxDuration);
+        var request = new SessionRequest(projectPath, externalKey, userId, maxTokenBudget, maxToolCallBudget, MaxDuration: maxDuration);
 
         // Assert
         request.ProjectPath.Should().Be(projectPath);

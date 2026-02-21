@@ -47,7 +47,9 @@ public sealed record ToolCallFailed(string ToolName, string ToolUseId, string Er
 /// </summary>
 /// <param name="Content">The final response content.</param>
 /// <param name="StopReason">The reason the response stopped (e.g., "end_turn", "max_tokens").</param>
-public sealed record FinalResponse(string Content, string StopReason) : AgentEvent;
+/// <param name="InputTokens">Number of input tokens consumed in this API call (0 if not reported).</param>
+/// <param name="OutputTokens">Number of output tokens consumed in this API call (0 if not reported).</param>
+public sealed record FinalResponse(string Content, string StopReason, int InputTokens = 0, int OutputTokens = 0) : AgentEvent;
 
 /// <summary>
 /// Represents a request for human approval before executing a tool.
@@ -100,3 +102,18 @@ public sealed record AgentPaused(string Reason) : AgentEvent;
 /// Emitted when the agent transitions from <see cref="AgentState.Paused"/> back to <see cref="AgentState.Running"/>.
 /// </summary>
 public sealed record AgentResumed : AgentEvent;
+
+/// <summary>
+/// Emitted when a budget dimension crosses the 80% consumption threshold.
+/// Fired at most once per dimension per session.
+/// </summary>
+/// <param name="Dimension">The budget dimension that crossed 80%.</param>
+/// <param name="Percentage">The current consumption percentage (0.0–1.0).</param>
+public sealed record BudgetWarning(BudgetDimension Dimension, double Percentage) : AgentEvent;
+
+/// <summary>
+/// Emitted when a budget dimension reaches 100% (limit exhausted).
+/// The agentic loop will transition to <see cref="AgentState.Aborted"/> and stop.
+/// </summary>
+/// <param name="Dimension">The budget dimension that was exhausted.</param>
+public sealed record BudgetExhausted(BudgetDimension Dimension) : AgentEvent;

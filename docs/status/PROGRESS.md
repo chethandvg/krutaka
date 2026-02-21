@@ -1,6 +1,6 @@
 # Krutaka — Progress Tracker
 
-> **Last updated:** 2026-02-21 (v0.5.0 Issue #246 Complete — 2,061 tests passing, 2 skipped, 2,063 total)
+> **Last updated:** 2026-02-21 (v0.5.0 Issue #247 Complete — 2,103 tests passing, 2 skipped, 2,105 total)
 
 ## v0.1.0 — Core Features (Complete)
 
@@ -3629,7 +3629,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 |-------|-------|--------|--------|
 | A | Documentation, Instructions & Agent State | #243, #244 | 🚧 In Progress |
 | B | Autonomy Level Implementation | #245, #246 | 🚧 In Progress |
-| C | Task Budget Tracker | #247, #248 | 📋 Pending |
+| C | Task Budget Tracker | #247, #248 | 🚧 In Progress |
 | D | Git Checkpoint Service | #249, #250 | 📋 Pending |
 | E | Deadman's Switch | #251, #252 | 📋 Pending |
 | F | Behavior Anomaly Detector | #253, #254 | 📋 Pending |
@@ -3646,7 +3646,7 @@ v0.4.6 is a **structural, code quality, and prerequisite** release that reorgani
 | 244 | Agent State Machine (Running/Paused/Aborted) | A | ✅ Complete | 2026-02-20 |
 | 245 | AutonomyLevelProvider + Orchestrator Integration | B | ✅ Complete | 2026-02-20 |
 | 246 | `/autonomy` Command (Console + Telegram) | B | ✅ Complete | 2026-02-21 |
-| 247 | TaskBudgetTracker Implementation + Orchestrator Integration | C | 📋 Pending | — |
+| 247 | TaskBudgetTracker Implementation + Orchestrator Integration | C | ✅ Complete | 2026-02-21 |
 | 248 | `/budget` Command (Console + Telegram) | C | 📋 Pending | — |
 | 249 | GitCheckpointService Implementation + Orchestrator Integration | D | 📋 Pending | — |
 | 250 | `/rollback` and `/checkpoint` Commands | D | 📋 Pending | — |

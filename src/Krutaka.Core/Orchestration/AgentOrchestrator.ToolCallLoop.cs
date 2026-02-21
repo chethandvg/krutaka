@@ -17,6 +17,57 @@ public sealed partial class AgentOrchestrator
     }
 
     /// <summary>
+    /// Attempts to consume <paramref name="amount"/> from the given budget <paramref name="dimension"/>.
+    /// Returns a <see cref="BudgetWarning"/> event if the 80% threshold was just crossed for the first time,
+    /// or a <see cref="BudgetExhausted"/> event if the limit was reached.
+    /// Both return values can be <see langword="null"/> if neither threshold was triggered.
+    /// Thread-safe: <see cref="_budgetWarnedDimensions"/> is only accessed from the sequential agentic loop.
+    /// </summary>
+    private (BudgetWarning? Warning, BudgetExhausted? Exhausted) ConsumeAndCheckBudget(BudgetDimension dimension, int amount)
+    {
+        if (_budgetTracker == null)
+        {
+            return (null, null);
+        }
+
+        bool consumed = _budgetTracker.TryConsume(dimension, amount);
+        if (!consumed)
+        {
+            return (null, new BudgetExhausted(dimension));
+        }
+
+        // Check if we crossed the 80% warning threshold for the first time for this dimension
+        if (_budgetTracker is TaskBudgetTracker concreteTracker)
+        {
+            double percentage = concreteTracker.GetPercentage(dimension);
+            if (percentage >= 0.8 && _budgetWarnedDimensions.Add(dimension))
+            {
+                return (new BudgetWarning(dimension, percentage), null);
+            }
+        }
+        else
+        {
+            // For non-concrete trackers: use snapshot to get percentage
+            var snapshot = _budgetTracker.GetSnapshot();
+            double percentage = dimension switch
+            {
+                BudgetDimension.Tokens => snapshot.TokensPercentage,
+                BudgetDimension.ToolCalls => snapshot.ToolCallsPercentage,
+                BudgetDimension.FilesModified => snapshot.FilesModifiedPercentage,
+                BudgetDimension.ProcessesSpawned => snapshot.ProcessesSpawnedPercentage,
+                _ => 0.0
+            };
+
+            if (percentage >= 0.8 && _budgetWarnedDimensions.Add(dimension))
+            {
+                return (new BudgetWarning(dimension, percentage), null);
+            }
+        }
+
+        return (null, null);
+    }
+
+    /// <summary>
     /// Internal agentic loop that processes tool calls until a final response is received.
     /// </summary>
     private async IAsyncEnumerable<AgentEvent> RunAgenticLoopAsync(
@@ -70,6 +121,8 @@ public sealed partial class AgentOrchestrator
             var toolCalls = new List<ToolCall>();
             string? finalResponseContent = null;
             string? finalStopReason = null;
+            int finalResponseInputTokens = 0;
+            int finalResponseOutputTokens = 0;
 
             // Clear any stale request-id before starting a new Claude request
             _correlationContext?.ClearRequestId();
@@ -147,7 +200,32 @@ public sealed partial class AgentOrchestrator
                     case FinalResponse finalResponse:
                         finalResponseContent = finalResponse.Content;
                         finalStopReason = finalResponse.StopReason;
+                        finalResponseInputTokens = finalResponse.InputTokens;
+                        finalResponseOutputTokens = finalResponse.OutputTokens;
                         break;
+                }
+            }
+
+            // Consume token budget for this API call (v0.5.0).
+            // Tokens are reported in FinalResponse populated by ClaudeClientWrapper from the streaming API.
+            // NOTE: If the AI layer reports 0 tokens (e.g., in tests using mock clients), consumption is skipped.
+            if (_budgetTracker != null)
+            {
+                int totalTokens = finalResponseInputTokens + finalResponseOutputTokens;
+                if (totalTokens > 0)
+                {
+                    var (tokenWarning, tokenExhausted) = ConsumeAndCheckBudget(BudgetDimension.Tokens, totalTokens);
+                    if (tokenWarning != null)
+                    {
+                        yield return tokenWarning;
+                    }
+
+                    if (tokenExhausted != null)
+                    {
+                        yield return tokenExhausted;
+                        _stateManager?.RequestAbort("Token budget exhausted.");
+                        break;
+                    }
                 }
             }
 
@@ -182,7 +260,7 @@ public sealed partial class AgentOrchestrator
                 }
             }
 
-            // Exit agentic loop if agent was aborted during tool processing
+            // Exit agentic loop if agent was aborted during tool processing (including budget exhaustion)
             if (_stateManager?.CurrentState == AgentState.Aborted)
             {
                 break;
@@ -204,7 +282,7 @@ public sealed partial class AgentOrchestrator
 
     /// <summary>
     /// Processes a single tool call through the per-tool-call pipeline:
-    /// state check → pause/resume → approval → execution → directory/command approval → event emission.
+    /// state check → pause/resume → budget check → approval → execution → directory/command approval → event emission.
     /// Yields appropriate <see cref="AgentEvent"/> values and populates <paramref name="toolResults"/>.
     /// Terminates early (via <c>yield break</c>) on abort or denial.
     /// </summary>
@@ -232,6 +310,26 @@ public sealed partial class AgentOrchestrator
 
             if (_stateManager.CurrentState == AgentState.Aborted)
             {
+                yield break;
+            }
+        }
+
+        // Check ToolCalls budget before executing each tool (v0.5.0, S10)
+        if (_budgetTracker != null)
+        {
+            var (toolCallWarning, toolCallExhausted) = ConsumeAndCheckBudget(BudgetDimension.ToolCalls, 1);
+            if (toolCallWarning != null)
+            {
+                yield return toolCallWarning;
+            }
+
+            if (toolCallExhausted != null)
+            {
+                var exhaustMsg = "Tool call budget exhausted. The agent has reached the maximum number of allowed tool invocations.";
+                yield return toolCallExhausted;
+                _stateManager?.RequestAbort("ToolCalls budget exhausted.");
+                yield return new ToolCallFailed(toolCall.Name, toolCall.Id, exhaustMsg);
+                toolResults.Add(CreateToolResult(toolCall.Id, exhaustMsg, true));
                 yield break;
             }
         }
@@ -598,6 +696,32 @@ public sealed partial class AgentOrchestrator
         else
         {
             yield return new ToolCallCompleted(toolCall.Name, toolCall.Id, toolResult.Content);
+
+            // Consume dimension-specific budget for successful tool executions (v0.5.0)
+            if (_budgetTracker != null)
+            {
+                BudgetDimension? secondaryDimension = toolCall.Name switch
+                {
+                    "write_file" or "edit_file" => BudgetDimension.FilesModified,
+                    "run_command" => BudgetDimension.ProcessesSpawned,
+                    _ => null
+                };
+
+                if (secondaryDimension.HasValue)
+                {
+                    var (secWarning, secExhausted) = ConsumeAndCheckBudget(secondaryDimension.Value, 1);
+                    if (secWarning != null)
+                    {
+                        yield return secWarning;
+                    }
+
+                    if (secExhausted != null)
+                    {
+                        yield return secExhausted;
+                        _stateManager?.RequestAbort($"{secondaryDimension.Value} budget exhausted.");
+                    }
+                }
+            }
         }
 
         toolResults.Add(CreateToolResult(toolCall.Id, toolResult.Content, toolResult.IsError));

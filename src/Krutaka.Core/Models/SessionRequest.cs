@@ -8,6 +8,8 @@ namespace Krutaka.Core;
 /// <param name="UserId">Optional user identifier for per-user session limits.</param>
 /// <param name="MaxTokenBudget">Maximum tokens this session can consume. Default is 200,000.</param>
 /// <param name="MaxToolCallBudget">Maximum tool calls this session can execute. Default is 100.</param>
+/// <param name="MaxFilesModified">Maximum files this session can create or modify. Default is 20 (v0.5.0).</param>
+/// <param name="MaxProcessesSpawned">Maximum child processes this session can spawn. Default is 10 (v0.5.0).</param>
 /// <param name="MaxDuration">Maximum session duration. If null, no time-based limit is enforced.</param>
 public record SessionRequest(
     string ProjectPath,
@@ -15,6 +17,8 @@ public record SessionRequest(
     string? UserId = null,
     int MaxTokenBudget = 200_000,
     int MaxToolCallBudget = 100,
+    int MaxFilesModified = 20,
+    int MaxProcessesSpawned = 10,
     TimeSpan? MaxDuration = null,
     Func<string, CancellationToken, Task>? MemoryWriter = null)
 {
