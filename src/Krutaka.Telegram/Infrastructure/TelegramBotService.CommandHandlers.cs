@@ -285,9 +285,9 @@ public sealed partial class TelegramBotService
         static string PctLabel(double pct) => ((int)(pct * 100)).ToString(System.Globalization.CultureInfo.InvariantCulture) + "%";
 
         var tokensLine = $"Tokens:    `{snapshot.TokensConsumed.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxClaudeTokens.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.TokensPercentage)}\\) {Emoji(snapshot.TokensPercentage)}";
-        var toolsLine = $"Tool Calls: `{snapshot.ToolCallsConsumed} / {budget.MaxToolCalls}` \\({PctLabel(snapshot.ToolCallsPercentage)}\\) {Emoji(snapshot.ToolCallsPercentage)}";
-        var filesLine = $"Files:      `{snapshot.FilesModified} / {budget.MaxFilesModified}` \\({PctLabel(snapshot.FilesModifiedPercentage)}\\) {Emoji(snapshot.FilesModifiedPercentage)}";
-        var procsLine = $"Processes:  `{snapshot.ProcessesSpawned} / {budget.MaxProcessesSpawned}` \\({PctLabel(snapshot.ProcessesSpawnedPercentage)}\\) {Emoji(snapshot.ProcessesSpawnedPercentage)}";
+        var toolsLine = $"Tool Calls: `{snapshot.ToolCallsConsumed.ToString(System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxToolCalls.ToString(System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.ToolCallsPercentage)}\\) {Emoji(snapshot.ToolCallsPercentage)}";
+        var filesLine = $"Files:      `{snapshot.FilesModified.ToString(System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxFilesModified.ToString(System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.FilesModifiedPercentage)}\\) {Emoji(snapshot.FilesModifiedPercentage)}";
+        var procsLine = $"Processes:  `{snapshot.ProcessesSpawned.ToString(System.Globalization.CultureInfo.InvariantCulture)} / {budget.MaxProcessesSpawned.ToString(System.Globalization.CultureInfo.InvariantCulture)}` \\({PctLabel(snapshot.ProcessesSpawnedPercentage)}\\) {Emoji(snapshot.ProcessesSpawnedPercentage)}";
 
         return $"""
             📊 *Task Budget*

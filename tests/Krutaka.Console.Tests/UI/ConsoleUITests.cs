@@ -309,4 +309,27 @@ public class ConsoleUITests
         var act = () => ui.DisplayBudget(tracker);
         act.Should().NotThrow();
     }
+
+    [Theory]
+    [InlineData(0.0, "░░░░░░░░░░")]   // 0% → all empty
+    [InlineData(0.5, "█████░░░░░")]    // 50% → 5 filled
+    [InlineData(0.95, "█████████░")]   // 95% → 9 filled (not 10 — must not show full bar below 100%)
+    [InlineData(1.0, "██████████")]    // 100% → all filled
+    public void FormatProgressBar_ShouldProduceCorrectBlockCount(double pct, string expectedBlocks)
+    {
+        // Act
+        var result = ConsoleUI.FormatProgressBar(pct);
+
+        // Assert — bar block pattern must be exactly as expected
+        result.Should().Contain(expectedBlocks,
+            $"{pct * 100:F0}% should produce '{expectedBlocks}'");
+    }
+
+    [Fact]
+    public void FormatProgressBar_At95Percent_ShouldNotShowFullBar()
+    {
+        // 95% rounds to 10/10 with Math.Round but should be 9/10 with Math.Floor
+        var result = ConsoleUI.FormatProgressBar(0.95);
+        result.Should().NotContain("██████████ ", because: "a bar at 95% must not appear fully filled");
+    }
 }

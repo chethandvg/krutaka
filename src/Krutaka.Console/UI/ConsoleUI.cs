@@ -455,10 +455,10 @@ internal sealed class ConsoleUI : IDisposable
         AnsiConsole.WriteLine();
     }
 
-    private static string FormatProgressBar(double percentage)
+    internal static string FormatProgressBar(double percentage)
     {
         var pct = Math.Min(1.0, Math.Max(0.0, percentage));
-        var filled = (int)Math.Round(pct * 10);
+        var filled = pct >= 1.0 ? 10 : (int)Math.Floor(pct * 10);
         var empty = 10 - filled;
         var bar = new string('█', filled) + new string('░', empty);
         var label = (pct * 100).ToString("F0", CultureInfo.InvariantCulture) + "%";

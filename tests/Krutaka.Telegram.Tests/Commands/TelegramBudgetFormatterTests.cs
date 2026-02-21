@@ -135,4 +135,26 @@ public class TelegramBudgetFormatterTests
         message.Should().Contain("Files");
         message.Should().Contain("Processes");
     }
+
+    [Fact]
+    public void FormatBudgetMessage_ToolCallsFilesProcesses_UseInvariantCultureFormatting()
+    {
+        // Arrange — use counts that would look different under a locale with different digit grouping
+        var tracker = new TaskBudgetTracker(new TaskBudget(
+            MaxClaudeTokens: 200_000,
+            MaxToolCalls: 100,
+            MaxFilesModified: 20,
+            MaxProcessesSpawned: 10));
+        tracker.TryConsume(BudgetDimension.ToolCalls, 67);
+        tracker.TryConsume(BudgetDimension.FilesModified, 18);
+        tracker.TryConsume(BudgetDimension.ProcessesSpawned, 3);
+
+        // Act
+        var message = TelegramBotService.FormatBudgetMessage(tracker);
+
+        // Assert — counts must use invariant (no locale-specific separators)
+        message.Should().Contain("67 / 100");
+        message.Should().Contain("18 / 20");
+        message.Should().Contain("3 / 10");
+    }
 }
